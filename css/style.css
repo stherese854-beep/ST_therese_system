@@ -190,10 +190,10 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
     }
     .auth-close:hover { background: #fff; color: var(--teal-dark); }
 }
-.auth-page  { background: var(--teal-dark); }
+.auth-page  { background: var(--teal); }
 .auth-left {
     flex: 1;
-    background: var(--teal-dark);
+    background: var(--teal);
     color: #fff; display: flex; flex-direction: column; justify-content: center;
     align-items: center;                /* center branding in the panel = balanced */
     padding: 60px;
@@ -203,7 +203,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .auth-left h1 { font-size: 3.4rem; line-height: 1.05; margin: 0; font-weight: 800; }
 .auth-left h1 .gold { color: var(--gold); font-style: italic; }
 .auth-left p { color: #bcd6d2; margin-top: 18px; max-width: 360px; }
-.auth-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px; background: var(--teal-dark); }
+.auth-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px; background: var(--teal); }
 .auth-card { background: #fff; border-radius: 18px; padding: 28px; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
 .auth-tabs { display: flex; background: #f1ede6; border-radius: 12px; padding: 5px; margin-bottom: 22px; }
 .auth-tabs button { flex: 1; border: none; background: transparent; padding: 10px; border-radius: 9px; font-weight: 600; color: #97917f; cursor: pointer; }
