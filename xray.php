@@ -35,7 +35,7 @@ if ($xr) {
 }
 // Same answer whether the X-ray is missing or not theirs, so IDs can't be probed.
 if (!$allowed) {
-    deny_access("X-ray #$id");
+    deny_access("X-ray #$id", false);   // an image request: no on-screen notice
 }
 
 $path = __DIR__ . '/uploads/xrays/' . basename($xr['image_file']);

@@ -6,7 +6,7 @@ require_once 'config/auth.php';
 require_once 'includes/mailer.php';   // to email the verification code
 
 // If already logged in, skip the login page.
-if (is_logged_in()) { header("Location: dashboard"); exit; }
+require_guest();   // already signed in -> straight to your own home page
 
 $error = '';
 $emailTaken = false;    // true clears just the email field on re-render (see register handler)
@@ -82,13 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['show_welcome_popup'] = true;
                 $_SESSION['just_registered']    = $isFirstLogin;
 
-                // Patients go to the patient portal; everyone else to the dashboard.
-                if ($user['role'] === 'patient') {
-                    header("Location: portal");
-                } else {
-                    header("Location: dashboard");
-                }
-                exit;
+                // Back to the page they were trying to open, else their own home
+                // page (patients: portal; everyone else: dashboard).
+                redirect_after_login();
             }
         } elseif (!$user && $email !== '') {
             // No live account under that email — but it may have been

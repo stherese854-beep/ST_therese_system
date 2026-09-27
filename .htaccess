@@ -13,6 +13,14 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_FILENAME}.php -f
 RewriteRule ^([A-Za-z0-9_-]+)$ $1.php [L]
 
+# Any other address that isn't a real file or folder (e.g. /admin/dashboard,
+# /any-route) goes to the route guard: signed-in users to their own home
+# page, guests to /login. Only page-like addresses (no file extension, or
+# .php), so a missing image or script still gets a plain 404.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(?:[^.]*|.*\.php)$ not_found.php [L]
+
 # Security: block access to sensitive files
 <FilesMatch "\.(sql|log|env|toml|md|sh)$">
     Order Allow,Deny

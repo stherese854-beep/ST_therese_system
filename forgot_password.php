@@ -12,7 +12,7 @@ require_once 'config/auth.php';
 require_once 'includes/mailer.php';
 require_once 'includes/message_templates.php';
 
-if (is_logged_in()) { header("Location: dashboard"); exit; }
+require_guest();   // already signed in -> straight to your own home page
 
 $step  = $_GET['step'] ?? 'request';
 $error = '';

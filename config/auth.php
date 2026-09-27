@@ -99,8 +99,80 @@ function current_role() {
     return $_SESSION['role'] ?? null;
 }
 
-// Block access to a page unless the user is logged in.
-// $allowed_roles is an optional list, e.g. ['admin'] or ['dentist','staff'].
+// ============================================================
+//  ROUTE GUARD  (runs at the top of every page)
+// ============================================================
+//  Every page starts with ONE of these:
+//     require_login(['admin','staff'])   protected page, only these roles
+//     require_login()                    protected page, any logged-in user
+//     require_guest()                    guest-only page (login, forgot password)
+//  and unknown addresses fall through to not_found.php (see .htaccess).
+//
+//  Rules
+//   - Guest on a protected page      -> /login (then back to that page after signing in)
+//   - Logged-in user on a guest page -> their own home page, no form, no message
+//   - Logged-in user, wrong role     -> their own home page (attempt is logged)
+//
+//  Redirects use the app's own base path ("" on Railway, "/dental-clinic"
+//  on XAMPP), never a full http://host URL — behind Railway's proxy that
+//  would point at the wrong address, and a relative one could loop.
+// ============================================================
+
+// Where each role lands after signing in.
+const ROLE_HOME = [
+    'admin'   => 'dashboard',
+    'dentist' => 'dashboard',
+    'staff'   => 'dashboard',
+    'patient' => 'portal',
+];
+
+// "/dental-clinic" on XAMPP, "" when the app sits at the site root.
+function app_base() {
+    $dir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/'));
+    return rtrim($dir, '/');
+}
+function app_url($page) {
+    return app_base() . '/' . ltrim($page, '/');
+}
+function redirect_to($page, $status = 302) {
+    header('Location: ' . app_url($page), true, $status);
+    exit;
+}
+
+// The logged-in user's own home page.
+function home_page() {
+    return ROLE_HOME[current_role()] ?? 'login';
+}
+
+// Remember the page a guest asked for, so login can send them back to it.
+// Only a bare page name (+ its query string) from this app is kept — never
+// a full address — so it can't be abused to redirect somewhere else.
+function remember_intended_page() {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') return;
+    $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
+    $page = preg_replace('/\.php$/', '', basename($path));
+    if (!preg_match('/^[A-Za-z0-9_-]+$/', $page) || $page === 'login') return;
+    $qs = $_SERVER['QUERY_STRING'] ?? '';
+    $_SESSION['intended_page'] = $page . ($qs !== '' ? '?' . $qs : '');
+}
+function take_intended_page() {
+    $p = $_SESSION['intended_page'] ?? '';
+    unset($_SESSION['intended_page']);
+    return preg_match('/^[A-Za-z0-9_-]+(\?[^\s]*)?$/', $p) ? $p : '';
+}
+
+// After a successful sign-in: the page they originally wanted, else home.
+function redirect_after_login() {
+    redirect_to(take_intended_page() ?: home_page());
+}
+
+// Guest-only pages (login, register, forgot password): a signed-in user
+// is sent straight to their own home page instead.
+function require_guest() {
+    if (is_logged_in()) redirect_to(home_page());
+}
+
+// Protected pages. $allowed_roles is an optional list, e.g. ['admin'].
 function require_login($allowed_roles = null) {
     // Private pages must never be cached, so pressing Back after logging out
     // cannot show a previous user's data.
@@ -108,42 +180,28 @@ function require_login($allowed_roles = null) {
     header('Pragma: no-cache');
 
     if (!is_logged_in()) {
-        header("Location: ./");          // not logged in -> go to the homepage
-        exit;
+        remember_intended_page();
+        redirect_to('login');
     }
     if ($allowed_roles !== null && !in_array(current_role(), $allowed_roles, true)) {
-        // Logged in but WRONG role (e.g. someone typed an admin page into the
-        // address bar). Refuse it outright and record the attempt, instead of
-        // quietly redirecting.
-        deny_access('Tried to open ' . basename($_SERVER['SCRIPT_NAME'] ?? ''));
+        // Signed in, but this page is not for their role (e.g. typed into the
+        // address bar). Record the attempt and take them to their own home page.
+        global $pdo;
+        if (isset($pdo)) log_activity($pdo, 'Access denied', 'Tried to open ' . basename($_SERVER['SCRIPT_NAME'] ?? ''));
+        redirect_to(home_page());
     }
 }
 
-// The logged-in user's own home page (patients live in the portal).
-function home_page() {
-    return current_role() === 'patient' ? 'portal' : 'dashboard';
-}
-
-// Stops the request with a 403 "Access denied" page and logs the attempt.
-// Used whenever someone edits the URL to reach a page or record they are
-// not allowed to see.
-function deny_access($logDetails = '') {
+// A RECORD they may not see (e.g. someone else's patient id in the URL).
+// Logged, then back to their home page with a short notice. $notice=false
+// for requests that are not a page (an image), where a toast makes no sense.
+function deny_access($logDetails = '', $notice = true) {
     global $pdo;
     if ($logDetails !== '' && isset($pdo)) {
         log_activity($pdo, 'Access denied', $logDetails);
     }
-    http_response_code(403);
-    $home = e(home_page());
-    echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Access denied</title>
-          <meta name='viewport' content='width=device-width,initial-scale=1'></head>
-          <body style='font-family:system-ui,sans-serif;background:#f4f6f8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;'>
-          <div style='background:#fff;padding:36px 40px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08);text-align:center;max-width:420px;'>
-            <div style='font-size:2.4rem;'>&#128274;</div>
-            <h2 style='margin:.4em 0;'>Access denied</h2>
-            <p style='color:#555;'>You do not have permission to view this page or record.</p>
-            <a href='$home' style='display:inline-block;margin-top:10px;background:#0f766e;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;'>Back to my home page</a>
-          </div></body></html>";
-    exit;
+    if ($notice) set_flash("You don't have access to that record.", 'error');
+    redirect_to(home_page());
 }
 
 // Small helper to safely print text (prevents broken HTML / XSS).

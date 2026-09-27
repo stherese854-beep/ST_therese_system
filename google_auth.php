@@ -26,6 +26,7 @@
 // ============================================================
 require_once 'config/auth.php';
 require_once 'includes/assign.php';
+require_guest();   // already signed in -> straight to your own home page
 
 // ---- Read the Google settings the admin saved ----
 $cfg = [];
@@ -137,7 +138,7 @@ if ($user) {
     $_SESSION['role']    = $user['role'];
     log_activity($pdo, 'Logged in', ucfirst($user['role']) . ' (Google)');
     set_flash('Welcome back, ' . $user['name'] . '!');
-    header("Location: " . ($user['role'] === 'patient' ? 'portal' : 'dashboard'));
+    redirect_after_login();
     exit;
 }
 
