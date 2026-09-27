@@ -75,8 +75,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([$user['id']]);
                 log_activity($pdo, 'Logged in', ucfirst($user['role']));
 
-                set_flash('Welcome back, ' . $user['name'] . '!');   // toast on the next page
-
                 // A one-time pop-up greeting, shown once right after logging in
                 // (the patient portal and the staff/dentist/admin dashboard each
                 // show their own version of it, then it clears itself).

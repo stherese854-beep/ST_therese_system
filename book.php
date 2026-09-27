@@ -280,7 +280,7 @@ include 'includes/head.php';
                 Track the status of this request on your dashboard.
             <?php endif; ?>
         </p>
-        <a href="portal.php" class="btn btn-teal">View My Dashboard →</a>
+        <a href="portal.php" class="btn btn-teal">&#8592; Back</a>
     </div>
 
 <?php else: ?>
@@ -301,7 +301,7 @@ include 'includes/head.php';
                 <?= $bookError /* already contains safe HTML — strong tags are intentional */ ?>
               </div>
               <div class="modal-footer">
-                <a href="portal.php" class="btn btn-light">Go to My Portal</a>
+                <a href="portal.php" class="btn btn-light">&#8592; Back</a>
                 <button type="button" class="btn btn-teal" data-bs-dismiss="modal">OK</button>
               </div>
             </div>
