@@ -426,15 +426,10 @@ include 'includes/head.php';
         <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">📅 Appointments</a>
         <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">🦷 My Dental Chart</a>
         <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">📋 My Records</a>
-        <a class="nav-item <?= $view==='activity'?'active':'' ?>" href="portal?view=activity">🧾 My Activity</a>
         <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal?view=news">
             📣 Announcements <?php if ($news): ?><span class="badge-pill b-pending" style="font-size:.65rem;"><?= count($news) ?></span><?php endif; ?>
         </a>
         <div class="spacer"></div>
-        <div class="user-card">
-            <strong><?= e($_SESSION['name']) ?></strong><br><small>Patient Account</small>
-            <br><a class="signout" href="logout" data-confirm="Are you sure you want to log out?" data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-icon="⏻">⏻ Sign Out</a>
-        </div>
     </aside>
 
     <main class="main">
