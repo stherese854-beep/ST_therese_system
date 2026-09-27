@@ -68,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$pid, $sid, $tooth, $status]);
         }
         touch_primary_dentist($pdo, $pid);
+        log_activity($pdo, 'Updated dental chart', patient_name_of($pdo, $pid) . " — Tooth #$tooth: $status");
         set_flash("Tooth #$tooth set to $status.");
         odo_back($pid, $sid);
     }
@@ -93,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         touch_primary_dentist($pdo, $pid);
+        log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — ' . $visitDate . ($title ? ' · ' . $title : ''));
         set_flash($copyFrom
             ? 'New chart added, carried over from the previous visit. Mark only what changed.'
             : 'New blank chart added for this visit.');
@@ -105,6 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE chart_sessions SET visit_date=?, title=?, notes=? WHERE id=? AND patient_id=?")
             ->execute([$_POST['visit_date'], trim($_POST['title']), trim($_POST['notes']), $sid, $pid]);
         touch_primary_dentist($pdo, $pid);
+        log_activity($pdo, 'Edited visit chart', patient_name_of($pdo, $pid));
         set_flash('Visit details saved.');
         odo_back($pid, $sid);
     }
@@ -114,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sid = (int)$_POST['session_id'];
         $pdo->prepare("DELETE FROM odontogram WHERE patient_id=? AND session_id=?")->execute([$pid, $sid]);
         $pdo->prepare("DELETE FROM chart_sessions WHERE id=? AND patient_id=?")->execute([$sid, $pid]);
+        log_activity($pdo, 'Deleted visit chart', patient_name_of($pdo, $pid));
         set_flash('That visit chart was deleted.', 'info');
         header("Location: odontogram?patient=$pid"); exit;
     }

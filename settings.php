@@ -94,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE users SET name=?, contact=? WHERE id=?")
                 ->execute([$newName, $newContact, $uid]);
             $_SESSION['name'] = $newName;   // keep the top-right widget in sync
+            log_activity($pdo, 'Updated profile', 'Own profile');
             set_flash('Your profile was updated.');
         } else {
             set_flash('Name cannot be empty.', 'error');
@@ -117,6 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (move_uploaded_file($_FILES['avatar']['tmp_name'], "$dir/$fname")) {
                     $pdo->prepare("UPDATE users SET photo=? WHERE id=?")
                         ->execute(['uploads/avatars/' . $fname, $_SESSION['user_id']]);
+                    log_activity($pdo, 'Changed profile picture', 'Own account');
                     set_flash('Profile picture updated.');
                 } else { set_flash('Could not save the picture.', 'error'); }
             } else { set_flash('Please choose an image (jpg, png, gif, webp).', 'error'); }
@@ -131,6 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $oldPath = $old->fetchColumn();
         if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
         $pdo->prepare("UPDATE users SET photo=NULL WHERE id=?")->execute([$_SESSION['user_id']]);
+        log_activity($pdo, 'Removed profile picture', 'Own account');
         set_flash('Profile picture removed.', 'info');
         header("Location: settings"); exit;
     }

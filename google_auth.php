@@ -135,6 +135,7 @@ if ($user) {
     $_SESSION['user_id'] = $user['id'];
     $_SESSION['name']    = $user['name'];
     $_SESSION['role']    = $user['role'];
+    log_activity($pdo, 'Logged in', ucfirst($user['role']) . ' (Google)');
     set_flash('Welcome back, ' . $user['name'] . '!');
     header("Location: " . ($user['role'] === 'patient' ? 'portal' : 'dashboard'));
     exit;
@@ -158,6 +159,7 @@ session_regenerate_id(true);   // fresh session ID on sign-in
 $_SESSION['user_id'] = $newId;
 $_SESSION['name']    = $gName;
 $_SESSION['role']    = 'patient';
+log_activity($pdo, 'Created account', $gName . ' (patient, Google sign-up)');
 set_flash('Account created with Google — welcome, ' . $gName . '!');
 header("Location: portal");
 exit;

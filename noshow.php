@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   ? ' A notice was emailed to them.'
                   : " (The email could not be sent — $err)";
         }
+        log_activity($pdo, 'Confirmed no-show', ($row['patient_name'] ?? ('Appointment #' . $id)));
         set_flash(($row['patient_name'] ?? 'Appointment') . ' marked as a no-show.' . $note);
         header("Location: noshow?tab=review"); exit;
     }
@@ -67,6 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($id && $action === 'mark_attended') {
         // A false alarm — the visit simply was not encoded. Close it quietly.
         $pdo->prepare("UPDATE appointments SET status='Completed' WHERE id=?")->execute([$id]);
+        $att = $pdo->prepare("SELECT patient_name FROM appointments WHERE id=?"); $att->execute([$id]);
+        log_activity($pdo, 'Marked as attended', $att->fetchColumn() ?: ('Appointment #' . $id));
         set_flash('Marked as attended. No notice was sent and nothing was counted against the patient.', 'info');
         header("Location: noshow?tab=review"); exit;
     }

@@ -40,6 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$check->fetch()) {
                 $pdo->prepare("INSERT INTO dentist_daysoff (dentist_name, off_date, reason) VALUES (?,?,?)")
                     ->execute([$dentist, $date, $reason]);
+                log_activity($pdo, 'Marked day off', $dentist . ' — ' . date('M j, Y', strtotime($date)) . ($reason !== '' ? ' (' . $reason . ')' : ''));
                 set_flash(date('M j, Y', strtotime($date)) . ' marked as unavailable.');
             } else {
                 set_flash('That day is already marked as unavailable.', 'info');
@@ -52,10 +53,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // A dentist may only remove their OWN days off; admin may remove any.
         if ($role === 'admin') {
             $pdo->prepare("DELETE FROM dentist_daysoff WHERE id=?")->execute([$_POST['id']]);
+            log_activity($pdo, 'Removed day off', '#' . (int)$_POST['id']);
             set_flash('Day off removed.', 'info');
         } else {
             $del = $pdo->prepare("DELETE FROM dentist_daysoff WHERE id=? AND dentist_name=?");
             $del->execute([$_POST['id'], $selectedDentist]);
+            if ($del->rowCount()) log_activity($pdo, 'Removed day off', $selectedDentist);
             set_flash($del->rowCount() ? 'Day off removed.' : 'That day off is not yours to remove.',
                       $del->rowCount() ? 'info' : 'error');
         }

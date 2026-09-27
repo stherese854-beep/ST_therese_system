@@ -86,6 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newMsg = 'New patient added (no email given, so no login account yet).';
             }
         }
+        log_activity($pdo, $id ? 'Updated patient' : 'Added patient', $name);
         set_flash($id ? 'Patient updated.' : $newMsg);
         header("Location: patients"); exit;
     }
@@ -136,6 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $html = mail_template($subject, nl2br(e($message)));
             $err  = '';
             if (send_mail($pdo, $to, $subject, $html, $err, 'patient_message')) {
+                log_activity($pdo, 'Emailed patient', ($pt['name'] ?? 'Patient'));
                 set_flash("Email sent to " . ($pt['name'] ?? 'patient') . " ($to).");
             } else {
                 set_flash("Could not send the email: $err", 'error');
@@ -172,6 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     SET booking_blocked=1, booking_block_reason=?, booking_blocked_by=?, booking_blocked_at=NOW()
                   WHERE id=?"
             )->execute([$reason, $_SESSION['name'] ?? 'admin', $bid]);
+            log_activity($pdo, 'Paused online booking', $pname);
             set_flash("Online booking paused for $pname.");
         } else {
             $pdo->prepare(
@@ -179,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     SET booking_blocked=0, booking_block_reason=NULL, booking_blocked_by=NULL, booking_blocked_at=NULL
                   WHERE id=?"
             )->execute([$bid]);
+            log_activity($pdo, 'Resumed online booking', $pname);
             set_flash("$pname can book online again.");
         }
         header("Location: patients"); exit;
@@ -199,7 +203,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $nm = $pdo->prepare("SELECT name FROM patients WHERE id=?");
         $nm->execute([$rid]);
-        set_flash(($nm->fetchColumn() ?: 'Patient') . ' can book online again. '
+        $rname = $nm->fetchColumn() ?: 'Patient';
+        log_activity($pdo, 'Restored online booking', $rname);
+        set_flash($rname . ' can book online again. '
                 . 'Their missed visits stay on record.');
         header("Location: patients"); exit;
     }
@@ -213,6 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $pdo->prepare("UPDATE patients SET primary_dentist=? WHERE id=?")
             ->execute([($_POST['dentist'] ?: null), (int)$_POST['id']]);
+        log_activity($pdo, 'Assigned dentist', patient_name_of($pdo, (int)$_POST['id']) . ' → ' . ($_POST['dentist'] ?: 'Unassigned'));
         set_flash($_POST['dentist'] ? ('Assigned to ' . $_POST['dentist'] . '.') : 'Patient unassigned.');
         $back = !empty($_POST['q']) ? '?q=' . urlencode($_POST['q']) : '';
         header("Location: patients$back"); exit;

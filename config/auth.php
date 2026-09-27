@@ -338,6 +338,16 @@ function ensure_activity_log_schema($pdo) {
             INDEX (created_at)
         )");
     } catch (Throwable $e) { /* ignore */ }
+
+    // Which ACCOUNT did it — so each person can see their own activity.
+    // (Names can repeat or change; the account id cannot.)
+    try {
+        $has = $pdo->query("SHOW COLUMNS FROM activity_log LIKE 'actor_user_id'")->rowCount();
+        if (!$has) {
+            $pdo->exec("ALTER TABLE activity_log ADD COLUMN actor_user_id INT DEFAULT NULL AFTER id");
+            $pdo->exec("ALTER TABLE activity_log ADD INDEX idx_actor_user (actor_user_id, created_at)");
+        }
+    } catch (Throwable $e) { /* ignore */ }
 }
 
 // Records one activity-log entry. $action is a short label (e.g. "Logged in",
@@ -346,14 +356,62 @@ function ensure_activity_log_schema($pdo) {
 // throws, so a logging hiccup can't break the page that called it.
 function log_activity($pdo, $action, $details = '') {
     try {
-        $pdo->prepare("INSERT INTO activity_log (actor_name, actor_role, action, details) VALUES (?,?,?,?)")
+        $pdo->prepare("INSERT INTO activity_log (actor_user_id, actor_name, actor_role, action, details) VALUES (?,?,?,?,?)")
             ->execute([
+                isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null,
                 $_SESSION['name'] ?? 'System',
                 $_SESSION['role'] ?? null,
                 $action,
                 $details,
             ]);
     } catch (Throwable $e) { /* logging never blocks the real action */ }
+}
+
+// ============================================================
+//  "MY ACTIVITY" — the logged-in person's own entries only
+// ============================================================
+//  Matches on the account id. Entries written before the id was
+//  recorded fall back to the same name AND role.
+//  $q searches the action/details, $date is an exact day (Y-m-d).
+// ============================================================
+function my_activity_where(&$params) {
+    $params[] = (int)($_SESSION['user_id'] ?? 0);
+    $params[] = $_SESSION['name'] ?? '';
+    $params[] = $_SESSION['role'] ?? '';
+    return "(actor_user_id = ? OR (actor_user_id IS NULL AND actor_name = ? AND actor_role = ?))";
+}
+function my_activity_rows($pdo, $q = '', $date = '', $limit = 100) {
+    $params = [];
+    $sql = "SELECT * FROM activity_log WHERE " . my_activity_where($params);
+    if ($q !== '')    { $sql .= " AND (action LIKE ? OR details LIKE ?)"; $params[] = "%$q%"; $params[] = "%$q%"; }
+    if ($date !== '') { $sql .= " AND DATE(created_at) = ?"; $params[] = $date; }
+    $sql .= " ORDER BY created_at DESC, id DESC LIMIT " . (int)$limit;
+    $st = $pdo->prepare($sql); $st->execute($params);
+    return $st->fetchAll();
+}
+function my_activity_count($pdo) {
+    $params = [];
+    $st = $pdo->prepare("SELECT COUNT(*) FROM activity_log WHERE " . my_activity_where($params));
+    $st->execute($params);
+    return (int)$st->fetchColumn();
+}
+
+// Badge colour for an activity entry (shared by the admin log and My Activity).
+function activity_badge($action) {
+    $a = strtolower($action);
+    if (strpos($a, 'delete') !== false || strpos($a, 'cancel') !== false || strpos($a, 'no-show') !== false) return 'b-cancelled';
+    if (strpos($a, 'archiv') !== false)  return 'b-archived';
+    if (strpos($a, 'restor') !== false || strpos($a, 'confirm') !== false || strpos($a, 'approv') !== false
+        || strpos($a, 'created') !== false || strpos($a, 'added') !== false || strpos($a, 'booked') !== false) return 'b-confirmed';
+    if (strpos($a, 'logged') !== false)  return 'b-progress';
+    return 'b-pending';
+}
+
+// A patient's name for log details ("Patient #12" if it can't be found).
+function patient_name_of($pdo, $pid) {
+    $st = $pdo->prepare("SELECT name FROM patients WHERE id = ?");
+    $st->execute([(int)$pid]);
+    return $st->fetchColumn() ?: ('Patient #' . (int)$pid);
 }
 
 // ============================================================

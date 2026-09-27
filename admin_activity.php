@@ -65,15 +65,7 @@ $totalCount = (int)$pdo->query("SELECT COUNT(*) FROM activity_log")->fetchColumn
 $roles = $pdo->query("SELECT DISTINCT actor_role FROM activity_log WHERE actor_role IS NOT NULL AND actor_role <> '' ORDER BY actor_role")
              ->fetchAll(PDO::FETCH_COLUMN);
 
-// Give each action a badge color so the table is easy to scan.
-function activity_badge($action) {
-    $a = strtolower($action);
-    if (strpos($a, 'delete') !== false || strpos($a, 'cancel') !== false) return 'b-cancelled';
-    if (strpos($a, 'archiv') !== false)  return 'b-archived';
-    if (strpos($a, 'restor') !== false || strpos($a, 'confirm') !== false || strpos($a, 'approv') !== false || strpos($a, 'created') !== false) return 'b-confirmed';
-    if (strpos($a, 'login') !== false)   return 'b-progress';
-    return 'b-pending';
-}
+// activity_badge() lives in config/auth.php (shared with My Activity).
 
 $page_title = "Activity Log";
 include 'includes/head.php';

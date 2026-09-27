@@ -69,6 +69,7 @@ function nav_active($page) {
     <?php if ($role === 'admin'): ?>
         <a class="nav-item <?= nav_active('settings') ?>" href="settings">⚙️ System</a>
     <?php else: ?>
+        <a class="nav-item <?= nav_active('my_activity') ?>" href="my_activity">🧾 My Activity</a>
         <a class="nav-item <?= nav_active('settings') ?>" href="settings">⚙️ Settings</a>
     <?php endif; ?>
 

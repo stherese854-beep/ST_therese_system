@@ -127,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
                       ? ' The patient was emailed the new details.'
                       : " (The email could not be sent — $err)";
         }
+        log_activity($pdo, 'Edited appointment', ($ap['patient_name'] ?? 'Appointment') . ' → ' . ($_POST['appointment_date'] ?? '') . ' ' . ($_POST['appointment_time'] ?? ''));
         set_flash('Appointment updated.' . $mailNote);
     }
     header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;

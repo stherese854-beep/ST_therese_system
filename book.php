@@ -204,6 +204,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
             send_mail($pdo, $me['email'], $mailSubj, $body, $mErr, 'confirmation');
         }
 
+        log_activity($pdo, 'Booked appointment', $patientName . ' — ' . $_POST['treatment'] . ', '
+                     . date('M j, Y', strtotime($_POST['date'])) . ' ' . $_POST['time']);
+
         $booked = true;
         $confirm = $_POST;   // keep details to show on the success screen
         $confirm['patient_name'] = $patientName;

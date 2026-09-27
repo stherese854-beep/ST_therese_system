@@ -79,6 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             trim($_POST['chart_remarks']),
             $pid
         ]);
+        log_activity($pdo, 'Updated patient info', patient_name_of($pdo, $pid));
         set_flash('Patient information updated.');
         header("Location: records?patient=$pid&tab=overview"); exit;
     }
@@ -92,6 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pid, $_POST['patient_name'], trim($_POST['treatment_name']), trim($_POST['tooth'] ?? ''),
             $_SESSION['name'] ?? '', $_POST['treatment_date'], $_POST['status'], trim($_POST['notes'] ?? '')
         ]);
+        log_activity($pdo, 'Added treatment', patient_name_of($pdo, $pid) . ' — ' . trim($_POST['treatment_name']));
         set_flash('Treatment record added.');
         header("Location: records?patient=$pid&tab=treatments"); exit;
     }
@@ -117,6 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (move_uploaded_file($_FILES['xray']['tmp_name'], "$XRAY_DIR/$fname")) {
                     $pdo->prepare("INSERT INTO xrays (patient_id,image_file,caption,xray_date,uploaded_by) VALUES (?,?,?,?,?)")
                         ->execute([$pid, $fname, trim($_POST['caption'] ?? ''), ($_POST['xray_date'] ?: null), $_SESSION['name'] ?? '']);
+                    log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid));
                     set_flash('X-ray uploaded.');
                 } else {
                     set_flash('Could not save the image. Check the uploads/xrays folder permissions.', 'error');
@@ -146,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add_note') {
         $pdo->prepare("INSERT INTO clinical_notes (patient_id,note,author) VALUES (?,?,?)")
             ->execute([$pid, trim($_POST['note']), $_SESSION['name'] ?? '']);
+        log_activity($pdo, 'Added clinical note', patient_name_of($pdo, $pid));
         set_flash('Note added.');
         header("Location: records?patient=$pid&tab=notes"); exit;
     }

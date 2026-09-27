@@ -71,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE users SET name=? WHERE id=?")->execute([$name, $_SESSION['user_id']]);
         $_SESSION['name'] = $name;
 
+        log_activity($pdo, 'Updated profile', 'Own profile');
         set_flash('Your profile has been updated.');
         header("Location: portal?view=profile"); exit;
     }
@@ -93,6 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (move_uploaded_file($_FILES['avatar']['tmp_name'], "$dir/$fname")) {
                     $pdo->prepare("UPDATE users SET photo=? WHERE id=?")
                         ->execute(['uploads/avatars/' . $fname, $_SESSION['user_id']]);
+                    log_activity($pdo, 'Changed profile picture', 'Own account');
                     set_flash('Profile picture updated.');
                 } else {
                     set_flash('Could not save the picture.', 'error');
@@ -113,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $oldPath = $old->fetchColumn();
         if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
         $pdo->prepare("UPDATE users SET photo=NULL WHERE id=?")->execute([$_SESSION['user_id']]);
+        log_activity($pdo, 'Removed profile picture', 'Own account');
         set_flash('Profile picture removed.', 'info');
         header("Location: portal?view=profile"); exit;
     }
@@ -174,6 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 notify_clinic_of_reschedule($pdo, $appt, $me['name'] ?? 'A patient',
                                             $movedFrom, $newDate, $newTime, $reason);
 
+                log_activity($pdo, 'Rescheduled appointment', $movedFrom . ' → ' . date('M j, Y', $newWhen) . ' ' . $newTime);
                 set_flash('Your appointment was moved to ' . date('M j, Y', $newWhen) . ' at ' . $newTime
                         . '. It is now Pending until the clinic confirms the new time.');
             }
@@ -219,6 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Tell the clinic, so a freed-up slot does not go unnoticed.
                 notify_clinic_of_cancellation($pdo, $appt, $me['name'] ?? 'A patient', $reason);
 
+                log_activity($pdo, 'Cancelled appointment', date('M j, Y', strtotime($appt['appointment_date'])) . ' ' . $appt['appointment_time'] . ($reason !== '' ? ' — ' . $reason : ''));
                 set_flash('Your appointment was cancelled. The clinic has been notified.');
             }
         }
@@ -244,6 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                VALUES (?,?,?,?,?, 'Pending')")
                     ->execute([$_SESSION['user_id'], $pid, $_SESSION['name'] ?? 'Patient', $rating, $comment]);
             }
+            log_activity($pdo, 'Submitted review', $rating . ' star' . ($rating == 1 ? '' : 's'));
             set_flash('Thank you! Your review was sent to the clinic for approval.');
         }
         header("Location: portal?view=profile"); exit;
@@ -264,6 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $pdo->prepare("UPDATE users SET password=? WHERE id=?")
                 ->execute([password_hash($new, PASSWORD_DEFAULT), $_SESSION['user_id']]);
+            log_activity($pdo, 'Changed password', 'Own account');
             set_flash('Your password has been changed.');
             header("Location: portal?view=profile"); exit;
         }
@@ -272,6 +279,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Which section is open? Default is appointments so patients see their schedule first.
 $view = $_GET['view'] ?? 'appointments';
+
+// My Activity: only this patient's own entries.
+$actQ    = trim($_GET['q'] ?? '');
+$actDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'] ?? '') ? $_GET['date'] : '';
+$myActivity = ($view === 'activity') ? my_activity_rows($pdo, $actQ, $actDate, 100) : [];
 
 // The patient's profile picture and their existing review (if any).
 $avStmt = $pdo->prepare("SELECT photo FROM users WHERE id=?");
@@ -408,6 +420,7 @@ include 'includes/head.php';
         <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">📅 Appointments</a>
         <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">🦷 My Dental Chart</a>
         <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">📋 My Records</a>
+        <a class="nav-item <?= $view==='activity'?'active':'' ?>" href="portal?view=activity">🧾 My Activity</a>
         <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal?view=news">
             📣 Announcements <?php if ($news): ?><span class="badge-pill b-pending" style="font-size:.65rem;"><?= count($news) ?></span><?php endif; ?>
         </a>
@@ -891,6 +904,33 @@ include 'includes/head.php';
                     </div>
                 <?php endforeach; ?>
                 <?php if (!$news): ?><p class="text-muted2 text-center py-4">No announcements right now.</p><?php endif; ?>
+            </div>
+
+        <?php elseif ($view === 'activity'): ?>
+            <!-- ===== MY ACTIVITY (only this patient's own actions) ===== -->
+            <div class="card-box">
+                <div class="flex-between mb-3 flex-wrap gap-2">
+                    <h5 class="mb-0">🧾 My Activity
+                        <small class="text-muted2 d-block" style="font-size:.75rem;">Things you have done in your account (most recent 100)</small>
+                    </h5>
+                    <form method="GET" class="d-flex gap-2 flex-wrap">
+                        <input type="hidden" name="view" value="activity">
+                        <input type="date" name="date" class="form-control form-control-sm" style="width:auto;" value="<?= e($actDate) ?>" onchange="this.form.submit()">
+                        <input type="text" name="q" class="form-control form-control-sm" style="width:180px;" placeholder="Search..." value="<?= e($actQ) ?>">
+                        <button class="btn btn-sm btn-teal" type="submit">Filter</button>
+                        <?php if ($actQ !== '' || $actDate !== ''): ?><a href="portal?view=activity" class="btn btn-sm btn-outline-secondary">Clear</a><?php endif; ?>
+                    </form>
+                </div>
+                <?php foreach ($myActivity as $log): ?>
+                    <div class="flex-between py-2 border-bottom gap-2">
+                        <div>
+                            <span class="badge-pill <?= activity_badge($log['action']) ?>"><?= e($log['action']) ?></span>
+                            <div style="font-size:.88rem;color:#55606a;margin-top:3px;"><?= e($log['details'] ?: '') ?></div>
+                        </div>
+                        <small class="text-muted2" style="white-space:nowrap;"><?= date('M j, Y g:i A', strtotime($log['created_at'])) ?></small>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (!$myActivity): ?><p class="text-muted2 text-center py-4">No activity <?= ($actQ !== '' || $actDate !== '') ? 'matches your filter.' : 'recorded yet.' ?></p><?php endif; ?>
             </div>
 
         <?php else: ?>
