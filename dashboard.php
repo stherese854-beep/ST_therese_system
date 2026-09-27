@@ -99,9 +99,109 @@ function render_sparkline($values, $color, $height = 30, $barW = 8, $gap = 4) {
     return "<svg width='$width' height='$height' viewBox='0 0 $width $height' role='img' aria-label='7-day trend'>$bars</svg>";
 }
 
-$patientsTrend = $isDentist
-    ? seven_day_counts($pdo, 'patients', 'created_at', ' AND primary_dentist = ?', [$myName])
-    : seven_day_counts($pdo, 'patients', 'created_at');
+// ============================================================
+//  TOTAL-PATIENTS GROWTH LINE (day-by-day, folding to month-by-month)
+// ============================================================
+// "Total Patients" is a running total, so a growth LINE fits it better than
+// a bar-sparkline of daily counts. While the clinic's whole patient history
+// fits inside one month, the line plots day by day; once that history spans
+// more than a month, a daily line would get too dense to read, so it folds
+// to one point per month instead — same idea, coarser grain.
+function patient_growth_series($pdo, $isDentist, $myName) {
+    $where  = $isDentist ? "WHERE primary_dentist = ?" : "";
+    $params = $isDentist ? [$myName] : [];
+
+    $earliestStmt = $pdo->prepare("SELECT MIN(created_at) FROM patients $where");
+    $earliestStmt->execute($params);
+    $earliest = $earliestStmt->fetchColumn();
+
+    if (!$earliest) {
+        return ['mode' => 'daily', 'labels' => [date('M j')], 'values' => [0]];
+    }
+
+    $spanDays = (int)((strtotime('today') - strtotime(date('Y-m-d', strtotime($earliest)))) / 86400);
+
+    if ($spanDays <= 31) {
+        // ---- Daily cumulative total, from the first patient to today ----
+        $stmt = $pdo->prepare(
+            "SELECT DATE(created_at) AS d, COUNT(*) AS c FROM patients $where GROUP BY DATE(created_at)"
+        );
+        $stmt->execute($params);
+        $perDay = [];
+        foreach ($stmt->fetchAll() as $row) $perDay[$row['d']] = (int)$row['c'];
+
+        $labels = []; $values = []; $running = 0;
+        $start = strtotime(date('Y-m-d', strtotime($earliest)));
+        for ($t = $start; $t <= strtotime('today'); $t += 86400) {
+            $d = date('Y-m-d', $t);
+            $running += $perDay[$d] ?? 0;
+            $labels[] = date('M j', $t);
+            $values[] = $running;
+        }
+        return ['mode' => 'daily', 'labels' => $labels, 'values' => $values];
+    }
+
+    // ---- Monthly cumulative total, from the first patient's month to this month ----
+    $stmt = $pdo->prepare(
+        "SELECT DATE_FORMAT(created_at,'%Y-%m') AS m, COUNT(*) AS c FROM patients $where GROUP BY m"
+    );
+    $stmt->execute($params);
+    $perMonth = [];
+    foreach ($stmt->fetchAll() as $row) $perMonth[$row['m']] = (int)$row['c'];
+
+    $labels = []; $values = []; $running = 0;
+    $cursor = strtotime(date('Y-m-01', strtotime($earliest)));
+    $end    = strtotime(date('Y-m-01'));
+    while ($cursor <= $end) {
+        $m = date('Y-m', $cursor);
+        $running += $perMonth[$m] ?? 0;
+        $labels[] = date('M \'y', $cursor);
+        $values[] = $running;
+        $cursor = strtotime('+1 month', $cursor);
+    }
+    return ['mode' => 'monthly', 'labels' => $labels, 'values' => $values];
+}
+
+// Draws a thin line graph as inline SVG — a 2px rounded line, a filled dot
+// on the last point, and a larger invisible hit-target circle per point so
+// hovering any point shows its date/value as a native tooltip.
+function render_linechart($labels, $values, $color, $width = 220, $height = 46) {
+    $n = count($values);
+    if ($n < 2) { $labels[] = $labels[0] ?? ''; $values[] = $values[0] ?? 0; $n = 2; }
+
+    $max = max(1, max($values));
+    $min = min(0, min($values));
+    $range = max(1, $max - $min);
+    $padX = 4; $padY = 6;
+    $plotW = $width - $padX * 2;
+    $plotH = $height - $padY * 2;
+
+    $pts = [];
+    foreach ($values as $i => $v) {
+        $x = $padX + ($n === 1 ? 0 : ($i / ($n - 1)) * $plotW);
+        $y = $padY + $plotH - (($v - $min) / $range) * $plotH;
+        $pts[] = [round($x, 1), round($y, 1)];
+    }
+
+    $poly = implode(' ', array_map(fn($p) => "$p[0],$p[1]", $pts));
+
+    $dots = '';
+    foreach ($pts as $i => $p) {
+        $isLast = ($i === $n - 1);
+        $label = htmlspecialchars($labels[$i] ?? '', ENT_QUOTES);
+        $dots .= "<circle cx='$p[0]' cy='$p[1]' r='9' fill='transparent'><title>$label: {$values[$i]}</title></circle>";
+        if ($isLast) {
+            $dots .= "<circle cx='$p[0]' cy='$p[1]' r='3' fill='$color'/>";
+        }
+    }
+
+    return "<svg width='$width' height='$height' viewBox='0 0 $width $height' role='img' aria-label='patient growth'>
+        <polyline points='$poly' fill='none' stroke='$color' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
+        $dots
+    </svg>";
+}
+
+$patientsGrowth = patient_growth_series($pdo, $isDentist, $myName);
 
 $apptsTrend = $isDentist
     ? seven_day_counts($pdo, 'appointments', 'appointment_date', ' AND dentist = ?', [$myName])
@@ -164,7 +264,9 @@ $active = 'dashboard';
                 <div class="flex-between"><span class="label">Total Patients</span> 👥</div>
                 <div class="value"><?= number_format($totalPatients) ?></div>
                 <div class="change" style="color:#138a4e;"><?= $newPatientsMonth ?> new this month</div>
-                <div class="spark" title="New patients, last 7 days"><?= render_sparkline($patientsTrend, '#0d9488') ?></div>
+                <div class="spark" title="<?= $patientsGrowth['mode'] === 'daily' ? 'Total patients, day by day' : 'Total patients, month by month' ?>">
+                    <?= render_linechart($patientsGrowth['labels'], $patientsGrowth['values'], '#0d9488') ?>
+                </div>
             </div>
             <div class="stat-card">
                 <div class="flex-between"><span class="label">Today's Appointments</span> 📅</div>

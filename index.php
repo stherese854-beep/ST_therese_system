@@ -425,7 +425,6 @@ section{scroll-margin-top:88px}
       <div class="nav-actions">
         <a href="login.php?mode=signin" class="btn btn-ghost">Login</a>
         <a href="login.php?mode=register" class="btn btn-ghost">Register</a>
-        <a href="book.php" class="btn btn-primary">Book Appointment</a>
       </div>
     </div>
     <button class="hamburger" id="ham" aria-label="Menu">
