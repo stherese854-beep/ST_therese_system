@@ -14,6 +14,15 @@
 //  unavailable), so it always renders.
 // ============================================================
 
+// Clean address: ".../index.php" -> ".../" (same page, tidier URL).
+// Done here with a RELATIVE redirect, not in .htaccess, because behind
+// Railway's proxy Apache would build the address with http and port 8080.
+if (preg_match('~/index\.php$~i', parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '')) {
+    $qs = $_SERVER['QUERY_STRING'] ?? '';
+    header('Location: ./' . ($qs !== '' ? '?' . $qs : ''), true, 301);
+    exit;
+}
+
 // Try to load the clinic's dentists from the database (optional).
 $dentists = [];
 try {

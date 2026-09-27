@@ -7,12 +7,6 @@ DirectoryIndex index.php
 Options -Indexes +FollowSymLinks
 RewriteEngine On
 
-# Clean homepage address: anyone who opens ".../index.php" is sent to ".../"
-# (THE_REQUEST = what the browser actually asked for, so Apache's own
-#  internal DirectoryIndex lookup of index.php is not redirected in a loop.)
-RewriteCond %{THE_REQUEST} \s/+((?:[^\s?]*/)?)index\.php[\s?] [NC]
-RewriteRule ^(?:.*/)?index\.php$ /%1 [R=301,L]
-
 # Security: block access to sensitive files
 <FilesMatch "\.(sql|log|env|toml|md|sh)$">
     Order Allow,Deny
