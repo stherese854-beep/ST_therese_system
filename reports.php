@@ -187,7 +187,7 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
         </div>
 
         <!-- ===== Report type cards ===== -->
-        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
+        <div class="stat-grid stat-scroll" style="grid-template-columns:repeat(4,1fr);">
             <?php foreach ($reportTypes as $key => $rt):
                 $isActive = ($type === $key);
             ?>
@@ -345,7 +345,7 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                             </div>
 
                             <!-- quick counts -->
-                            <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+                            <div class="stat-grid stat-scroll" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
                                 <div class="stat-card text-center"><div class="value"><?= count($pTreatments) + count($pAppointments) ?></div><div class="label">Total Visits</div></div>
                                 <div class="stat-card text-center"><div class="value"><?= count($pTreatments) ?></div><div class="label">Treatments</div></div>
                                 <div class="stat-card text-center"><div class="value"><?= count($pAppointments) ?></div><div class="label">Appointments</div></div>

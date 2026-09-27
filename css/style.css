@@ -258,6 +258,25 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 
     /* Topbar widgets: keep them from overlapping the hamburger */
     #topbarWidgets { right: 10px; top: 10px; }
+
+    /* ── Fixed-column stat rows (No-Show Report, Reports): swipe sideways ──
+       Squeezing 4-5 cards into a phone's width cuts them off, so the row
+       becomes a horizontal strip that snaps card by card. The next card
+       peeks in from the right so it's clear there is more to swipe. */
+    .stat-grid.stat-scroll {
+        display: flex; gap: 12px;
+        overflow-x: auto; overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x mandatory; scroll-padding-left: 12px;
+        margin-left: -12px; margin-right: -12px;           /* run edge to edge */
+        padding: 2px 12px 10px;
+        scrollbar-width: none;
+    }
+    .stat-grid.stat-scroll::-webkit-scrollbar { display: none; }
+    .stat-grid.stat-scroll > .stat-card {
+        flex: 0 0 auto; min-width: 150px; width: 42%;
+        scroll-snap-align: start;
+    }
 }
 
 /* Desktop: hamburger and backdrop are never shown */

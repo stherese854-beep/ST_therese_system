@@ -262,7 +262,7 @@ function tabLink($key, $label, $count, $current) {
         </div>
 
         <!-- ===== Stat cards ===== -->
-        <div class="stat-grid" style="grid-template-columns:repeat(5,1fr);">
+        <div class="stat-grid stat-scroll" style="grid-template-columns:repeat(5,1fr);">
             <div class="stat-card"><div class="value">📅 <?= $totalAppts ?></div><div class="label">Total Appts</div></div>
             <div class="stat-card"><div class="value" style="color:#c0392b;">🚫 <?= $countNoshow ?></div><div class="label">No-Shows</div></div>
             <div class="stat-card"><div class="value">❌ <?= $countCancelled ?></div><div class="label">Cancelled</div></div>
