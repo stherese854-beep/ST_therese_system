@@ -153,24 +153,54 @@ $reportTypes = [
 $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
 ?>
 <style>
+/* Quick counts inside the report: a small row of four, never a swipe strip. */
+.report-counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.report-counts > div { border: 1px solid #e3e9ee; border-radius: 8px; padding: 6px 4px; text-align: center; background: #fbfdfd; }
+.report-counts strong { display: block; font-size: 1.15rem; line-height: 1.2; }
+.report-counts span { display: block; font-size: .62rem; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+
 @media print {
-  /* Print ONLY the report preview — hide the sidebar, buttons, and config panel. */
-  body * { visibility: hidden; }
-  #report-area, #report-area * { visibility: visible; }
+  /* Print ONLY the report. Everything else is REMOVED (display:none), not just
+     made invisible — invisible things still take up space and push the report
+     onto a second page. The wrappers around the report are flattened. */
+  body *:not(:has(#report-area)):not(#report-area):not(#report-area *) { display: none !important; }
+  body *:has(#report-area) {
+    margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important;
+    background: none !important; width: auto !important; max-width: none !important; min-height: 0 !important;
+    flex: none !important; display: block !important; position: static !important;
+    break-inside: auto !important; page-break-inside: auto !important;
+  }
   #report-area {
-    position: absolute; left: 0; top: 0; width: 100%;
-    border: none !important; box-shadow: none !important;
+    border: none !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important;
     -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
   }
-  /* Shrink the dental chart on print so everything fits on one page */
-  #report-area .odo-arch { padding: 5px 4px !important; gap: 2px !important; margin: 4px 0 !important; }
-  #report-area .tooth { width: 20px !important; }
-  #report-area .tooth svg { width: 18px !important; height: 19px !important; }
-  #report-area .tooth .num { font-size: .48rem !important; margin-top: 0 !important; }
-  #report-area h6 { margin-top: 8px !important; margin-bottom: 4px !important; }
-  #report-area .stat-grid { margin-bottom: 8px !important; }
   @page { margin: 1cm; }
 }
+
+/* Compact print sizing. Switched on (body.print-compact) right before printing
+   and off afterwards, so the one-page check below measures exactly what prints. */
+body.print-compact #report-area { font-size: 11px; padding: 0 !important; border: none !important; }
+/* Compact everything so a full profile fits on one page */
+body.print-compact #report-area h4 { font-size: 15px !important; }
+body.print-compact #report-area h6 { font-size: 12px !important; margin-top: 7px !important; margin-bottom: 3px !important; }
+body.print-compact #report-area table { margin-bottom: 4px !important; font-size: 10px !important; }
+body.print-compact #report-area table td, body.print-compact #report-area table th { padding: 2px 5px !important; font-size: 10px !important; line-height: 1.25 !important; }
+body.print-compact #report-area .badge-pill { padding: 1px 6px !important; font-size: 9px !important; }
+body.print-compact #report-area .report-counts { gap: 5px; margin-bottom: 6px; }
+body.print-compact #report-area .report-counts > div { padding: 3px 2px; }
+body.print-compact #report-area .report-counts strong { font-size: 13px; }
+body.print-compact #report-area .report-counts span { font-size: 8px; }
+/* Shrink the dental chart */
+body.print-compact #report-area .odo-arch { padding: 4px 3px !important; gap: 2px !important; margin: 3px 0 !important; }
+body.print-compact #report-area .tooth { width: 20px !important; }
+body.print-compact #report-area .tooth svg { width: 18px !important; height: 19px !important; }
+body.print-compact #report-area .tooth .num { font-size: .48rem !important; margin-top: 0 !important; }
+body.print-compact #report-area .report-signature { margin-top: 10px !important; padding-top: 6px !important; }
+body.print-compact #report-area .report-signature-name { margin-bottom: 22px !important; }
+body.print-compact #report-area .report-signature > div:last-child { gap: 20px !important; flex-wrap: nowrap !important; }
+body.print-compact #report-area .report-signature > div:last-child > div { min-width: 0 !important; flex: 1 1 0; font-size: 10px; }
+body.print-compact #report-area .report-signature > div:last-child > div > div { font-size: 10px !important; }
+body.print-compact #report-area .text-muted2, body.print-compact #report-area [style*="font-size:.85rem"] { font-size: 10.5px !important; }
 </style>
 <div class="app-wrap">
     <?php include 'includes/sidebar.php'; ?>
@@ -329,7 +359,7 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                     </div>
 
                     <!-- the printable report area -->
-                    <div id="report-area" style="border:1px solid #e3e9ee;border-radius:10px;padding:22px;background:#fff;">
+                    <div id="report-area"<?= in_array($type, ['profile','treatment'], true) ? ' data-fit-one-page' : '' ?> style="border:1px solid #e3e9ee;border-radius:10px;padding:22px;background:#fff;">
 
                         <!-- letterhead -->
                         <div data-section="letterhead" class="flex-between" style="border-bottom:2px solid var(--teal-dark);padding-bottom:10px;margin-bottom:16px;">
@@ -355,11 +385,11 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                             </div>
 
                             <!-- quick counts -->
-                            <div class="stat-grid stat-scroll" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
-                                <div class="stat-card text-center"><div class="value"><?= count($pTreatments) + count($pAppointments) ?></div><div class="label">Total Visits</div></div>
-                                <div class="stat-card text-center"><div class="value"><?= count($pTreatments) ?></div><div class="label">Treatments</div></div>
-                                <div class="stat-card text-center"><div class="value"><?= count($pAppointments) ?></div><div class="label">Appointments</div></div>
-                                <div class="stat-card text-center"><div class="value"><?= $patient['medical_alert'] ? 1 : 0 ?></div><div class="label">Alerts</div></div>
+                            <div class="report-counts">
+                                <div><strong><?= count($pTreatments) + count($pAppointments) ?></strong><span>Total Visits</span></div>
+                                <div><strong><?= count($pTreatments) ?></strong><span>Treatments</span></div>
+                                <div><strong><?= count($pAppointments) ?></strong><span>Appointments</span></div>
+                                <div><strong><?= $patient['medical_alert'] ? 1 : 0 ?></strong><span>Alerts</span></div>
                             </div>
 
                             <!-- contact info -->
@@ -563,8 +593,8 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                             if ($handling === '') $handling = '____________________';
                             $signatory = $_SESSION['name'] ?? '';
                         ?>
-                        <div style="margin-top:26px;padding-top:14px;border-top:1px solid #e3e9ee;">
-                            <div style="font-size:.82rem;color:#555;margin-bottom:34px;">
+                        <div class="report-signature" style="margin-top:26px;padding-top:14px;border-top:1px solid #e3e9ee;">
+                            <div class="report-signature-name" style="font-size:.82rem;color:#555;margin-bottom:34px;">
                                 <strong>Handling Dentist:</strong> <?= e($handling) ?>
                             </div>
                             <div style="display:flex;gap:48px;flex-wrap:wrap;">
@@ -599,6 +629,31 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js"></script>
 <script>
+// Fit a single-patient report on ONE printed page. Just before printing, lay the report
+// out at printed-page width, measure it, and scale it down if it would run
+// longer than a page. Sized for the smaller of A4 / Letter with 1 cm margins
+// (~718 x 979 CSS px), so it fits either paper.
+(function () {
+    var PAGE_W = 718, PAGE_H = 975;
+    var area = document.getElementById('report-area');
+    // Only single-patient reports are squeezed onto one page; the long
+    // clinic-wide lists (all appointments / all patients) print across pages.
+    if (!area || !area.hasAttribute('data-fit-one-page')) return;
+    window.addEventListener('beforeprint', function () {
+        document.body.classList.add('print-compact');
+        area.style.zoom = '';
+        var oldW = area.style.width;
+        area.style.width = PAGE_W + 'px';
+        var h = area.scrollHeight;
+        area.style.width = oldW;
+        if (h > PAGE_H) area.style.zoom = Math.max(0.55, PAGE_H / h).toFixed(3);
+    });
+    window.addEventListener('afterprint', function () {
+        document.body.classList.remove('print-compact');
+        area.style.zoom = '';
+    });
+})();
+
 // "Include Sections" + "Include clinic letterhead": each checkbox shows or
 // hides the matching [data-section] part of the report. Hidden parts are
 // display:none, so Print / PDF match the preview exactly. The choice is
