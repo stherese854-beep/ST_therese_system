@@ -226,6 +226,7 @@ $todayStr = date('Y-m-d');
 $minBookDateStr = date('Y-m-d', strtotime('+1 day'));   // earliest bookable date — no same-day booking
 
 $page_title = "Book Appointment";
+$hide_hamburger = true;   // this page has no sidebar, so the menu button has nothing to open
 include 'includes/head.php';
 ?>
 <div class="booking-hero">
@@ -354,7 +355,7 @@ include 'includes/head.php';
                 <input type="hidden" name="time" id="sel-time" required>
                 <div id="slot-warn" class="text-danger small mb-2" style="display:none;">Please select a time slot.</div>
                 <div class="text-end">
-                    <button type="button" class="btn btn-teal" onclick="validateSchedule()">Continue →</button>
+                    <button type="button" class="btn btn-teal" id="schedule-continue-btn" onclick="validateSchedule()" disabled>Continue →</button>
                 </div>
             </div>
 
@@ -724,6 +725,7 @@ function renderSlots(dateVal) {
     var grid = document.getElementById('slotGrid');
     grid.innerHTML = '';
     document.getElementById('sel-time').value = '';   // clear time on date change
+    document.getElementById('schedule-continue-btn').disabled = true;   // no time chosen yet for this date
     ALL_SLOTS.forEach(function(s) {
         var isPast   = isToday && isSlotPast(s);
         var isBooked = bookedOnDate.indexOf(s) !== -1;
@@ -853,6 +855,7 @@ function pickSlot(el, time) {
     el.classList.add('selected');
     document.getElementById('sel-time').value = time;
     document.getElementById('slot-warn').style.display = 'none';
+    document.getElementById('schedule-continue-btn').disabled = false;
 }
 
 function validateSchedule() {

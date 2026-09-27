@@ -67,9 +67,12 @@ if (function_exists('is_logged_in') && is_logged_in()
 // It only renders for logged-in users and floats above the page.
 include __DIR__ . '/topbar.php';
 
-// Hamburger button and backdrop — visible on mobile for ALL logged-in users
-// (patients have a sidebar in their portal too)
-if (function_exists('is_logged_in') && is_logged_in()):
+// Hamburger button and backdrop — visible on mobile for logged-in users on
+// pages that actually HAVE a sidebar to open (patients have one in their
+// portal too). Pages without a sidebar — like the booking wizard — set
+// $hide_hamburger = true before including this file, since the button
+// would otherwise sit there doing nothing.
+if (function_exists('is_logged_in') && is_logged_in() && empty($hide_hamburger)):
 ?>
 <button class="hamburger no-print" id="sidebarToggle" aria-label="Open menu">☰</button>
 <div class="sidebar-backdrop no-print" id="sidebarBackdrop"></div>
