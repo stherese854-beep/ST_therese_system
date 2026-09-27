@@ -122,7 +122,10 @@ CREATE TABLE patients (
     date_of_birth   DATE DEFAULT NULL,
     blood_type      VARCHAR(5) DEFAULT NULL,
     patient_type    ENUM('New','Returning') DEFAULT 'New',
-    status          ENUM('Active','Inactive') DEFAULT 'Active',
+    status          ENUM('Active','Inactive','Archived') DEFAULT 'Active',
+    archived_at     DATETIME DEFAULT NULL,       -- when this patient was moved to the Archive
+    archived_by     VARCHAR(100) DEFAULT NULL,   -- who archived them
+    pre_archive_status VARCHAR(20) DEFAULT NULL, -- status to restore back to (Active/Inactive)
     primary_dentist VARCHAR(100) DEFAULT NULL,
     medical_alert   VARCHAR(255) DEFAULT NULL,   -- e.g. "Allergic to Penicillin"
     last_visit      DATE DEFAULT NULL,

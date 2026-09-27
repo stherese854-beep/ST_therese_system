@@ -89,38 +89,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete') {
         $delId = (int)$_POST['id'];
 
-        // Name it while the row still exists, so the activity log reads
-        // "Deleted patient — Maria Santos" instead of just an id number.
+        // Deleting no longer removes the patient right away — it moves the
+        // record to the Archive first (same as User Management), so nothing
+        // is lost by mistake. An admin can restore it or permanently delete
+        // it from the Archive page.
         $delNameStmt = $pdo->prepare("SELECT name FROM patients WHERE id=?");
         $delNameStmt->execute([$delId]);
         $delPatientName = $delNameStmt->fetchColumn() ?: ('#' . $delId);
 
-        // Delete the patient's X-ray image FILES first (before the DB rows).
-        $xr = $pdo->prepare("SELECT image_file FROM xrays WHERE patient_id=?");
-        $xr->execute([$delId]);
-        foreach ($xr->fetchAll(PDO::FETCH_COLUMN) as $imgFile) {
-            $path = __DIR__ . '/uploads/xrays/' . $imgFile;
-            if (is_file($path)) @unlink($path);
-        }
+        archive_patient($pdo, $delId, $_SESSION['name'] ?? null);
 
-        // Remember the linked login account (if any) so we can remove it too.
-        $uidStmt = $pdo->prepare("SELECT user_id FROM patients WHERE id=?");
-        $uidStmt->execute([$delId]);
-        $uid = $uidStmt->fetchColumn();
-
-        // Delete ALL of this patient's records, then the patient row.
-        // (Shared helper, so "delete patient" and "delete user" behave the same
-        //  and neither can leave chart sessions or reviews behind.)
-        delete_patient_records($pdo, $delId);
-
-        // Remove their login account too (only if it's a patient account).
-        if ($uid) {
-            $pdo->prepare("DELETE FROM reviews WHERE user_id=?")->execute([$uid]);
-            $pdo->prepare("DELETE FROM users WHERE id=? AND role='patient'")->execute([$uid]);
-        }
-
-        log_activity($pdo, 'Deleted patient', $delPatientName . ' (and all their records)');
-        set_flash('Patient and all their records deleted.', 'info');
+        set_flash($delPatientName . ' moved to Archive.', 'info');
         header("Location: patients.php"); exit;
     }
 
@@ -244,11 +223,16 @@ $statusFilter = trim($_GET['status'] ?? '');   // '', 'active', 'inactive', etc.
 $isDentist = (current_role() === 'dentist');
 $myName    = $_SESSION['name'] ?? '';
 
-$where = [];
+$where = ["status <> 'Archived'"];   // archived patients live on the Archive page, not here
 $params = [];
 if ($isDentist) { $where[] = "primary_dentist = ?"; $params[] = $myName; }
 if ($search !== '') { $where[] = "(name LIKE ? OR email LIKE ?)"; $params[] = "%$search%"; $params[] = "%$search%"; }
 if ($statusFilter !== '') { $where[] = "status = ?"; $params[] = $statusFilter; }
+
+// For the "Archive" link + badge near "+ Add Patient" (admin only).
+$archivedPatientCount = (current_role() === 'admin')
+    ? (int)$pdo->query("SELECT COUNT(*) FROM patients WHERE status = 'Archived'")->fetchColumn()
+    : 0;
 
 $sql = "SELECT * FROM patients";
 if ($where) $sql .= " WHERE " . implode(" AND ", $where);
@@ -290,6 +274,14 @@ $active = 'patients';
             <div><h1>Patients</h1><div class="sub">Patient records management</div></div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
+                <?php if (current_role() === 'admin'): ?>
+                    <a href="admin_archive.php" class="btn btn-outline-secondary position-relative" title="Archive">
+                        🗄 Archive
+                        <?php if ($archivedPatientCount > 0): ?>
+                            <span class="badge-pill b-inactive" style="margin-left:4px;"><?= $archivedPatientCount ?></span>
+                        <?php endif; ?>
+                    </a>
+                <?php endif; ?>
                 <!-- Opens the Add Patient modal -->
                 <button class="btn btn-dark-navy" data-bs-toggle="modal" data-bs-target="#patientModal" onclick="openAdd()">+ Add Patient</button>
             </div>
@@ -433,10 +425,10 @@ $active = 'patients';
                                     data-bs-toggle="modal" data-bs-target="#msgModal"
                                     title="Message">✉️</button>
                                 <?php if (current_role() === 'admin'): ?>
-                                    <form method="POST" class="d-inline" onsubmit="return confirm('Delete this patient? This also removes ALL their treatments, X-rays, notes, dental chart, appointments, and login account.')">
+                                    <form method="POST" class="d-inline" onsubmit="return confirm('Move this patient to Archive?')">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="id" value="<?= $p['id'] ?>">
-                                        <button class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;" title="Delete">🗑</button>
+                                        <button class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;" title="Move to Archive">🗑</button>
                                     </form>
                                 <?php endif; ?>
                             </td>

@@ -11,6 +11,7 @@ session_start();               // turn on PHP sessions (remembers who is logged 
 require_once __DIR__ . '/db.php';
 ensure_archive_schema($pdo);                        // self-heals the archive columns/table
 ensure_activity_log_schema($pdo);                   // self-heals the activity_log table
+ensure_patient_archive_schema($pdo);                // self-heals the patients table's archive columns
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
 
 // Is someone logged in right now?
@@ -233,6 +234,77 @@ function restore_user($pdo, $userId) {
         ->execute([$userId]);
 
     log_activity($pdo, 'Restored user', $name ?: "user #$userId");
+}
+
+// ============================================================
+//  ARCHIVING A PATIENT (soft delete)
+// ============================================================
+//  Same idea as archive_user(), but for the "🗑 Delete" button on the
+//  Patients page: the patient record moves to the Archive instead of
+//  being removed right away. This also covers walk-in patients who
+//  have no login account of their own (archive_user() alone can't
+//  touch those, since there is no `users` row to mark). If the
+//  patient DOES have a login account, that account is archived too
+//  so they can't sign in while archived.
+// ============================================================
+function ensure_patient_archive_schema($pdo) {
+    try {
+        $has = $pdo->query("SHOW COLUMNS FROM patients LIKE 'archived_at'")->rowCount();
+        if (!$has) {
+            $pdo->exec("ALTER TABLE patients MODIFY status ENUM('Active','Inactive','Archived') NOT NULL DEFAULT 'Active'");
+            $pdo->exec("ALTER TABLE patients ADD COLUMN archived_at DATETIME DEFAULT NULL");
+            $pdo->exec("ALTER TABLE patients ADD COLUMN archived_by VARCHAR(100) DEFAULT NULL");
+            $pdo->exec("ALTER TABLE patients ADD COLUMN pre_archive_status VARCHAR(20) DEFAULT NULL");
+        }
+    } catch (Throwable $e) { /* older MySQL / already applied — ignore */ }
+}
+
+function archive_patient($pdo, $patientId, $archivedByName) {
+    $patientId = (int)$patientId;
+    if ($patientId <= 0) return;
+
+    $info = $pdo->prepare("SELECT name, user_id, status FROM patients WHERE id = ?");
+    $info->execute([$patientId]);
+    $p = $info->fetch();
+    if (!$p) return;
+
+    $pdo->prepare("UPDATE patients
+                    SET pre_archive_status = status, status = 'Archived',
+                        archived_at = NOW(), archived_by = ?
+                    WHERE id = ?")
+        ->execute([$archivedByName, $patientId]);
+
+    // Also archive their login account, if they have one, so they can't
+    // sign in or book online while archived.
+    if (!empty($p['user_id'])) {
+        archive_user($pdo, $p['user_id'], $archivedByName);
+    }
+
+    log_activity($pdo, 'Archived patient', $p['name'] ?: "patient #$patientId");
+}
+
+// Restores an archived patient (and their login account, if any) back to
+// how they were before archiving.
+function restore_patient($pdo, $patientId) {
+    $patientId = (int)$patientId;
+    if ($patientId <= 0) return;
+
+    $info = $pdo->prepare("SELECT name, user_id FROM patients WHERE id = ?");
+    $info->execute([$patientId]);
+    $p = $info->fetch();
+    if (!$p) return;
+
+    $pdo->prepare("UPDATE patients
+                    SET status = COALESCE(NULLIF(pre_archive_status,''), 'Active'),
+                        archived_at = NULL, archived_by = NULL, pre_archive_status = NULL
+                    WHERE id = ?")
+        ->execute([$patientId]);
+
+    if (!empty($p['user_id'])) {
+        restore_user($pdo, $p['user_id']);
+    }
+
+    log_activity($pdo, 'Restored patient', $p['name'] ?: "patient #$patientId");
 }
 
 // ============================================================
