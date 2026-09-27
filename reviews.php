@@ -61,7 +61,7 @@ $active = 'reviews';
                 <h1>Patient Reviews</h1>
                 <div class="sub">Approve a review and it appears on the public landing page</div>
             </div>
-            <a href="index.php#testimonials" target="_blank" class="btn btn-light">👁 View on landing page</a>
+            <a href="./#testimonials" target="_blank" class="btn btn-light">👁 View on landing page</a>
         </div>
 
         <?php include 'includes/admin_tabs.php'; ?>

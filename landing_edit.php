@@ -164,7 +164,7 @@ $active = 'landing_edit';
         <div class="page-head">
             <div><h1>Edit Landing Page</h1><div class="sub">Change any text shown on the public homepage</div></div>
             <div class="d-flex gap-2">
-                <a href="index.php" target="_blank" class="btn btn-light">👁 View Landing Page</a>
+                <a href="./" target="_blank" class="btn btn-light">👁 View Landing Page</a>
             </div>
         </div>
 
@@ -472,7 +472,7 @@ $active = 'landing_edit';
 
             <div class="d-flex gap-2 mb-4">
                 <button class="btn btn-teal">💾 Save Landing Page</button>
-                <a href="index.php" target="_blank" class="btn btn-light">👁 Preview</a>
+                <a href="./" target="_blank" class="btn btn-light">👁 Preview</a>
             </div>
         </form>
 

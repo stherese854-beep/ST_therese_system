@@ -94,7 +94,7 @@ function require_login($allowed_roles = null) {
     header('Pragma: no-cache');
 
     if (!is_logged_in()) {
-        header("Location: index.php");   // not logged in -> go to login page
+        header("Location: ./");          // not logged in -> go to the homepage
         exit;
     }
     if ($allowed_roles !== null && !in_array(current_role(), $allowed_roles, true)) {

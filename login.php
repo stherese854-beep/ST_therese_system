@@ -276,7 +276,7 @@ include 'includes/head.php';
 
 <div class="auth-page">
     <!-- Close (X) button: goes back to the landing page -->
-    <a href="index.php" class="auth-close" aria-label="Back to homepage" title="Back to homepage">&times;</a>
+    <a href="./" class="auth-close" aria-label="Back to homepage" title="Back to homepage">&times;</a>
 
     <!-- LEFT: brand panel -->
     <div class="auth-left">
