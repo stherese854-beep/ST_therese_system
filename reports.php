@@ -269,11 +269,17 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                         </form>
                         <?php endif; ?>
 
+                        <?php if ($type === 'profile' && $patient): ?>
+                        <!-- Tick / untick to show or hide that part of the report (preview AND print). -->
                         <label class="field-label">Include Sections</label>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" checked> <label class="form-check-label">Patient Summary</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" checked> <label class="form-check-label">Dental Chart Summary</label></div>
-                        <div class="form-check"><input class="form-check-input" type="checkbox" checked> <label class="form-check-label">Medical Alerts</label></div>
-                        <div class="form-check mb-3"><input class="form-check-input" type="checkbox" checked> <label class="form-check-label">Appointment Summary</label></div>
+                        <?php foreach (['summary' => 'Patient Summary', 'chart' => 'Dental Chart Summary',
+                                        'alerts' => 'Medical Alerts', 'appointments' => 'Appointment Summary'] as $sec => $secLabel): ?>
+                            <div class="form-check<?= $sec === 'appointments' ? ' mb-3' : '' ?>">
+                                <input class="form-check-input report-section-toggle" type="checkbox" id="sec-<?= $sec ?>" data-section="<?= $sec ?>" checked>
+                                <label class="form-check-label" for="sec-<?= $sec ?>"><?= $secLabel ?></label>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
 
                         <?php if ($type === 'profile' && $patient): ?>
                             <hr>
@@ -304,7 +310,10 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                         <button class="btn btn-light w-100" onclick="window.print()">🖨 Print</button>
                         <button class="btn btn-dark-navy w-100" onclick="window.print()">📄 PDF</button>
                     </div>
-                    <div class="form-check"><input class="form-check-input" type="checkbox" checked> <label class="form-check-label">Include clinic letterhead</label></div>
+                    <div class="form-check">
+                        <input class="form-check-input report-section-toggle" type="checkbox" id="sec-letterhead" data-section="letterhead" checked>
+                        <label class="form-check-label" for="sec-letterhead">Include clinic letterhead</label>
+                    </div>
                 </div>
             </div>
 
@@ -323,7 +332,7 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                     <div id="report-area" style="border:1px solid #e3e9ee;border-radius:10px;padding:22px;background:#fff;">
 
                         <!-- letterhead -->
-                        <div class="flex-between" style="border-bottom:2px solid var(--teal-dark);padding-bottom:10px;margin-bottom:16px;">
+                        <div data-section="letterhead" class="flex-between" style="border-bottom:2px solid var(--teal-dark);padding-bottom:10px;margin-bottom:16px;">
                             <div>
                                 <h4 style="color:var(--teal-dark);margin:0;">St. Therese Dental Clinic</h4>
                                 <div class="text-muted2" style="font-size:.78rem;">123 Dental St., Naic, Cavite · (046) 123-4567</div>
@@ -336,6 +345,7 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
 
                         <?php if ($type === 'profile' && $patient): ?>
                             <!-- ===== PATIENT PROFILE ===== -->
+                            <div data-section="summary">
                             <div style="background:var(--teal-dark);color:#fff;border-radius:8px;padding:12px;display:flex;gap:24px;flex-wrap:wrap;font-size:.82rem;margin-bottom:16px;">
                                 <div><div style="opacity:.7;font-size:.7rem;">PATIENT NAME</div><strong><?= e($patient['name']) ?></strong></div>
                                 <div><div style="opacity:.7;font-size:.7rem;">DATE OF BIRTH</div><strong><?= e($patient['date_of_birth']) ?></strong></div>
@@ -359,8 +369,10 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                                 <tr><td><strong>Primary Dentist</strong></td><td><?= e($patient['primary_dentist']) ?></td><td><strong>Patient Type</strong></td><td><span class="badge-pill b-active"><?= e($patient['patient_type']) ?></span></td></tr>
                                 <tr><td><strong>Last Visit</strong></td><td><?= e($patient['last_visit']) ?></td><td><strong>Next Visit</strong></td><td><?= e($patient['next_visit']) ?></td></tr>
                             </table>
+                            </div><!-- /summary -->
 
                             <!-- medical alerts -->
+                            <div data-section="alerts">
                             <h6 class="mt-3">Medical Alerts</h6>
                             <?php if ($patient['medical_alert']): ?>
                                 <div style="background:#fdecec;border:1px solid #f5b5b5;color:#c0392b;border-radius:6px;padding:8px 12px;font-size:.85rem;">
@@ -369,8 +381,10 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                             <?php else: ?>
                                 <div class="text-muted2" style="font-size:.85rem;">No known medical alerts.</div>
                             <?php endif; ?>
+                            </div><!-- /alerts -->
 
                             <!-- dental chart (odontogram) -->
+                            <div data-section="chart">
                             <h6 class="mt-3">Dental Chart (Odontogram)</h6>
                             <?php if ($chartSession): ?>
                                 <div style="font-size:.72rem;color:#666;margin:-4px 0 6px;">
@@ -416,6 +430,7 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                                     echo '<span style="color:#999;">No notes recorded for this visit.</span>';
                                 }
                             ?></div>
+                            </div><!-- /chart -->
 
                             <!-- treatment summary -->
                             <h6 class="mt-3">Treatment Summary</h6>
@@ -434,6 +449,37 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
                                 <?php if (empty($pTreatments)): ?><tr><td colspan="5" class="text-muted2 text-center">No treatments on record.</td></tr><?php endif; ?>
                                 </tbody>
                             </table>
+
+                            <!-- appointment summary -->
+                            <div data-section="appointments">
+                            <h6 class="mt-3">Appointment Summary</h6>
+                            <?php
+                                $apptCounts = array_count_values(array_map(fn($a) => $a['status'], $pAppointments));
+                                ksort($apptCounts);
+                            ?>
+                            <?php if ($apptCounts): ?>
+                                <div style="font-size:.8rem;margin-bottom:6px;">
+                                    <?php foreach ($apptCounts as $st => $n): ?>
+                                        <span class="badge-pill <?= badge_for($st) ?>" style="margin-right:4px;"><?= e($st) ?>: <?= $n ?></span>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                            <table class="data" style="font-size:.82rem;">
+                                <thead><tr><th>Date</th><th>Time</th><th>Treatment</th><th>Dentist</th><th>Status</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($pAppointments as $ap): ?>
+                                    <tr>
+                                        <td><?= e($ap['appointment_date']) ?></td>
+                                        <td><?= e($ap['appointment_time']) ?></td>
+                                        <td><?= e($ap['treatment']) ?></td>
+                                        <td><?= e($ap['dentist']) ?></td>
+                                        <td><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e($ap['status']) ?></span></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (empty($pAppointments)): ?><tr><td colspan="5" class="text-muted2 text-center">No appointments on record.</td></tr><?php endif; ?>
+                                </tbody>
+                            </table>
+                            </div><!-- /appointments -->
 
                         <?php elseif ($type === 'treatment' && $patient): ?>
                             <!-- ===== TREATMENT HISTORY ===== -->
@@ -552,4 +598,32 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js"></script>
+<script>
+// "Include Sections" + "Include clinic letterhead": each checkbox shows or
+// hides the matching [data-section] part of the report. Hidden parts are
+// display:none, so Print / PDF match the preview exactly. The choice is
+// remembered in this browser, so it survives switching patients.
+(function () {
+    var KEY = 'reportSections';
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
+
+    function apply(box) {
+        var sec = box.dataset.section;
+        document.querySelectorAll('#report-area [data-section="' + sec + '"]').forEach(function (el) {
+            el.style.display = box.checked ? '' : 'none';
+        });
+    }
+
+    document.querySelectorAll('.report-section-toggle').forEach(function (box) {
+        if (saved.hasOwnProperty(box.dataset.section)) box.checked = !!saved[box.dataset.section];
+        apply(box);
+        box.addEventListener('change', function () {
+            apply(box);
+            saved[box.dataset.section] = box.checked;
+            try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+        });
+    });
+})();
+</script>
 </body></html>
