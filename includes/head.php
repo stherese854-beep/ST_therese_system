@@ -20,8 +20,9 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
 
     <!-- Bootstrap 5 CSS (CDN) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Our custom theme -->
-    <link href="css/style.css" rel="stylesheet">
+    <!-- Our custom theme (versioned by file time so browsers always fetch
+         the latest copy after a deploy, instead of serving a stale cache) -->
+    <link href="css/style.css?v=<?= @filemtime(__DIR__ . '/../css/style.css') ?: time() ?>" rel="stylesheet">
 </head>
 <body>
 <?php
