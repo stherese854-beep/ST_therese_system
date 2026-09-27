@@ -65,12 +65,11 @@ function nav_active($page) {
     <a class="nav-item <?= nav_active('reports') ?>"  href="reports">📑 Generate Reports</a>
     <a class="nav-item <?= nav_active('noshow') ?>"   href="noshow">📝 No-Show Report</a>
 
-    <div class="nav-label">System</div>
     <?php if ($role === 'admin'): ?>
+        <div class="nav-label">System</div>
         <a class="nav-item <?= nav_active('settings') ?>" href="settings">⚙️ System</a>
-    <?php else: ?>
-        <a class="nav-item <?= nav_active('settings') ?>" href="settings">⚙️ Settings</a>
     <?php endif; ?>
+    <!-- Dentists and staff open their settings from the profile menu (top right). -->
 
     <div class="spacer"></div>
 </aside>
