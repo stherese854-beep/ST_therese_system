@@ -242,7 +242,7 @@ include 'includes/head.php';
 <?php if ($booked): ?>
     <!-- ===== SUCCESS SCREEN ===== -->
     <div class="wizard-card text-center" style="position:relative;">
-        <a href="portal.php" class="back-arrow" title="Back to Dashboard">&#8592;</a>
+        <a href="portal" class="back-arrow" title="Back to Dashboard">&#8592;</a>
         <div style="width:70px;height:70px;background:#fff6e0;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:2rem;">⏳</div>
         <h2 style="color:var(--teal)">Booking Request Submitted!</h2>
 
@@ -281,13 +281,13 @@ include 'includes/head.php';
                 Track the status of this request on your dashboard.
             <?php endif; ?>
         </p>
-        <a href="portal.php" class="btn btn-teal">&#8592; Back</a>
+        <a href="portal" class="btn btn-teal">&#8592; Back</a>
     </div>
 
 <?php else: ?>
     <!-- ===== THE WIZARD ===== -->
     <div class="wizard-card" style="position:relative;">
-        <a href="portal.php" class="back-arrow" title="Back to Dashboard">&#8592;</a>
+        <a href="portal" class="back-arrow" title="Back to Dashboard">&#8592;</a>
 
         <?php if ($bookError): ?>
         <!-- Booking error modal — shown automatically on page load -->
@@ -302,7 +302,7 @@ include 'includes/head.php';
                 <?= $bookError /* already contains safe HTML — strong tags are intentional */ ?>
               </div>
               <div class="modal-footer">
-                <a href="portal.php" class="btn btn-light">&#8592; Back</a>
+                <a href="portal" class="btn btn-light">&#8592; Back</a>
                 <button type="button" class="btn btn-teal" data-bs-dismiss="modal">OK</button>
               </div>
             </div>

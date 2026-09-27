@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['name'] = $name;
 
         set_flash('Your profile has been updated.');
-        header("Location: portal.php?view=profile"); exit;
+        header("Location: portal?view=profile"); exit;
     }
 
     // ---------- Upload a profile picture ----------
@@ -98,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('Please choose a picture first.', 'error');
         }
-        header("Location: portal.php?view=profile"); exit;
+        header("Location: portal?view=profile"); exit;
     }
 
     // ---------- Remove the profile picture ----------
@@ -109,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
         $pdo->prepare("UPDATE users SET photo=NULL WHERE id=?")->execute([$_SESSION['user_id']]);
         set_flash('Profile picture removed.', 'info');
-        header("Location: portal.php?view=profile"); exit;
+        header("Location: portal?view=profile"); exit;
     }
 
     // ---------- Leave a review about the clinic / system ----------
@@ -173,7 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         . '. It is now Pending until the clinic confirms the new time.');
             }
         }
-        header("Location: portal.php?view=appointments"); exit;
+        header("Location: portal?view=appointments"); exit;
     }
 
     if ($action === 'cancel_appointment') {
@@ -217,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('Your appointment was cancelled. The clinic has been notified.');
             }
         }
-        header("Location: portal.php?view=appointments"); exit;
+        header("Location: portal?view=appointments"); exit;
     }
 
     if ($action === 'save_review') {
@@ -241,7 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             set_flash('Thank you! Your review was sent to the clinic for approval.');
         }
-        header("Location: portal.php?view=profile"); exit;
+        header("Location: portal?view=profile"); exit;
     }
 
     // Patient changes their own password.
@@ -260,7 +260,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE users SET password=? WHERE id=?")
                 ->execute([password_hash($new, PASSWORD_DEFAULT), $_SESSION['user_id']]);
             set_flash('Your password has been changed.');
-            header("Location: portal.php?view=profile"); exit;
+            header("Location: portal?view=profile"); exit;
         }
     }
 }
@@ -400,16 +400,16 @@ include 'includes/head.php';
     <!-- Patient sidebar -->
     <aside class="sidebar">
         <div class="brand"><div class="logo">🦷</div><div>Patient Portal</div></div>
-        <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal.php?view=appointments">📅 Appointments</a>
-        <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal.php?view=chart">🦷 My Dental Chart</a>
-        <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal.php?view=records">📋 My Records</a>
-        <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal.php?view=news">
+        <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">📅 Appointments</a>
+        <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">🦷 My Dental Chart</a>
+        <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">📋 My Records</a>
+        <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal?view=news">
             📣 Announcements <?php if ($news): ?><span class="badge-pill b-pending" style="font-size:.65rem;"><?= count($news) ?></span><?php endif; ?>
         </a>
         <div class="spacer"></div>
         <div class="user-card">
             <strong><?= e($_SESSION['name']) ?></strong><br><small>Patient Account</small>
-            <br><a class="signout" href="logout.php">⏻ Sign Out</a>
+            <br><a class="signout" href="logout">⏻ Sign Out</a>
         </div>
     </aside>
 
@@ -418,7 +418,7 @@ include 'includes/head.php';
         <div class="card-box flex-between" style="padding:14px 20px;">
             <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
             <?php if ($view === 'appointments'): ?>
-                <a href="book.php" class="btn btn-teal">+ Book Appointment</a>
+                <a href="book" class="btn btn-teal">+ Book Appointment</a>
             <?php endif; ?>
         </div>
 
@@ -474,7 +474,7 @@ include 'includes/head.php';
                             <?php $oldFirst = array_reverse($mySessions); ?>
                             <?php foreach ($oldFirst as $i => $s): ?>
                                 <a class="sess-tab <?= (int)$s['id']===$mySid?'on':'' ?>"
-                                   href="portal.php?view=chart&session=<?= $s['id'] ?>">
+                                   href="portal?view=chart&session=<?= $s['id'] ?>">
                                     <b>Visit <?= $i+1 ?><?= $i === count($oldFirst)-1 ? ' · latest' : '' ?></b>
                                     <small><?= date('M j, Y', strtotime($s['visit_date'])) ?></small>
                                 </a>
@@ -612,7 +612,7 @@ include 'includes/head.php';
                                 ?>
                                 <div class="d-flex gap-1 flex-wrap">
                                     <?php if ($a['status'] === 'Confirmed'): ?>
-                                        <a href="slip.php?id=<?= $a['id'] ?>" target="_blank" class="btn btn-sm btn-outline-teal" style="white-space:nowrap;">🖨 Print</a>
+                                        <a href="slip?id=<?= $a['id'] ?>" target="_blank" class="btn btn-sm btn-outline-teal" style="white-space:nowrap;">🖨 Print</a>
                                     <?php endif; ?>
 
                                     <?php if ($canCancel): ?>

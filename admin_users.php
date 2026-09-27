@@ -28,14 +28,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($first === '' || $last === '') {
             set_flash('Please enter both a first name and a last name.', 'error');
-            header("Location: admin_users.php"); exit;
+            header("Location: admin_users"); exit;
         }
 
         // Make sure the email is real and not already taken.
         $emailError = validate_account_email($pdo, $email, $id ?: null);
         if ($emailError !== '') {
             set_flash($emailError, 'error');
-            header("Location: admin_users.php"); exit;
+            header("Location: admin_users"); exit;
         }
 
         if ($id) {
@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_activity($pdo, 'Created user', "$name ($role)");
             set_flash("$name added (password: password123)." . $note);
         }
-        header("Location: admin_users.php"); exit;
+        header("Location: admin_users"); exit;
     }
 
     if ($action === 'delete') {
@@ -76,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Don't let an admin delete their own account while logged in.
         if ($delId === (int)($_SESSION['user_id'] ?? 0)) {
             set_flash('You cannot delete the account you are signed in with.', 'error');
-            header("Location: admin_users.php"); exit;
+            header("Location: admin_users"); exit;
         }
 
         // Look up what we are about to move so the message can be honest.
@@ -90,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         archive_user($pdo, $delId, $_SESSION['name'] ?? null);
 
         set_flash(($u ? $u['name'] : 'User') . ' moved to Archive.', 'info');
-        header("Location: admin_users.php"); exit;
+        header("Location: admin_users"); exit;
     }
 }
 
@@ -129,7 +129,7 @@ $active = 'users';
             <div class="flex-between mb-3">
                 <h5 class="mb-0">System Users <small class="text-muted2 d-block" style="font-size:.75rem;">Showing <?= count($users) ?> users</small></h5>
                 <div class="d-flex gap-2">
-                    <a href="admin_archive.php" class="btn btn-sm btn-outline-secondary position-relative" title="Archive">
+                    <a href="admin_archive" class="btn btn-sm btn-outline-secondary position-relative" title="Archive">
                         🗄 Archive
                         <?php if ($archivedCount > 0): ?>
                             <span class="badge-pill b-inactive" style="margin-left:4px;"><?= $archivedCount ?></span>

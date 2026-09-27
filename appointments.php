@@ -16,7 +16,7 @@ require_login(['admin','dentist','staff']);
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_appointment') {
     if (!in_array(current_role(), ['admin','staff'])) {
         set_flash('Only admin and staff can remove old appointments.', 'error');
-        header("Location: appointments.php"); exit;
+        header("Location: appointments"); exit;
     }
     $id = (int)($_POST['id'] ?? 0);
 
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         set_flash($row['patient_name'] . "'s appointment from "
                 . date('M j, Y', strtotime($row['appointment_date'])) . ' was removed.', 'info');
     }
-    header("Location: appointments.php" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
+    header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
 }
 
 // ---------- Edit an appointment's details ----------
@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
     }
     if (!$mayEdit) {
         set_flash('You can only edit appointments for your own patients.', 'error');
-        header("Location: appointments.php"); exit;
+        header("Location: appointments"); exit;
     }
 
     $newDate = trim($_POST['appointment_date'] ?? '');
@@ -129,7 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
         }
         set_flash('Appointment updated.' . $mailNote);
     }
-    header("Location: appointments.php" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
+    header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
 }
 
 // ---------- Handle status changes (Approve / Cancel / Complete) ----------
@@ -199,7 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $reason = trim($_POST['cancel_reason'] ?? '');
             if ($reason === '') {
                 set_flash('Please give a reason for cancelling — the patient will be told.', 'error');
-                header("Location: appointments.php" . (isset($_POST['filter']) ? "?filter=".$_POST['filter'] : "")); exit;
+                header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".$_POST['filter'] : "")); exit;
             }
 
             $pdo->prepare(
@@ -233,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!$canEdit) {
         set_flash("You can only manage appointments for your own patients.", 'error');
     }
-    header("Location: appointments.php" . (isset($_POST['filter']) ? "?filter=".$_POST['filter'] : "")); exit;
+    header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".$_POST['filter'] : "")); exit;
 }
 
 // ---------- Filter tabs + name search ----------
@@ -286,20 +286,20 @@ $active = 'appointments';
             <div><h1>Appointments</h1><div class="sub">Schedule management</div></div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
-                <a href="appointments.php?book=1" class="btn btn-teal">+ Book</a>
+                <a href="appointments?book=1" class="btn btn-teal">+ Book</a>
             </div>
         </div>
 
         <!-- Filter tabs + search -->
         <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
             <?php foreach ($tabs as $t): ?>
-                <a href="appointments.php?filter=<?= $t ?><?= $search!==''?'&q='.urlencode($search):'' ?>"
+                <a href="appointments?filter=<?= $t ?><?= $search!==''?'&q='.urlencode($search):'' ?>"
                    class="btn btn-sm <?= $filter===$t ? 'btn-dark-navy' : 'btn-light' ?>"><?= $t ?></a>
             <?php endforeach; ?>
             <form method="GET" class="d-flex gap-2 align-items-center ms-auto" style="flex:1;max-width:340px;min-width:200px;">
                 <input type="hidden" name="filter" value="<?= e($filter) ?>">
                 <input type="text" name="q" class="form-control form-control-sm" placeholder="🔍 Search patient, dentist, treatment..." value="<?= e($search) ?>">
-                <?php if ($search !== ''): ?><a href="appointments.php?filter=<?= e($filter) ?>" class="btn btn-sm btn-light">Clear</a><?php endif; ?>
+                <?php if ($search !== ''): ?><a href="appointments?filter=<?= e($filter) ?>" class="btn btn-sm btn-light">Clear</a><?php endif; ?>
             </form>
         </div>
 
@@ -315,7 +315,7 @@ $active = 'appointments';
                         <tr><td colspan="7" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
                             <div style="font-size:2.4rem;margin-bottom:8px;">📅</div>
                             <?php if ($search !== '' || $filter !== 'All'): ?>
-                                No appointments match. <a href="appointments.php" style="color:var(--teal);">Clear filters</a>
+                                No appointments match. <a href="appointments" style="color:var(--teal);">Clear filters</a>
                             <?php else: ?>
                                 No appointments yet.
                             <?php endif; ?>

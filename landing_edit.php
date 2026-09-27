@@ -29,14 +29,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         log_activity($pdo, 'Updated landing page content');
         set_flash('Landing page updated.');
-        header("Location: landing_edit.php"); exit;
+        header("Location: landing_edit"); exit;
     }
 
     if ($action === 'reset_landing') {
         // Delete all land_* rows -> index.php goes back to its defaults.
         $pdo->exec("DELETE FROM settings WHERE setting_key LIKE 'land_%'");
         set_flash('Landing page reset to the default text.', 'info');
-        header("Location: landing_edit.php"); exit;
+        header("Location: landing_edit"); exit;
     }
 
     // ---- Upload an image used on the landing page ----
@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('Please choose a file first.', 'error');
         }
-        header("Location: landing_edit.php"); exit;
+        header("Location: landing_edit"); exit;
     }
 
     // ---- Remove an uploaded image (back to the built-in illustration) ----
@@ -73,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($old && is_file(__DIR__ . '/' . $old)) @unlink(__DIR__ . '/' . $old);
         save_setting($pdo, $slot, '');
         set_flash('Image removed — the built-in illustration is back.', 'info');
-        header("Location: landing_edit.php"); exit;
+        header("Location: landing_edit"); exit;
     }
 }
 
@@ -347,7 +347,7 @@ $active = 'landing_edit';
                     <div class="col-md-6"><label class="field-label">Button text</label>
                         <input name="land_hmo_btn" class="form-control mb-3" value="<?= e(v('land_hmo_btn','More Info')) ?>"></div>
                     <div class="col-md-6"><label class="field-label">Button link</label>
-                        <input name="land_hmo_link" class="form-control mb-3" value="<?= e(v('land_hmo_link','#contact')) ?>" placeholder="#contact  or  book.php">
+                        <input name="land_hmo_link" class="form-control mb-3" value="<?= e(v('land_hmo_link','#contact')) ?>" placeholder="#contact  or  book">
                     </div>
                 </div>
 
@@ -369,7 +369,7 @@ $active = 'landing_edit';
             <!-- ===== DENTISTS ===== -->
             <div class="card-box mb-3">
                 <h5 class="mb-1">👨‍⚕️ Meet Our Dentists</h5>
-                <div class="text-muted2 mb-3" style="font-size:.85rem;">The dentist cards are pulled automatically from your <a href="admin_dentists.php">Dentists</a> list. Only the section headings are edited here.</div>
+                <div class="text-muted2 mb-3" style="font-size:.85rem;">The dentist cards are pulled automatically from your <a href="admin_dentists">Dentists</a> list. Only the section headings are edited here.</div>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
                         <input name="land_doc_eyebrow" class="form-control mb-3" value="<?= e(v('land_doc_eyebrow','Meet Our Dentists')) ?>"></div>
@@ -398,7 +398,7 @@ $active = 'landing_edit';
                 <div class="text-muted2 mt-2" style="font-size:.8rem;">
                     ℹ️ These are only shown while there are <strong>no approved patient reviews</strong>.
                     Patients write real reviews in their portal, and once you approve one in
-                    <a href="reviews.php">⭐ Patient Reviews</a>, the real ones replace the samples above.
+                    <a href="reviews">⭐ Patient Reviews</a>, the real ones replace the samples above.
                 </div>
             </div>
 
@@ -481,7 +481,7 @@ $active = 'landing_edit';
             <h5 class="mb-1">🖼️ Images</h5>
             <div class="text-muted2 mb-3" style="font-size:.85rem;">
                 Optional. Upload a photo to replace the built-in tooth illustration in the hero.
-                Dentist photos are uploaded on the <a href="admin_dentists.php">Dentists</a> page.
+                Dentist photos are uploaded on the <a href="admin_dentists">Dentists</a> page.
             </div>
 
             <?php $heroImg = v('land_img_hero',''); ?>

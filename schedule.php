@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('That day is already marked as unavailable.', 'info');
             }
         }
-        header("Location: schedule.php" . ($role === 'admin' ? "?dentist=".urlencode($dentist) : "")); exit;
+        header("Location: schedule" . ($role === 'admin' ? "?dentist=".urlencode($dentist) : "")); exit;
     }
 
     if ($action === 'remove_dayoff') {
@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash($del->rowCount() ? 'Day off removed.' : 'That day off is not yours to remove.',
                       $del->rowCount() ? 'info' : 'error');
         }
-        header("Location: schedule.php" . ($role === 'admin' && isset($_POST['back']) ? "?dentist=".urlencode($_POST['back']) : "")); exit;
+        header("Location: schedule" . ($role === 'admin' && isset($_POST['back']) ? "?dentist=".urlencode($_POST['back']) : "")); exit;
     }
 }
 

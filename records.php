@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pid
         ]);
         set_flash('Patient information updated.');
-        header("Location: records.php?patient=$pid&tab=overview"); exit;
+        header("Location: records?patient=$pid&tab=overview"); exit;
     }
 
     // ----- Treatments -----
@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['name'] ?? '', $_POST['treatment_date'], $_POST['status'], trim($_POST['notes'] ?? '')
         ]);
         set_flash('Treatment record added.');
-        header("Location: records.php?patient=$pid&tab=treatments"); exit;
+        header("Location: records?patient=$pid&tab=treatments"); exit;
     }
     if ($action === 'delete_treatment') {
         $t = $pdo->prepare("SELECT patient_name, treatment_name FROM treatments WHERE id=? AND patient_id=?");
@@ -97,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("DELETE FROM treatments WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
         log_activity($pdo, 'Deleted treatment record', $tRow ? ($tRow['patient_name'] . ' — ' . $tRow['treatment_name']) : ('#' . $_POST['id']));
         set_flash('Treatment record deleted.', 'info');
-        header("Location: records.php?patient=$pid&tab=treatments"); exit;
+        header("Location: records?patient=$pid&tab=treatments"); exit;
     }
 
     // ----- X-rays (image upload) -----
@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('Please choose an image to upload.', 'error');
         }
-        header("Location: records.php?patient=$pid&tab=xrays"); exit;
+        header("Location: records?patient=$pid&tab=xrays"); exit;
     }
     if ($action === 'delete_xray') {
         $x = $pdo->prepare("SELECT image_file FROM xrays WHERE id=? AND patient_id=?");
@@ -134,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($patients as $pRow) { if ((int)$pRow['id'] === $pid) { $xrPatientName = $pRow['name']; break; } }
         log_activity($pdo, 'Deleted X-ray', $xrPatientName);
         set_flash('X-ray deleted.', 'info');
-        header("Location: records.php?patient=$pid&tab=xrays"); exit;
+        header("Location: records?patient=$pid&tab=xrays"); exit;
     }
 
     // ----- Notes -----
@@ -142,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("INSERT INTO clinical_notes (patient_id,note,author) VALUES (?,?,?)")
             ->execute([$pid, trim($_POST['note']), $_SESSION['name'] ?? '']);
         set_flash('Note added.');
-        header("Location: records.php?patient=$pid&tab=notes"); exit;
+        header("Location: records?patient=$pid&tab=notes"); exit;
     }
     if ($action === 'delete_note') {
         $nPatientName = 'Patient #' . $pid;
@@ -150,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("DELETE FROM clinical_notes WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
         log_activity($pdo, 'Deleted clinical note', $nPatientName);
         set_flash('Note deleted.', 'info');
-        header("Location: records.php?patient=$pid&tab=notes"); exit;
+        header("Location: records?patient=$pid&tab=notes"); exit;
     }
 }
 
@@ -213,7 +213,7 @@ $active = 'records';
             <?php
             $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 X-rays','notes'=>'📝 Notes'];
             foreach ($recTabs as $k=>$label): ?>
-                <a href="records.php?patient=<?= $pid ?>&tab=<?= $k ?>" class="btn btn-sm <?= $tab===$k?'btn-dark-navy':'btn-light' ?>"><?= $label ?></a>
+                <a href="records?patient=<?= $pid ?>&tab=<?= $k ?>" class="btn btn-sm <?= $tab===$k?'btn-dark-navy':'btn-light' ?>"><?= $label ?></a>
             <?php endforeach; ?>
         </div>
 
@@ -285,7 +285,7 @@ $active = 'records';
                     <?php $recOldFirst = array_reverse($recSessions); ?>
                     <?php foreach ($recOldFirst as $i => $s): ?>
                         <a class="sess-tab <?= (int)$s['id']===$recSid?'on':'' ?>"
-                           href="records.php?patient=<?= $pid ?>&tab=overview&session=<?= $s['id'] ?>">
+                           href="records?patient=<?= $pid ?>&tab=overview&session=<?= $s['id'] ?>">
                             <b>Visit <?= $i+1 ?><?= $i === count($recOldFirst)-1 ? ' · latest' : '' ?></b>
                             <small><?= date('M j, Y', strtotime($s['visit_date'])) ?><?= $s['title'] ? ' · '.e($s['title']) : '' ?></small>
                         </a>
@@ -399,8 +399,8 @@ $active = 'records';
                 <div class="d-flex flex-wrap gap-3">
                     <?php foreach ($xrays as $xr): ?>
                         <div style="width:180px;border:1px solid #e3e9ee;border-radius:10px;overflow:hidden;">
-                            <a href="xray.php?id=<?= (int)$xr['id'] ?>" target="_blank">
-                                <img src="xray.php?id=<?= (int)$xr['id'] ?>" alt="X-ray" style="width:100%;height:130px;object-fit:cover;background:#000;">
+                            <a href="xray?id=<?= (int)$xr['id'] ?>" target="_blank">
+                                <img src="xray?id=<?= (int)$xr['id'] ?>" alt="X-ray" style="width:100%;height:130px;object-fit:cover;background:#000;">
                             </a>
                             <div style="padding:8px;">
                                 <div style="font-size:.82rem;font-weight:600;"><?= $xr['caption'] ? e($xr['caption']) : 'X-ray' ?></div>

@@ -7,6 +7,12 @@ DirectoryIndex index.php
 Options -Indexes +FollowSymLinks
 RewriteEngine On
 
+# Clean addresses without ".php": /login is served by login.php.
+# (An internal rewrite, so the address bar keeps showing /login.)
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^([A-Za-z0-9_-]+)$ $1.php [L]
+
 # Security: block access to sensitive files
 <FilesMatch "\.(sql|log|env|toml|md|sh)$">
     Order Allow,Deny

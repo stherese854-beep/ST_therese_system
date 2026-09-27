@@ -6,6 +6,20 @@
 //  It starts the session and gives small helper functions.
 // ============================================================
 
+// Old ".php" addresses (bookmarks, links in emails already sent) move to the
+// clean ones: /login.php -> /login. GET only, so no form data is ever lost.
+// Uses a RELATIVE redirect: behind Railway's proxy an absolute one built by
+// Apache would point at http://...:8080. google_auth.php is left alone because
+// Google must return to exactly the address registered with it.
+if (php_sapi_name() !== 'cli' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
+    $__path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
+    if (preg_match('~/([A-Za-z0-9_-]+)\.php$~', $__path, $__m) && $__m[1] !== 'google_auth') {
+        $__qs = $_SERVER['QUERY_STRING'] ?? '';
+        header('Location: ' . $__m[1] . ($__qs !== '' ? '?' . $__qs : ''), true, 301);
+        exit;
+    }
+}
+
 // Session cookie: not readable by JavaScript, not sent from other sites,
 // and only over HTTPS when the site is served over HTTPS.
 session_set_cookie_params([
@@ -107,7 +121,7 @@ function require_login($allowed_roles = null) {
 
 // The logged-in user's own home page (patients live in the portal).
 function home_page() {
-    return current_role() === 'patient' ? 'portal.php' : 'dashboard.php';
+    return current_role() === 'patient' ? 'portal' : 'dashboard';
 }
 
 // Stops the request with a 403 "Access denied" page and logs the attempt.

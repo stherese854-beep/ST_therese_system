@@ -43,7 +43,7 @@ $redirectUri = $scheme . '://' . $_SERVER['HTTP_HOST']
 
 if ($clientId === '' || $clientSecret === '') {
     set_flash('Google Sign-In is not set up yet. An admin can add the Client ID and Secret in Settings.', 'error');
-    header("Location: login.php"); exit;
+    header("Location: login"); exit;
 }
 
 // ============================================================
@@ -69,7 +69,7 @@ if (!isset($_GET['code'])) {
 // ============================================================
 if (($_GET['state'] ?? '') !== ($_SESSION['g_state'] ?? 'x')) {
     set_flash('Google sign-in failed (bad state). Please try again.', 'error');
-    header("Location: login.php"); exit;
+    header("Location: login"); exit;
 }
 unset($_SESSION['g_state']);
 
@@ -97,7 +97,7 @@ curl_close($ch);
 $token = json_decode($tokenJson, true);
 if (empty($token['access_token'])) {
     set_flash('Google sign-in failed: ' . ($token['error_description'] ?? $curlErr ?: 'no token returned'), 'error');
-    header("Location: login.php"); exit;
+    header("Location: login"); exit;
 }
 
 // --- Use the token to read the user's profile ---
@@ -117,7 +117,7 @@ $gId    = $profile['id']    ?? '';
 
 if ($gEmail === '') {
     set_flash('Google did not return an email address.', 'error');
-    header("Location: login.php"); exit;
+    header("Location: login"); exit;
 }
 
 // ============================================================
@@ -136,7 +136,7 @@ if ($user) {
     $_SESSION['name']    = $user['name'];
     $_SESSION['role']    = $user['role'];
     set_flash('Welcome back, ' . $user['name'] . '!');
-    header("Location: " . ($user['role'] === 'patient' ? 'portal.php' : 'dashboard.php'));
+    header("Location: " . ($user['role'] === 'patient' ? 'portal' : 'dashboard'));
     exit;
 }
 
@@ -159,5 +159,5 @@ $_SESSION['user_id'] = $newId;
 $_SESSION['name']    = $gName;
 $_SESSION['role']    = 'patient';
 set_flash('Account created with Google — welcome, ' . $gName . '!');
-header("Location: portal.php");
+header("Location: portal");
 exit;

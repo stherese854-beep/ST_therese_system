@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
             $_POST['next_visit']  ?: null,
             $pid
         ]);
-    header("Location: reports.php?type=profile&patient_id=$pid&saved=1"); exit;
+    header("Location: reports?type=profile&patient_id=$pid&saved=1"); exit;
 }
 
 // Which report + which patient are we showing?
@@ -191,7 +191,7 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
             <?php foreach ($reportTypes as $key => $rt):
                 $isActive = ($type === $key);
             ?>
-                <a href="reports.php?type=<?= $key ?>&patient_id=<?= $patientId ?><?= $filterDentist !== '' ? '&dentist='.urlencode($filterDentist) : '' ?>"
+                <a href="reports?type=<?= $key ?>&patient_id=<?= $patientId ?><?= $filterDentist !== '' ? '&dentist='.urlencode($filterDentist) : '' ?>"
                    class="stat-card text-decoration-none text-dark"
                    style="<?= $isActive ? 'border:2px solid var(--teal-mid);background:#e8f5f3;' : 'border:2px solid transparent;' ?>">
                     <div style="font-size:1.8rem;"><?= $rt[0] ?></div>

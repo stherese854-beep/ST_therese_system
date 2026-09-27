@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'smtp_verified_at', '');
 
         set_flash('Email configuration saved. Now press "Send Test" to check it actually works.');
-        header("Location: messaging.php"); exit;
+        header("Location: messaging"); exit;
     }
 
     // ---- Really send a test email ----
@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             save_setting($pdo, 'smtp_verified_at', '');
             set_flash("❌ Could not send: $err", 'error');
         }
-        header("Location: messaging.php"); exit;
+        header("Location: messaging"); exit;
     }
 
     if ($action === 'save_sms') {
@@ -81,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     set_flash('Messaging configuration saved.');
-    header("Location: messaging.php");
+    header("Location: messaging");
     exit;
 }
 

@@ -6,7 +6,7 @@ require_once 'config/auth.php';
 require_once 'includes/mailer.php';   // to email the verification code
 
 // If already logged in, skip the login page.
-if (is_logged_in()) { header("Location: dashboard.php"); exit; }
+if (is_logged_in()) { header("Location: dashboard"); exit; }
 
 $error = '';
 $emailTaken = false;    // true clears just the email field on re-render (see register handler)
@@ -84,9 +84,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Patients go to the patient portal; everyone else to the dashboard.
                 if ($user['role'] === 'patient') {
-                    header("Location: portal.php");
+                    header("Location: portal");
                 } else {
-                    header("Location: dashboard.php");
+                    header("Location: dashboard");
                 }
                 exit;
             }
@@ -212,7 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 set_flash("Enter the verification code to continue.", 'info');
             }
-            header("Location: login.php?mode=verify");
+            header("Location: login?mode=verify");
             exit;
         }
         }   // end of the age-check guard
@@ -245,11 +245,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id'] = $newId;
             $_SESSION['name']    = $p['name'];
             $_SESSION['role']    = 'patient';
-            $_SESSION['just_registered']    = true;   // portal.php greets them differently, once
-            $_SESSION['show_welcome_popup'] = true;   // portal.php shows a one-time pop-up greeting
+            $_SESSION['just_registered']    = true;   // portal greets them differently, once
+            $_SESSION['show_welcome_popup'] = true;   // portal shows a one-time pop-up greeting
             log_activity($pdo, 'Created account', $p['name'] . ' (patient, self-registered)');
             set_flash('Email verified — welcome, ' . $p['name'] . '!');
-            header("Location: portal.php");
+            header("Location: portal");
             exit;
         }
     }
@@ -297,8 +297,8 @@ include 'includes/head.php';
 
             <!-- Tabs to switch between Login and Create Account -->
             <div class="auth-tabs">
-                <button class="<?= $mode==='signin'?'active':'' ?>" onclick="location.href='login.php?mode=signin'">Login</button>
-                <button class="<?= $mode==='register'?'active':'' ?>" onclick="location.href='login.php?mode=register'">Create Account</button>
+                <button class="<?= $mode==='signin'?'active':'' ?>" onclick="location.href='login?mode=signin'">Login</button>
+                <button class="<?= $mode==='register'?'active':'' ?>" onclick="location.href='login?mode=register'">Create Account</button>
             </div>
 
             <?php if ($error): ?>
@@ -309,7 +309,7 @@ include 'includes/head.php';
                 <!-- ============ LOGIN FORM ============ -->
                 <h2>Welcome back</h2>
                 <p class="muted">Enter your credentials to continue.</p>
-                <form method="POST" action="login.php">
+                <form method="POST" action="login">
                     <input type="hidden" name="action" value="signin">
                     <label class="field-label">Email Address</label>
                     <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com"
@@ -325,7 +325,7 @@ include 'includes/head.php';
                 </div>
 
                     <div class="text-end" style="margin-top:-8px;margin-bottom:12px;">
-                        <a href="forgot_password.php" style="color:var(--teal);font-size:.85rem;text-decoration:none;">Forgot password?</a>
+                        <a href="forgot_password" style="color:var(--teal);font-size:.85rem;text-decoration:none;">Forgot password?</a>
                     </div>
 
                     <button type="submit" class="btn btn-teal w-100 py-2">Login →</button>
@@ -337,7 +337,7 @@ include 'includes/head.php';
                         <span class="muted" style="font-size:.8rem;">or</span>
                         <div style="flex:1;height:1px;background:#e3e9ee;"></div>
                     </div>
-                    <a href="google_auth.php" class="btn w-100 py-2 d-flex align-items-center justify-content-center gap-2"
+                    <a href="google_auth" class="btn w-100 py-2 d-flex align-items-center justify-content-center gap-2"
                        style="border:1px solid #dadce0;background:#fff;color:#3c4043;font-weight:600;">
                         <svg width="18" height="18" viewBox="0 0 48 48">
                             <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
@@ -349,7 +349,7 @@ include 'includes/head.php';
                     </a>
                 <?php endif; ?>
                 <p class="text-center mt-3 muted">Don't have an account?
-                    <a href="login.php?mode=register" style="color:var(--teal);font-weight:600;">Create one now →</a>
+                    <a href="login?mode=register" style="color:var(--teal);font-weight:600;">Create one now →</a>
                 </p>
                 <div class="alert alert-light border mt-2 py-2 text-center" style="font-size:.85rem;">
                     🔒 An account is required to book an appointment.
@@ -377,7 +377,7 @@ include 'includes/head.php';
                            style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
                     <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Create Account →</button>
                 </form>
-                <p class="text-center mt-3 muted"><a href="login.php?mode=register" style="color:var(--teal);">← Back to register</a></p>
+                <p class="text-center mt-3 muted"><a href="login?mode=register" style="color:var(--teal);">← Back to register</a></p>
 
             <?php else: ?>
                 <!-- ============ REGISTER FORM ============ -->
@@ -447,7 +447,7 @@ include 'includes/head.php';
                         <span class="muted" style="font-size:.8rem;">or</span>
                         <div style="flex:1;height:1px;background:#e3e9ee;"></div>
                     </div>
-                    <a href="google_auth.php" class="btn w-100 py-2 d-flex align-items-center justify-content-center gap-2"
+                    <a href="google_auth" class="btn w-100 py-2 d-flex align-items-center justify-content-center gap-2"
                        style="border:1px solid #dadce0;background:#fff;color:#3c4043;font-weight:600;">
                         <svg width="18" height="18" viewBox="0 0 48 48">
                             <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>

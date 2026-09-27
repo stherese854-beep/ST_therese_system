@@ -18,7 +18,7 @@ $tbRole  = function_exists('current_role') ? current_role() : ($_SESSION['role']
 
 // Where does "Profile / Settings" go? Patients have their own portal page;
 // staff/admin/dentist use the shared settings page.
-$tbProfileLink = ($tbRole === 'patient') ? 'portal.php?view=profile' : 'settings.php';
+$tbProfileLink = ($tbRole === 'patient') ? 'portal?view=profile' : 'settings';
 
 // The user's profile picture (users.photo). Falls back to their initial.
 $tbPhoto = null;
@@ -40,7 +40,7 @@ $unreadCount = null;   // patients use this for the red badge; null = use list c
 try {
     if (in_array($tbRole, ['admin','staff'])) {
         $pc = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE status='Pending'")->fetchColumn();
-        if ($pc > 0) $notifs[] = ['icon'=>'⏳','text'=>"$pc pending appointment".($pc>1?'s':'')." to review",'link'=>'appointments.php?filter=Pending'];
+        if ($pc > 0) $notifs[] = ['icon'=>'⏳','text'=>"$pc pending appointment".($pc>1?'s':'')." to review",'link'=>'appointments?filter=Pending'];
 
         // Appointments the PATIENT cancelled online — the clinic needs to know
         // so the freed-up slot can be reused. Only recent ones are shown.
@@ -50,19 +50,19 @@ try {
                   WHERE cancelled_by='patient'
                     AND cancelled_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
             )->fetchColumn();
-            if ($cc > 0) $notifs[] = ['icon'=>'🚫','text'=>"$cc appointment".($cc>1?'s':'')." cancelled by patients",'link'=>'appointments.php?filter=Cancelled'];
+            if ($cc > 0) $notifs[] = ['icon'=>'🚫','text'=>"$cc appointment".($cc>1?'s':'')." cancelled by patients",'link'=>'appointments?filter=Cancelled'];
         } catch (Throwable $e) {}
 
         // Appointments the system thinks were missed, waiting for a decision.
         try {
             $nr = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE status='Needs Review'")->fetchColumn();
-            if ($nr > 0) $notifs[] = ['icon'=>'📋','text'=>"$nr missed appointment".($nr>1?'s':'')." to review",'link'=>'noshow.php?tab=review'];
+            if ($nr > 0) $notifs[] = ['icon'=>'📋','text'=>"$nr missed appointment".($nr>1?'s':'')." to review",'link'=>'noshow?tab=review'];
         } catch (Throwable $e) {}
 
         // reviews table may not exist on older DBs — guard it
         try {
             $rc = (int)$pdo->query("SELECT COUNT(*) FROM reviews WHERE status='Pending'")->fetchColumn();
-            if ($rc > 0) $notifs[] = ['icon'=>'⭐','text'=>"$rc new review".($rc>1?'s':'')." to moderate",'link'=>'reviews.php'];
+            if ($rc > 0) $notifs[] = ['icon'=>'⭐','text'=>"$rc new review".($rc>1?'s':'')." to moderate",'link'=>'reviews'];
         } catch (Throwable $e) {}
     } elseif ($tbRole === 'dentist') {
         // A dentist should only be notified about pending appointments belonging to
@@ -76,7 +76,7 @@ try {
                AND (p.primary_dentist = " . $pdo->quote($tbName) . "
                     OR a.dentist = " . $pdo->quote($tbName) . ")"
         )->fetchColumn();
-        if ($pc > 0) $notifs[] = ['icon'=>'⏳','text'=>"$pc pending appointment".($pc>1?'s':'')." for your patients",'link'=>'appointments.php?filter=Pending'];
+        if ($pc > 0) $notifs[] = ['icon'=>'⏳','text'=>"$pc pending appointment".($pc>1?'s':'')." for your patients",'link'=>'appointments?filter=Pending'];
     } elseif ($tbRole === 'patient') {
         // The patient is notified when the clinic CONFIRMS an appointment.
         // Anything confirmed before they last opened the bell counts as already
@@ -102,7 +102,7 @@ try {
             // red badge depends on whether they are unread.
             $tot = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE patient_id=" . (int)$mypid . " AND status='Confirmed'")->fetchColumn();
             if ($tot > 0) {
-                $notifs[] = ['icon'=>'✅','text'=>"$tot confirmed appointment".($tot>1?'s':''),'link'=>'portal.php?view=appointments'];
+                $notifs[] = ['icon'=>'✅','text'=>"$tot confirmed appointment".($tot>1?'s':''),'link'=>'portal?view=appointments'];
             }
             $unreadCount = $unread;   // drives the red badge for patients
         }
@@ -161,7 +161,7 @@ $badgeCount = ($unreadCount === null) ? $notifCount : $unreadCount;
             </div>
         </div>
         <a href="<?= $tbProfileLink ?>" class="pw-item">⚙️ Profile &amp; Settings</a>
-        <a href="logout.php" class="pw-item pw-signout">⏻ Sign Out</a>
+        <a href="logout" class="pw-item pw-signout">⏻ Sign Out</a>
     </div>
 </div>
 </div><!-- /#topbarWidgets -->
@@ -253,7 +253,7 @@ function toggleNotif(e){
     if (dot) {
         dot.remove();
         var tk = document.querySelector('meta[name="csrf-token"]');
-        fetch('notif_seen.php', { method: 'POST', credentials: 'same-origin',
+        fetch('notif_seen', { method: 'POST', credentials: 'same-origin',
               headers: { 'X-CSRF-Token': tk ? tk.content : '' } }).catch(function(){});
     }
 }

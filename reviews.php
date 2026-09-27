@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         log_activity($pdo, 'Deleted review', $revName);
         set_flash('Review deleted.', 'info');
     }
-    header("Location: reviews.php"); exit;
+    header("Location: reviews"); exit;
 }
 
 // Newest first, but show Pending ones at the very top so they get seen.
@@ -84,7 +84,7 @@ $active = 'reviews';
         <?php if ($approved === 0): ?>
             <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.87rem;">
                 ℹ️ No approved reviews yet, so the landing page is showing the sample testimonials
-                you can edit in <a href="landing_edit.php">Edit Landing Page</a>. As soon as you approve
+                you can edit in <a href="landing_edit">Edit Landing Page</a>. As soon as you approve
                 a real review here, it replaces them.
             </div>
         <?php endif; ?>

@@ -61,14 +61,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   : " (The email could not be sent — $err)";
         }
         set_flash(($row['patient_name'] ?? 'Appointment') . ' marked as a no-show.' . $note);
-        header("Location: noshow.php?tab=review"); exit;
+        header("Location: noshow?tab=review"); exit;
     }
 
     if ($id && $action === 'mark_attended') {
         // A false alarm — the visit simply was not encoded. Close it quietly.
         $pdo->prepare("UPDATE appointments SET status='Completed' WHERE id=?")->execute([$id]);
         set_flash('Marked as attended. No notice was sent and nothing was counted against the patient.', 'info');
-        header("Location: noshow.php?tab=review"); exit;
+        header("Location: noshow?tab=review"); exit;
     }
 }
 
@@ -172,7 +172,7 @@ function tabLink($key, $label, $count, $current) {
     foreach (['dentist','status','q'] as $p) {
         if (!empty($_GET[$p])) $keep .= '&' . $p . '=' . urlencode($_GET[$p]);
     }
-    echo "<a href='noshow.php?tab=$key$keep' class='btn btn-sm $cls'>$label <span class='badge bg-light text-dark'>$count</span></a> ";
+    echo "<a href='noshow?tab=$key$keep' class='btn btn-sm $cls'>$label <span class='badge bg-light text-dark'>$count</span></a> ";
 }
 ?>
 <div class="app-wrap">
@@ -255,7 +255,7 @@ function tabLink($key, $label, $count, $current) {
                 <div class="col-md-2 d-flex gap-1">
                     <button class="btn btn-teal btn-sm w-100">Apply</button>
                     <?php if ($filterDentist !== '' && !$isDentistUser || $filterStatus !== '' || $searchName !== ''): ?>
-                        <a href="noshow.php?tab=<?= e($tab) ?>" class="btn btn-light btn-sm">Clear</a>
+                        <a href="noshow?tab=<?= e($tab) ?>" class="btn btn-light btn-sm">Clear</a>
                     <?php endif; ?>
                 </div>
             </form>
@@ -327,7 +327,7 @@ function tabLink($key, $label, $count, $current) {
                                     <div style="font-size:2rem;margin-bottom:6px;">📋</div>
                                     <?php if ($filterStatus !== '' || $searchName !== '' || (!$isDentistUser && $filterDentist !== '')): ?>
                                         Nothing matches your filters.
-                                        <a href="noshow.php?tab=<?= e($tab) ?>" style="color:var(--teal);">Clear filters</a>
+                                        <a href="noshow?tab=<?= e($tab) ?>" style="color:var(--teal);">Clear filters</a>
                                     <?php elseif ($tab === 'review'): ?>
                                         Nothing needs reviewing — every past appointment is accounted for.
                                     <?php else: ?>

@@ -237,7 +237,7 @@ $active = 'dashboard';
             </div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock">--:--</span><br><span id="clock-date"></span></div>
-                <a href="patients.php" class="btn btn-dark-navy">+ New Patient</a>
+                <a href="patients" class="btn btn-dark-navy">+ New Patient</a>
             </div>
         </div>
 
@@ -253,7 +253,7 @@ $active = 'dashboard';
             <div class="flex-between mb-2">
                 <h6 class="mb-0">📣 Clinic Announcements</h6>
                 <?php if (current_role() === 'admin'): ?>
-                    <a href="announcements.php" class="btn btn-sm btn-light">Manage</a>
+                    <a href="announcements" class="btn btn-sm btn-light">Manage</a>
                 <?php endif; ?>
             </div>
             <?php foreach ($dashAnns as $an): ?>
@@ -302,7 +302,7 @@ $active = 'dashboard';
                 <div class="card-box">
                     <div class="flex-between mb-2">
                         <h5 class="mb-0">Today's Appointments</h5>
-                        <a href="appointments.php" class="btn btn-sm btn-outline-teal">View All →</a>
+                        <a href="appointments" class="btn btn-sm btn-outline-teal">View All →</a>
                     </div>
                     <div class="table-responsive">
                         <table class="data">

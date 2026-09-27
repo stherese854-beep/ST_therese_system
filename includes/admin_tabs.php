@@ -7,15 +7,15 @@
 // ============================================================
 $_curRole = current_role();
 $adminTabs = [
-    'users'         => ['admin_users.php',    '👤 User Management',   ['admin']],
-    'archive'       => ['admin_archive.php',  '🗄 Archive',           ['admin']],
-    'activity'      => ['admin_activity.php', '📋 Activity Log',      ['admin']],
-    'announcements' => ['announcements.php',   '📣 Announcements',     ['admin']],
-    'reviews'       => ['reviews.php',         '⭐ Patient Reviews',   ['admin']],
-    'landing_edit'  => ['landing_edit.php',    '🎨 Edit Landing Page', ['admin']],
-    'templates'     => ['templates.php',        '📝 Message Templates', ['admin']],
-    'messaging'     => ['messaging.php',       '✉️ Messaging Config',  ['admin']],
-    'settings'      => ['settings.php',        '⚙️ System',            ['admin']],
+    'users'         => ['admin_users',    '👤 User Management',   ['admin']],
+    'archive'       => ['admin_archive',  '🗄 Archive',           ['admin']],
+    'activity'      => ['admin_activity', '📋 Activity Log',      ['admin']],
+    'announcements' => ['announcements',   '📣 Announcements',     ['admin']],
+    'reviews'       => ['reviews',         '⭐ Patient Reviews',   ['admin']],
+    'landing_edit'  => ['landing_edit',    '🎨 Edit Landing Page', ['admin']],
+    'templates'     => ['templates',        '📝 Message Templates', ['admin']],
+    'messaging'     => ['messaging',       '✉️ Messaging Config',  ['admin']],
+    'settings'      => ['settings',        '⚙️ System',            ['admin']],
 ];
 ?>
 <div class="card-box" style="padding:6px;">
@@ -30,7 +30,7 @@ $adminTabs = [
             <?php endif; ?>
         <?php endforeach; ?>
         <?php if ($_curRole === 'admin'): ?>
-            <a href="cron_reminders.php" target="_blank" class="btn btn-sm btn-light">⏰ Run 24h Reminders</a>
+            <a href="cron_reminders" target="_blank" class="btn btn-sm btn-light">⏰ Run 24h Reminders</a>
         <?php endif; ?>
     </div>
 </div>

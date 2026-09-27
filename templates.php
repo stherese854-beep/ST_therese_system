@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             save_setting($pdo, $key, ($posted === trim($f['default'])) ? '' : $posted);
         }
         set_flash('Message templates saved.');
-        header("Location: templates.php"); exit;
+        header("Location: templates"); exit;
     }
 
     if ($action === 'reset_one') {
@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             save_setting($pdo, "tpl_{$kind}_body", '');
             set_flash('"' . $catalogue[$kind]['label'] . '" was restored to its original wording.', 'info');
         }
-        header("Location: templates.php"); exit;
+        header("Location: templates"); exit;
     }
 
     if ($action === 'reset_all') {
@@ -54,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         foreach ($slip as $key => $f) save_setting($pdo, $key, '');
         set_flash('All messages were restored to their original wording.', 'info');
-        header("Location: templates.php"); exit;
+        header("Location: templates"); exit;
     }
 }
 
@@ -163,7 +163,7 @@ include 'includes/head.php';
             <div class="d-flex gap-2 mb-4">
                 <button class="btn btn-teal">💾 Save all messages</button>
                 <button type="button" class="btn btn-light" onclick="resetAll()">↺ Restore everything</button>
-                <a href="messaging.php" class="btn btn-light">✉️ Email settings</a>
+                <a href="messaging" class="btn btn-light">✉️ Email settings</a>
             </div>
         </form>
 

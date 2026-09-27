@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $adminOnly = ['save_clinic','save_security','save_hours','save_google'];
     if (in_array($action, $adminOnly) && current_role() !== 'admin') {
         set_flash('You do not have permission to change that.', 'error');
-        header("Location: settings.php"); exit;
+        header("Location: settings"); exit;
     }
 
     if ($action === 'save_clinic') {
@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'clinic_address',  trim($_POST['clinic_address']));
         save_setting($pdo, 'operating_hours', trim($_POST['operating_hours']));
         log_activity($pdo, 'Updated clinic info');
-        set_flash('Settings saved.'); header("Location: settings.php"); exit;
+        set_flash('Settings saved.'); header("Location: settings"); exit;
     }
 
     if ($action === 'save_security') {
@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'sec_login_audit',      isset($_POST['login_audit'])      ? '1' : '0');
         save_setting($pdo, 'sec_session_timeout',  isset($_POST['session_timeout'])  ? '1' : '0');
         save_setting($pdo, 'sec_password_expiry',  isset($_POST['password_expiry'])  ? '1' : '0');
-        set_flash('Settings saved.'); header("Location: settings.php"); exit;
+        set_flash('Settings saved.'); header("Location: settings"); exit;
     }
 
     // Clinic OPEN DAYS + HOURS -- the online booking page reads these to know
@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'clinic_open_time',  $_POST['open_time']);
         save_setting($pdo, 'clinic_close_time', $_POST['close_time']);
         log_activity($pdo, 'Updated clinic hours', "Open: $days, $_POST[open_time]-$_POST[close_time]");
-        set_flash('Settings saved.'); header("Location: settings.php"); exit;
+        set_flash('Settings saved.'); header("Location: settings"); exit;
     }
 
     // Google Sign-In credentials (created in the Google Cloud Console).
@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             save_setting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
         }
         set_flash('Google Sign-In settings saved.');
-        header("Location: settings.php"); exit;
+        header("Location: settings"); exit;
     }
 
     // Change the logged-in user's OWN password (works for admin, dentist, staff).
@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('Name cannot be empty.', 'error');
         }
-        header("Location: settings.php"); exit;
+        header("Location: settings"); exit;
     }
 
     // ---- Upload a profile picture (same feature patients have) ----
@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else { set_flash('Could not save the picture.', 'error'); }
             } else { set_flash('Please choose an image (jpg, png, gif, webp).', 'error'); }
         } else { set_flash('Please choose a picture first.', 'error'); }
-        header("Location: settings.php"); exit;
+        header("Location: settings"); exit;
     }
 
     // ---- Remove the profile picture ----
@@ -123,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
         $pdo->prepare("UPDATE users SET photo=NULL WHERE id=?")->execute([$_SESSION['user_id']]);
         set_flash('Profile picture removed.', 'info');
-        header("Location: settings.php"); exit;
+        header("Location: settings"); exit;
     }
 
     if ($action === 'change_password') {
@@ -146,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE users SET password=? WHERE id=?")
                 ->execute([password_hash($new, PASSWORD_DEFAULT), $uid]);
             log_activity($pdo, 'Changed password', 'Own account');
-            set_flash('Your password has been changed.'); header("Location: settings.php"); exit;
+            set_flash('Your password has been changed.'); header("Location: settings"); exit;
         }
         // if we reach here, there was an error -> fall through and show it below
     }

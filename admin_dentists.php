@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($emailError !== '') {
             set_flash($emailError, 'error');
-            header("Location: admin_dentists.php"); exit;
+            header("Location: admin_dentists"); exit;
         }
 
         // New dentists get the default password 'password123' (they change it later).
@@ -73,10 +73,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                       : " (Note: the welcome email could not be sent — $err)";
             }
             set_flash("$name added. Their password is password123." . $note);
-            header("Location: admin_dentists.php"); exit;
+            header("Location: admin_dentists"); exit;
         } catch (PDOException $ex) {
             set_flash('That email is already in use. Please use a different email.', 'error');
-            header("Location: admin_dentists.php"); exit;
+            header("Location: admin_dentists"); exit;
         }
     }
 
@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('Please choose a photo first.', 'error');
         }
-        header("Location: admin_dentists.php"); exit;
+        header("Location: admin_dentists"); exit;
     }
 
     if ($action === 'delete_dentist') {
@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('Dentist removed.', 'info');
         }
-        header("Location: admin_dentists.php"); exit;
+        header("Location: admin_dentists"); exit;
     }
 }
 
@@ -188,14 +188,14 @@ $active = 'dentists';
     ?>
         <!-- breadcrumb -->
         <div class="mb-2" style="font-size:.9rem;">
-            <a href="admin_dentists.php">Dentists</a> ›
-            <a href="admin_dentists.php?dentist=<?= $did ?>"><?= e($dentist['name'] ?? 'Dentist') ?></a> ›
+            <a href="admin_dentists">Dentists</a> ›
+            <a href="admin_dentists?dentist=<?= $did ?>"><?= e($dentist['name'] ?? 'Dentist') ?></a> ›
             <span class="text-muted2"><?= e($patient['name'] ?? 'Patient') ?></span>
         </div>
 
         <div class="page-head">
             <div><h1><?= e($patient['name']) ?></h1><div class="sub">Dental chart &amp; treatment records — under <?= e($dentist['name']) ?></div></div>
-            <a href="admin_dentists.php?dentist=<?= $did ?>" class="btn btn-light">← Back to patients</a>
+            <a href="admin_dentists?dentist=<?= $did ?>" class="btn btn-light">← Back to patients</a>
         </div>
 
         <!-- patient info strip -->
@@ -300,12 +300,12 @@ $active = 'dentists';
         $docPatients = $ps->fetchAll();
     ?>
         <div class="mb-2" style="font-size:.9rem;">
-            <a href="admin_dentists.php">Dentists</a> › <span class="text-muted2"><?= e($dentist['name'] ?? 'Dentist') ?></span>
+            <a href="admin_dentists">Dentists</a> › <span class="text-muted2"><?= e($dentist['name'] ?? 'Dentist') ?></span>
         </div>
 
         <div class="page-head">
             <div><h1><?= e($dentist['name']) ?></h1><div class="sub"><?= e($dentist['specialty'] ?: 'Dentist') ?></div></div>
-            <a href="admin_dentists.php" class="btn btn-light">← Back to dentists</a>
+            <a href="admin_dentists" class="btn btn-light">← Back to dentists</a>
         </div>
 
         <!-- dentist profile card -->
@@ -342,7 +342,7 @@ $active = 'dentists';
                             <td><?= e($pt['last_visit']) ?></td>
                             <td><?= e($pt['next_visit']) ?></td>
                             <td><span class="badge-pill <?= badge_for($pt['status']) ?>"><?= e($pt['status']) ?></span></td>
-                            <td><a href="admin_dentists.php?dentist=<?= $did ?>&patient=<?= $pt['id'] ?>" class="btn btn-sm btn-teal">View Chart &amp; Records →</a></td>
+                            <td><a href="admin_dentists?dentist=<?= $did ?>&patient=<?= $pt['id'] ?>" class="btn btn-sm btn-teal">View Chart &amp; Records →</a></td>
                         </tr>
                     <?php endforeach; ?>
                     <?php if (empty($docPatients)): ?>
@@ -405,7 +405,7 @@ $active = 'dentists';
                         <div class="flex-between" style="border-top:1px solid #eee;padding-top:10px;">
                             <span><strong style="font-size:1.3rem;color:var(--teal-mid);"><?= $patientCount ?></strong> <span class="text-muted2" style="font-size:.85rem;">patients</span></span>
                             <div class="d-flex gap-1">
-                                <a href="admin_dentists.php?dentist=<?= $doc['id'] ?>" class="btn btn-sm btn-teal">View →</a>
+                                <a href="admin_dentists?dentist=<?= $doc['id'] ?>" class="btn btn-sm btn-teal">View →</a>
                                 <form method="POST" onsubmit="return confirm('Delete <?= e(addslashes($doc['name'])) ?>? Their patients will be transferred to another dentist.')">
                                     <input type="hidden" name="action" value="delete_dentist">
                                     <input type="hidden" name="id" value="<?= $doc['id'] ?>">

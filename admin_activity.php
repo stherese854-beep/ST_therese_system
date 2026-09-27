@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         set_flash('Log entry deleted.', 'info');
     }
     // Keep whatever filters were active before deleting.
-    header("Location: admin_activity.php?" . http_build_query($_POST['return'] ?? []));
+    header("Location: admin_activity?" . http_build_query($_POST['return'] ?? []));
     exit;
 }
 
@@ -116,7 +116,7 @@ $active = 'activity';
                            placeholder="Search action, name, details..." value="<?= e($actionFilter) ?>">
                     <button class="btn btn-sm btn-teal" type="submit">Filter</button>
                     <?php if ($roleFilter !== '' || $actionFilter !== '' || $dateFilter !== ''): ?>
-                        <a href="admin_activity.php" class="btn btn-sm btn-outline-secondary">Clear</a>
+                        <a href="admin_activity" class="btn btn-sm btn-outline-secondary">Clear</a>
                     <?php endif; ?>
                 </form>
             </div>

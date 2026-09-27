@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('That account is no longer in the Archive.', 'error');
             }
         }
-        header("Location: admin_archive.php"); exit;
+        header("Location: admin_archive"); exit;
     }
 
     if ($action === 'permadelete' && $id > 0) {
@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('That account is no longer in the Archive.', 'error');
             }
         }
-        header("Location: admin_archive.php"); exit;
+        header("Location: admin_archive"); exit;
     }
 }
 
@@ -127,8 +127,8 @@ $active = 'archive';
             <div class="flex-between mb-3">
                 <h5 class="mb-0">Archived <small class="text-muted2 d-block" style="font-size:.75rem;">Showing <?= count($archived) ?> archived item<?= count($archived) === 1 ? '' : 's' ?></small></h5>
                 <div class="d-flex gap-2">
-                    <a href="patients.php" class="btn btn-sm btn-outline-secondary">← Back to Patients</a>
-                    <a href="admin_users.php" class="btn btn-sm btn-outline-secondary">← Back to User Management</a>
+                    <a href="patients" class="btn btn-sm btn-outline-secondary">← Back to Patients</a>
+                    <a href="admin_users" class="btn btn-sm btn-outline-secondary">← Back to User Management</a>
                 </div>
             </div>
 

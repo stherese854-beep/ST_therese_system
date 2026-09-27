@@ -32,14 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         log_activity($pdo, $id ? 'Updated announcement' : 'Created announcement', $title);
         set_flash($id ? 'Announcement updated.' : 'Announcement created.');
-        header("Location: announcements.php"); exit;
+        header("Location: announcements"); exit;
     }
 
     if ($action === 'publish') {
         $pdo->prepare("UPDATE announcements SET status='Published' WHERE id=?")->execute([$_POST['id']]);
         log_activity($pdo, 'Published announcement', '#' . $_POST['id']);
         set_flash('Announcement published.');
-        header("Location: announcements.php"); exit;
+        header("Location: announcements"); exit;
     }
 
     // ---------- Send an announcement to patients (real email) ----------
@@ -54,12 +54,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($via === 'sms') {
             set_flash('SMS sending is not set up. The announcement was published, but no SMS was sent.', 'error');
-            header("Location: announcements.php"); exit;
+            header("Location: announcements"); exit;
         }
 
         if (!mail_is_ready($pdo)) {
             set_flash('Email is not configured yet. The announcement was published, but no email was sent. Set it up in Messaging Config.', 'error');
-            header("Location: announcements.php"); exit;
+            header("Location: announcements"); exit;
         }
 
         // Every active patient who has an email address.
@@ -93,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash("Could not send any emails. Last error: $lastErr", 'error');
         }
-        header("Location: announcements.php"); exit;
+        header("Location: announcements"); exit;
     }
 
     if ($action === 'delete') {
@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("DELETE FROM announcements WHERE id=?")->execute([$_POST['id']]);
         log_activity($pdo, 'Deleted announcement', $delTitle ?: ('#' . $_POST['id']));
         set_flash('Announcement deleted.', 'info');
-        header("Location: announcements.php"); exit;
+        header("Location: announcements"); exit;
     }
 }
 
@@ -127,7 +127,7 @@ $active = 'announcements';
 // little helper to make a filter pill link
 function pill($key, $label, $current) {
     $cls = ($current === $key) ? 'btn-outline-teal' : 'btn-light';
-    echo "<a href='announcements.php?filter=$key' class='btn btn-sm $cls'>$label</a> ";
+    echo "<a href='announcements?filter=$key' class='btn btn-sm $cls'>$label</a> ";
 }
 ?>
 <div class="app-wrap">

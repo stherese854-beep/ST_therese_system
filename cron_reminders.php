@@ -116,6 +116,6 @@ if (!$isCli) {
             <div style="color:#5c706e;font-size:.9rem;margin-bottom:16px;">' . date('D, M j, Y g:i A') . '</div>
             <pre style="background:#f4f8f8;padding:14px;border-radius:8px;font-size:.85rem;
                         white-space:pre-wrap;">' . htmlspecialchars(implode("\n", $log)) . '</pre>
-            <a href="dashboard.php" style="color:#0f766e;font-weight:600;">← Back to dashboard</a>
+            <a href="dashboard" style="color:#0f766e;font-weight:600;">← Back to dashboard</a>
           </div>';
 }

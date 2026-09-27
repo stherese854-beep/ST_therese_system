@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 } catch (PDOException $ex) {
                     set_flash('Patient saved, but that email is already used by another account.', 'error');
-                    header("Location: patients.php"); exit;
+                    header("Location: patients"); exit;
                 }
             }
         } else {
@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $newUserId = $pdo->lastInsertId();
                 } catch (PDOException $ex) {
                     set_flash('That email is already used by another account. Patient not added.', 'error');
-                    header("Location: patients.php"); exit;
+                    header("Location: patients"); exit;
                 }
             }
 
@@ -83,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         set_flash($id ? 'Patient updated.' : $newMsg);
-        header("Location: patients.php"); exit;
+        header("Location: patients"); exit;
     }
 
     if ($action === 'delete') {
@@ -100,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         archive_patient($pdo, $delId, $_SESSION['name'] ?? null);
 
         set_flash($delPatientName . ' moved to Archive.', 'info');
-        header("Location: patients.php"); exit;
+        header("Location: patients"); exit;
     }
 
     // ---------- Send a PERSONAL Email/SMS to ONE patient ----------
@@ -118,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($via === 'sms') {
             // SMS needs a paid gateway, which this system does not use.
             set_flash('SMS sending is not set up. Please use Email instead.', 'error');
-            header("Location: patients.php"); exit;
+            header("Location: patients"); exit;
         }
 
         $to = trim($pt['email'] ?? '');
@@ -137,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash("Could not send the email: $err", 'error');
             }
         }
-        header("Location: patients.php"); exit;
+        header("Location: patients"); exit;
     }
 
     // ---------- Manually assign a dentist to a patient (admin) ----------
@@ -148,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'toggle_booking_block') {
         if (!in_array(current_role(), ['admin','staff'])) {
             set_flash('Only admin and staff can pause online booking.', 'error');
-            header("Location: patients.php"); exit;
+            header("Location: patients"); exit;
         }
         $bid    = (int)($_POST['id'] ?? 0);
         $turnOn = ($_POST['block'] ?? '') === '1';
@@ -161,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($turnOn) {
             if ($reason === '') {
                 set_flash('Please give a reason — the patient will be shown this message.', 'error');
-                header("Location: patients.php"); exit;
+                header("Location: patients"); exit;
             }
             $pdo->prepare(
                 "UPDATE patients
@@ -177,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )->execute([$bid]);
             set_flash("$pname can book online again.");
         }
-        header("Location: patients.php"); exit;
+        header("Location: patients"); exit;
     }
 
     // ---------- Restore online booking after missed appointments ----------
@@ -187,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'restore_booking') {
         if (!in_array(current_role(), ['admin','staff'])) {
             set_flash('Only admin and staff can restore online booking.', 'error');
-            header("Location: patients.php"); exit;
+            header("Location: patients"); exit;
         }
         $rid = (int)($_POST['id'] ?? 0);
         $pdo->prepare("UPDATE patients SET noshow_reset_at = NOW(), noshow_reset_by = ? WHERE id = ?")
@@ -197,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nm->execute([$rid]);
         set_flash(($nm->fetchColumn() ?: 'Patient') . ' can book online again. '
                 . 'Their missed visits stay on record.');
-        header("Location: patients.php"); exit;
+        header("Location: patients"); exit;
     }
 
     if ($action === 'assign_dentist') {
@@ -205,13 +205,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // A dentist must not be able to reassign patients to themselves.
         if (!in_array(current_role(), ['admin','staff'])) {
             set_flash('You do not have permission to change a patient\'s dentist.', 'error');
-            header("Location: patients.php"); exit;
+            header("Location: patients"); exit;
         }
         $pdo->prepare("UPDATE patients SET primary_dentist=? WHERE id=?")
             ->execute([($_POST['dentist'] ?: null), (int)$_POST['id']]);
         set_flash($_POST['dentist'] ? ('Assigned to ' . $_POST['dentist'] . '.') : 'Patient unassigned.');
         $back = !empty($_POST['q']) ? '?q=' . urlencode($_POST['q']) : '';
-        header("Location: patients.php$back"); exit;
+        header("Location: patients$back"); exit;
     }
 }
 
@@ -275,7 +275,7 @@ $active = 'patients';
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
                 <?php if (current_role() === 'admin'): ?>
-                    <a href="admin_archive.php" class="btn btn-outline-secondary position-relative" title="Archive">
+                    <a href="admin_archive" class="btn btn-outline-secondary position-relative" title="Archive">
                         🗄 Archive
                         <?php if ($archivedPatientCount > 0): ?>
                             <span class="badge-pill b-inactive" style="margin-left:4px;"><?= $archivedPatientCount ?></span>
@@ -298,7 +298,7 @@ $active = 'patients';
             </select>
             <button class="btn btn-teal">Search</button>
             <?php if ($search !== '' || $statusFilter !== ''): ?>
-                <a href="patients.php" class="btn btn-light">Clear</a>
+                <a href="patients" class="btn btn-light">Clear</a>
             <?php endif; ?>
         </form>
 
@@ -315,7 +315,7 @@ $active = 'patients';
                         <tr><td colspan="8" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
                             <div style="font-size:2.4rem;margin-bottom:8px;">👥</div>
                             <?php if ($search !== '' || $statusFilter !== ''): ?>
-                                No patients match your search. <a href="patients.php" style="color:var(--teal);">Clear filters</a>
+                                No patients match your search. <a href="patients" style="color:var(--teal);">Clear filters</a>
                             <?php else: ?>
                                 No patients yet. Click <strong>+ Add Patient</strong> to add the first one.
                             <?php endif; ?>

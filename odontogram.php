@@ -13,7 +13,7 @@ require_once 'includes/teeth.php';
 
 // Helper: after a change, go back to the same patient + visit.
 function odo_back($pid, $sid) {
-    header("Location: odontogram.php?patient=$pid&session=$sid");
+    header("Location: odontogram?patient=$pid&session=$sid");
     exit;
 }
 
@@ -115,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("DELETE FROM odontogram WHERE patient_id=? AND session_id=?")->execute([$pid, $sid]);
         $pdo->prepare("DELETE FROM chart_sessions WHERE id=? AND patient_id=?")->execute([$sid, $pid]);
         set_flash('That visit chart was deleted.', 'info');
-        header("Location: odontogram.php?patient=$pid"); exit;
+        header("Location: odontogram?patient=$pid"); exit;
     }
 }
 
@@ -205,7 +205,7 @@ $active = 'odontogram';
                         <div class="d-flex gap-2">
                             <button type="button" id="odo-edit-btn" class="btn btn-outline-teal btn-sm" onclick="toggleOdoEdit(true)">✏️ Edit Chart</button>
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;" onclick="toggleOdoEdit(false)">✔ Done</button>
-                            <a href="reports.php" class="btn btn-gold btn-sm">🖨 Print / PDF</a>
+                            <a href="reports" class="btn btn-gold btn-sm">🖨 Print / PDF</a>
                         </div>
                     </div>
 
@@ -225,7 +225,7 @@ $active = 'odontogram';
                         <?php $oldestFirst = array_reverse($sessions); ?>
                         <?php foreach ($oldestFirst as $i => $s): ?>
                             <a class="sess-tab <?= (int)$s['id']===$sid?'on':'' ?>"
-                               href="odontogram.php?patient=<?= $pid ?>&session=<?= $s['id'] ?>">
+                               href="odontogram?patient=<?= $pid ?>&session=<?= $s['id'] ?>">
                                 <b>Visit <?= $i + 1 ?><?= $i === count($oldestFirst)-1 ? ' · latest' : '' ?></b>
                                 <small><?= date('M j, Y', strtotime($s['visit_date'])) ?><?= $s['title'] ? ' · '.e($s['title']) : '' ?></small>
                             </a>

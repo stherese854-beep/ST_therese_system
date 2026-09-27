@@ -12,7 +12,7 @@ require_once 'config/auth.php';
 require_once 'includes/mailer.php';
 require_once 'includes/message_templates.php';
 
-if (is_logged_in()) { header("Location: dashboard.php"); exit; }
+if (is_logged_in()) { header("Location: dashboard"); exit; }
 
 $step  = $_GET['step'] ?? 'request';
 $error = '';
@@ -44,11 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reque
         }
         // Move to the verify step, remembering the email in the session.
         $_SESSION['reset_email'] = $email;
-        header("Location: forgot_password.php?step=verify"); exit;
+        header("Location: forgot_password?step=verify"); exit;
     } else {
         // Pretend success even if the email is unknown.
         $_SESSION['reset_email'] = $email;
-        header("Location: forgot_password.php?step=verify"); exit;
+        header("Location: forgot_password?step=verify"); exit;
     }
 }
 
@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'verif
     $stmt->execute([$email, $code]);
     if ($stmt->fetch()) {
         $_SESSION['reset_verified'] = true;
-        header("Location: forgot_password.php?step=reset"); exit;
+        header("Location: forgot_password?step=reset"); exit;
     } else {
         $error = "That code is incorrect or has expired. Please try again.";
         $step = 'verify';
@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
         $pdo->prepare("UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL WHERE email = ?")
             ->execute([$hash, $email]);
         unset($_SESSION['reset_email'], $_SESSION['reset_verified']);
-        header("Location: login.php?toast=pwreset");
+        header("Location: login?toast=pwreset");
         exit;
     }
 }
@@ -98,7 +98,7 @@ include 'includes/head.php';
 ?>
 
 <div class="auth-page">
-    <a href="login.php" class="auth-close" aria-label="Back to login" title="Back to login">&times;</a>
+    <a href="login" class="auth-close" aria-label="Back to login" title="Back to login">&times;</a>
 
     <div class="auth-left">
       <div class="auth-brand">
@@ -128,7 +128,7 @@ include 'includes/head.php';
                 <input type="email" name="email" class="form-control mb-3" placeholder="you@email.com" required autofocus>
                 <button class="btn btn-teal w-100 py-2">Send Reset Code →</button>
             </form>
-            <p class="text-center mt-3 muted"><a href="login.php" style="color:var(--teal);">← Back to login</a></p>
+            <p class="text-center mt-3 muted"><a href="login" style="color:var(--teal);">← Back to login</a></p>
 
         <?php elseif ($step === 'verify'): ?>
             <h3 class="mb-1">Check your email</h3>
@@ -143,7 +143,7 @@ include 'includes/head.php';
                        style="letter-spacing:6px;text-align:center;font-size:1.2rem;" required autofocus>
                 <button class="btn btn-teal w-100 py-2">Verify Code →</button>
             </form>
-            <p class="text-center mt-3 muted"><a href="forgot_password.php?step=request" style="color:var(--teal);">← Use a different email</a></p>
+            <p class="text-center mt-3 muted"><a href="forgot_password?step=request" style="color:var(--teal);">← Use a different email</a></p>
 
         <?php elseif ($step === 'reset'): ?>
             <h3 class="mb-1">Set a new password</h3>

@@ -432,8 +432,8 @@ section{scroll-margin-top:88px}
         <a href="#contact">Contact</a>
       </div>
       <div class="nav-actions">
-        <a href="login.php?mode=signin" class="btn btn-ghost">Login</a>
-        <a href="login.php?mode=register" class="btn btn-ghost">Register</a>
+        <a href="login?mode=signin" class="btn btn-ghost">Login</a>
+        <a href="login?mode=register" class="btn btn-ghost">Register</a>
       </div>
     </div>
     <button class="hamburger" id="ham" aria-label="Menu">
@@ -450,10 +450,10 @@ section{scroll-margin-top:88px}
       <h1><?= h(lc('land_hero_title','Making Dental Appointments')) ?> <span class="grad-text"><?= h(lc('land_hero_highlight','Simple, Fast & Convenient')) ?></span></h1>
       <p class="lead"><?= h(lc('land_hero_subtitle','Our Dental Appointment System lets patients easily schedule appointments online, manage upcoming visits, and receive confirmations — all in one place.')) ?></p>
       <div class="hero-cta">
-        <a href="book.php" class="btn btn-primary">Book Appointment
+        <a href="book" class="btn btn-primary">Book Appointment
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
-        <a href="login.php?mode=signin" class="btn btn-ghost">Login</a>
+        <a href="login?mode=signin" class="btn btn-ghost">Login</a>
       </div>
       <div class="hero-trust">
         <div class="t"><span class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6" stroke-linecap="round" stroke-linejoin="round"/></svg></span> <?= h(lc('land_hero_trust1','Book in under 2 minutes')) ?></div>
@@ -907,9 +907,9 @@ section{scroll-margin-top:88px}
       <h2><?= h(lc('land_cta_heading','Ready to schedule your dental appointment?')) ?></h2>
       <p><?= h(lc('land_cta_text','Create an account or log in to book your next appointment quickly and conveniently.')) ?></p>
       <div class="cta-actions">
-        <a href="login.php?mode=register" class="btn btn-white">Register</a>
-        <a href="login.php?mode=signin" class="btn btn-clear">Login</a>
-        <a href="book.php" class="btn btn-clear">Book Appointment</a>
+        <a href="login?mode=register" class="btn btn-white">Register</a>
+        <a href="login?mode=signin" class="btn btn-clear">Login</a>
+        <a href="book" class="btn btn-clear">Book Appointment</a>
       </div>
     </div>
   </div>
@@ -930,7 +930,7 @@ section{scroll-margin-top:88px}
           <li><a href="#features">Features</a></li>
           <li><a href="#how">How It Works</a></li>
           <li><a href="#about">About</a></li>
-          <li><a href="book.php">Book Appointment</a></li>
+          <li><a href="book">Book Appointment</a></li>
         </ul>
       </div>
       <div>

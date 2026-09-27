@@ -91,7 +91,7 @@ foreach (slip_fields() as $k => $f) {
 }
 
 // Where "Back" should go, since this page normally opens in a new tab.
-$backLink = ($role === 'patient') ? 'portal.php?view=appointments' : 'appointments.php';
+$backLink = ($role === 'patient') ? 'portal?view=appointments' : 'appointments';
 ?>
 <!DOCTYPE html>
 <html lang="en">
