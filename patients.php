@@ -18,7 +18,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim($first . ' ' . $last);
         $email = trim($_POST['email']);
-        $phone = preg_replace('/[^0-9]/', '', trim($_POST['phone']));   // numbers only
+        [$phone, $phoneError] = validate_phone($_POST['phone'] ?? '', false);   // optional, but must be real
+        if ($phoneError !== '') {
+            set_flash($phoneError, 'error');
+            header("Location: patients"); exit;
+        }
         $age   = (int)($_POST['age'] ?? 0);
         $status= $_POST['status'] ?? 'Active';
         $blood = trim($_POST['blood_type'] ?? '');
@@ -464,8 +468,8 @@ $active = 'patients';
             <input type="email" name="email" id="f-email" class="form-control mb-3">
             <div class="row">
                 <div class="col"><label class="field-label">Phone</label>
-                    <input type="text" name="phone" id="f-phone" class="form-control mb-3"
-                           inputmode="numeric" maxlength="15" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+                    <input name="phone" id="f-phone" class="form-control mb-3" placeholder="09XX XXX XXXX"
+                           <?= phone_input_attrs() ?>></div>
                 <div class="col"><label class="field-label">Age</label>
                     <input type="number" name="age" id="f-age" class="form-control mb-3"></div>
             </div>

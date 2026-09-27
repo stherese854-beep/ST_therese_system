@@ -117,7 +117,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     // Appointments must be booked at least a day ahead — no same-day booking.
     $minBookDate = date('Y-m-d', strtotime('+1 day'));
 
-    if ($_POST['date'] < $minBookDate) {
+    [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
+
+    if ($phoneError !== '') {
+        $bookError = $phoneError;
+    } elseif ($_POST['date'] < $minBookDate) {
         $bookError = "Appointments must be booked at least a day in advance. Please pick "
                    . date('M j, Y', strtotime($minBookDate)) . " or a later date.";
     } elseif ($manualBlockReason !== '') {
@@ -151,8 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     } else {
         // Save the phone number the patient entered (keeps their record current).
         // Numbers only — strip out anything that isn't a digit.
-        if ($me['id'] && !empty($_POST['phone'])) {
-            $cleanPhone = preg_replace('/[^0-9]/', '', $_POST['phone']);
+        if ($me['id'] && $cleanPhone !== '') {
             $pdo->prepare("UPDATE patients SET phone=? WHERE id=?")->execute([$cleanPhone, $me['id']]);
         }
 
@@ -438,8 +441,8 @@ include 'includes/head.php';
                 <input class="form-control mb-3" value="<?= e($me['email']) ?>" readonly style="background:#eef7f6;color:var(--teal);">
 
                 <label class="field-label">Phone Number *</label>
-                <input name="phone" id="sel-phone" class="form-control mb-1" value="<?= e($me['phone']) ?>"
-                       inputmode="numeric" maxlength="15" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                <input name="phone" id="sel-phone" class="form-control mb-1" value="<?= e($me['phone']) ?>" placeholder="09XX XXX XXXX"
+                       <?= phone_input_attrs() ?>>
                 <div id="phone-warn" class="text-danger small mb-3" style="display:none;">Please enter your phone number.</div>
 
                 <div class="flex-between">
@@ -683,7 +686,9 @@ function validateStep3() {
         return;
     }
 
-    if (phone === '') {
+    var phoneMsg = phoneProblem(phone, true);
+    if (phoneMsg) {
+        document.getElementById('phone-warn').textContent = phoneMsg;
         document.getElementById('phone-warn').style.display = 'block';
         return;
     }

@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim($first . ' ' . $last);
         $email = trim($_POST['email'] ?? '');
-        $phone = preg_replace('/[^0-9]/', '', trim($_POST['contact'] ?? ''));   // numbers only
+        [$phone, $phoneError] = validate_phone($_POST['contact'] ?? '');   // real PH mobile, stored as 09XXXXXXXXX
         $pass  = $_POST['password'] ?? '';
         $pass2 = $_POST['confirm_password'] ?? '';
         $dob   = trim($_POST['dob'] ?? '');
@@ -133,10 +133,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Your password must be at least 4 characters.";
         } elseif (password_strength($pass) === 'weak') {
             $error = "That password is too weak. Please choose a Medium or Strong password.";
-        } elseif ($phone === '') {
-            $error = "Please enter your phone number.";
-        } elseif (strlen($phone) < 10) {
-            $error = "Please enter a real, complete phone number (at least 10 digits).";
+        } elseif ($phoneError !== '') {
+            $error = $phoneError;
         }
 
         // ---- AGE CHECK: account holders must be 18 or older ----
@@ -396,9 +394,9 @@ include 'includes/head.php';
                     <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com" value="<?= $emailTaken ? '' : e($_POST['email'] ?? '') ?>" <?= $emailTaken ? 'autofocus' : '' ?> required>
 
                     <label class="field-label">Phone Number</label>
-                    <input type="text" name="contact" id="reg-phone" class="form-control mb-1" placeholder="09XX XXX XXXX" value="<?= e($_POST['contact'] ?? '') ?>"
-                           inputmode="numeric" minlength="10" maxlength="15" oninput="this.value=this.value.replace(/[^0-9]/g,''); document.getElementById('reg-phone-warn').style.display='none';" required>
-                    <div id="reg-phone-warn" class="text-danger mb-2" style="display:none;font-size:.82rem;">Please enter a real, complete phone number (at least 10 digits).</div>
+                    <input name="contact" id="reg-phone" class="form-control mb-1" placeholder="09XX XXX XXXX" value="<?= e($_POST['contact'] ?? '') ?>"
+                           <?= phone_input_attrs() ?> oninput="document.getElementById('reg-phone-warn').style.display='none';" required>
+                    <div id="reg-phone-warn" class="text-danger mb-2" style="display:none;font-size:.82rem;"></div>
                     <div class="mb-2"></div>
 
                     <label class="field-label">Date of Birth</label>
@@ -541,7 +539,9 @@ function checkRegPass(){
   // A real phone number, not just one or two stray digits.
   var phone = document.getElementById('reg-phone').value;
   var phoneWarn = document.getElementById('reg-phone-warn');
-  if (phone.length < 10) {
+  var phoneMsg = phoneProblem(phone, true);
+  if (phoneMsg) {
+    phoneWarn.textContent = phoneMsg;
     phoneWarn.style.display = 'block';
     document.getElementById('reg-phone').focus();
     return false;   // stop the form

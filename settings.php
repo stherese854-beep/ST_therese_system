@@ -34,6 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'save_clinic') {
+        // The clinic's number may be a landline. Keep it as typed (it is shown
+        // on the site and slips), but only if it is a real number.
+        [, $phoneError] = validate_phone($_POST['clinic_phone'] ?? '', false, true);
+        if ($phoneError !== '') {
+            set_flash('Clinic phone: ' . $phoneError, 'error');
+            header("Location: settings"); exit;
+        }
         save_setting($pdo, 'clinic_name',     trim($_POST['clinic_name']));
         save_setting($pdo, 'clinic_tagline',  trim($_POST['clinic_tagline']));
         save_setting($pdo, 'clinic_phone',    trim($_POST['clinic_phone']));
@@ -80,8 +87,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'save_profile') {
         $uid = $_SESSION['user_id'];
         $newName = trim($_POST['my_name'] ?? '');
-        $newContact = trim($_POST['my_contact'] ?? '');
-        if ($newName !== '') {
+        [$newContact, $phoneError] = validate_phone($_POST['my_contact'] ?? '', false);
+        if ($phoneError !== '') {
+            set_flash($phoneError, 'error');
+        } elseif ($newName !== '') {
             $pdo->prepare("UPDATE users SET name=?, contact=? WHERE id=?")
                 ->execute([$newName, $newContact, $uid]);
             $_SESSION['name'] = $newName;   // keep the top-right widget in sync
@@ -235,7 +244,7 @@ $active = 'settings';
                             </div>
                             <div class="col-md-6">
                                 <label class="field-label">Contact Number</label>
-                                <input name="my_contact" class="form-control mb-3" value="<?= e($meUser['contact']) ?>" placeholder="09xx xxx xxxx">
+                                <input name="my_contact" class="form-control mb-3" value="<?= e($meUser['contact']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>>
                             </div>
                         </div>
                         <label class="field-label">Email <span class="text-muted2">(read-only)</span></label>
@@ -264,7 +273,7 @@ $active = 'settings';
                         <div class="row">
                             <div class="col-md-6">
                                 <label class="field-label">Phone</label>
-                                <input name="clinic_phone" class="form-control mb-3" value="<?= e(cfg($cfg,'clinic_phone')) ?>">
+                                <input name="clinic_phone" class="form-control mb-3" value="<?= e(cfg($cfg,'clinic_phone')) ?>" type="tel" maxlength="20" placeholder="(046) 123-4567 or 0917 123 4567">
                             </div>
                             <div class="col-md-6">
                                 <label class="field-label">Email</label>

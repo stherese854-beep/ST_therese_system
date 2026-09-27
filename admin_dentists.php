@@ -34,12 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $email   = strtolower(trim($_POST['email']));
         $spec    = trim($_POST['specialty'] ?? '');
-        $contact = trim($_POST['contact'] ?? '');
+        [$contact, $phoneError] = validate_phone($_POST['contact'] ?? '');
 
         // ---- Make sure the email is a REAL, usable address ----
         $emailError = '';
         if ($first === '' || $last === '') {
             $emailError = 'Please enter both a first name and a last name.';
+        } elseif ($phoneError !== '') {
+            $emailError = $phoneError;
         } else {
             // Shared check: format, the domain really accepts mail, and not taken.
             $emailError = validate_account_email($pdo, $email);
@@ -460,7 +462,7 @@ $active = 'dentists';
                     <div class="text-muted2 mb-3" style="font-size:.78rem;">Shown on the public landing page under "Meet Our Dentists".</div>
 
                     <label class="field-label">Contact Number</label>
-                    <input name="contact" class="form-control mb-3" placeholder="09xx xxx xxxx" required>
+                    <input name="contact" class="form-control mb-3" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?> required>
 
                     <div class="alert alert-secondary py-2 mb-0" style="font-size:.83rem;">
                         The new dentist's password will be <strong>password123</strong>. They can change it later.

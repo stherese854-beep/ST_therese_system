@@ -15,7 +15,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id    = $_POST['id'] ?? '';
         $role  = $_POST['role'];
         $spec  = trim($_POST['specialty'] ?? '');
-        $contact = preg_replace('/[^0-9]/', '', trim($_POST['contact'] ?? ''));   // numbers only
+        [$contact, $phoneError] = validate_phone($_POST['contact'] ?? '', false);   // optional, but must be real
+        if ($phoneError !== '') {
+            set_flash($phoneError, 'error');
+            header("Location: admin_users"); exit;
+        }
         $status  = $_POST['status'];
         $email = strtolower(trim($_POST['email']));
 
@@ -207,8 +211,8 @@ $active = 'users';
             <label class="field-label">Role</label>
             <select name="role" id="u-role" class="form-select mb-3"><option value="admin">Admin</option><option value="staff">Staff</option><option value="dentist">Dentist</option><option value="patient">Patient</option></select>
             <label class="field-label">Specialty / Position</label><input name="specialty" id="u-spec" class="form-control mb-3">
-            <label class="field-label">Contact</label><input name="contact" id="u-contact" class="form-control mb-3"
-                   inputmode="numeric" maxlength="15" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+            <label class="field-label">Contact</label><input name="contact" id="u-contact" class="form-control mb-3" placeholder="09XX XXX XXXX"
+                   <?= phone_input_attrs() ?>>
             <label class="field-label">Status</label><select name="status" id="u-status" class="form-select"><option value="active">Active</option><option value="inactive">Inactive</option></select>
         </div>
         <div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-teal">Save</button></div>

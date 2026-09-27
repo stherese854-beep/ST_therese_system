@@ -187,6 +187,65 @@ function password_strength($pass) {
 }
 
 // ============================================================
+//  PHONE NUMBER VALIDATION  (Philippine numbers)
+// ============================================================
+//  Accepts what people naturally type ("0917 123 4567", "+63 917-123-4567",
+//  "639171234567") and turns it into the one stored format: 09171234567.
+//  Rejects anything that can't be a real number and the usual fakes
+//  (09999999999, 09123456789, 09170000000 ...).
+//
+//  $allowLandline: also accept landlines, e.g. (046) 123-4567 or
+//  (02) 8123-4567 — only used for the clinic's own phone number.
+//
+//  Returns [clean number, error message]. The error is '' when valid.
+//  An empty value is valid only when $required is false (returns ['', '']).
+// ============================================================
+function validate_phone($raw, $required = true, $allowLandline = false) {
+    $raw = trim((string)$raw);
+    $digits = preg_replace('/[\s\-().]/', '', $raw);          // drop spaces, dashes, brackets, dots
+
+    if ($digits === '') {
+        return ['', $required ? 'Please enter a contact number.' : ''];
+    }
+    if (!preg_match('/^\+?\d+$/', $digits)) {
+        return ['', 'The contact number can only contain digits (spaces, dashes and +63 are fine).'];
+    }
+    $digits = ltrim($digits, '+');
+    if (strpos($digits, '63') === 0 && strlen($digits) >= 11) {  // +63 917... / 63 2 8... -> 0917... / 028...
+        $digits = '0' . substr($digits, 2);
+    }
+
+    $isMobile   = (bool)preg_match('/^09\d{9}$/', $digits);
+    $isLandline = $allowLandline && (bool)preg_match('/^0[2-8]\d{8}$/', $digits);   // area code + local number
+    if (!$isMobile && !$isLandline) {
+        return ['', $allowLandline
+            ? 'Please enter a real Philippine number, e.g. 0917 123 4567 or (046) 123-4567.'
+            : 'Please enter a real Philippine mobile number: 11 digits starting with 09, e.g. 0917 123 4567.'];
+    }
+
+    // Obvious fakes: one digit repeated, a counting run, or a subscriber
+    // part (last 7 digits) that is all the same digit.
+    $body = substr($digits, 1);                                // without the leading 0
+    $runs = '0123456789012345678';
+    if (preg_match('/^(\d)\1+$/', substr($digits, 2))              // 09 + 999999999
+        || preg_match('/^(\d)\1{6}$/', substr($digits, -7))        // ...0000000
+        || strpos($runs, substr($body, 1)) !== false               // 9 + 123456789
+        || strpos(strrev($runs), substr($body, 1)) !== false) {    // 9 + 876543210
+        return ['', 'That does not look like a real contact number. Please enter your actual number.'];
+    }
+
+    return [$digits, ''];
+}
+
+// Attributes for a mobile-number <input>, so the browser also checks it
+// before the form is sent (the server check above is the one that counts).
+function phone_input_attrs() {
+    return 'type="tel" inputmode="tel" maxlength="17" autocomplete="tel"'
+         . ' pattern="\s*(\+?63|0)[\s\-]?9\d{2}[\s\-]?\d{3}[\s\-]?\d{4}\s*"'
+         . ' title="Philippine mobile number, e.g. 0917 123 4567"';
+}
+
+// ============================================================
 //  ACCOUNT EMAIL VALIDATION
 // ============================================================
 //  Checks that an email address is genuinely usable before an

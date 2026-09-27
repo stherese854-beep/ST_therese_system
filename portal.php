@@ -45,6 +45,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Patient edits their own personal information.
     if ($action === 'save_profile' && $pid) {
+        [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
+        if ($phoneError !== '') {
+            set_flash($phoneError, 'error');
+            header("Location: portal?view=profile"); exit;
+        }
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim("$first $last");
@@ -53,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                        address=?, medical_history=?, medical_alert=? WHERE id=?")
             ->execute([
                 $name,
-                trim($_POST['phone']),
+                $cleanPhone,
                 ($_POST['age'] !== '' ? (int)$_POST['age'] : null),
                 ($_POST['dob'] ?: null),
                 trim($_POST['blood_type']),
@@ -782,7 +787,7 @@ include 'includes/head.php';
                                 <div class="col-md-6"><label class="field-label">Email (cannot be changed here)</label>
                                     <input class="form-control" value="<?= e($me['email']) ?>" readonly style="background:#eef7f6;"></div>
                                 <div class="col-md-6"><label class="field-label">Contact Number</label>
-                                    <input name="phone" class="form-control" value="<?= e($me['phone']) ?>" required></div>
+                                    <input name="phone" class="form-control" value="<?= e($me['phone']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?> required></div>
 
                                 <div class="col-md-4"><label class="field-label">Date of Birth</label>
                                     <input type="date" name="dob" class="form-control" value="<?= e($me['date_of_birth']) ?>"></div>

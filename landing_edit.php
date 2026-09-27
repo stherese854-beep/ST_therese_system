@@ -21,6 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save_landing') {
+        // The phone shown on the homepage must be a real number (landline ok).
+        if (isset($_POST['land_contact_phone'])) {
+            [, $phoneError] = validate_phone($_POST['land_contact_phone'], false, true);
+            if ($phoneError !== '') {
+                set_flash('Contact phone: ' . $phoneError, 'error');
+                header("Location: landing_edit"); exit;
+            }
+        }
         // Save every "land_*" field that was submitted.
         foreach ($_POST as $k => $v) {
             if (strpos($k, 'land_') === 0) {
@@ -434,7 +442,7 @@ $active = 'landing_edit';
                     <div class="col-md-6"><label class="field-label">Clinic Address</label>
                         <input name="land_contact_address" class="form-control mb-3" value="<?= e(v('land_contact_address','123 Dental St., Naic, Cavite, Philippines')) ?>"></div>
                     <div class="col-md-6"><label class="field-label">Contact Number</label>
-                        <input name="land_contact_phone" class="form-control mb-3" value="<?= e(v('land_contact_phone','(046) 123-4567')) ?>"></div>
+                        <input name="land_contact_phone" class="form-control mb-3" value="<?= e(v('land_contact_phone','(046) 123-4567')) ?>" type="tel" maxlength="20"></div>
                     <div class="col-md-6"><label class="field-label">Email Address</label>
                         <input name="land_contact_email" class="form-control mb-3" value="<?= e(v('land_contact_email','hello@stthereesedental.ph')) ?>"></div>
                     <div class="col-md-6"><label class="field-label">Office Hours</label>

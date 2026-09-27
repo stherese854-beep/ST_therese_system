@@ -24,6 +24,22 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
     <!-- Our custom theme (versioned by file time so browsers always fetch
          the latest copy after a deploy, instead of serving a stale cache) -->
     <link href="css/style.css?v=<?= @filemtime(__DIR__ . '/../css/style.css') ?: time() ?>" rel="stylesheet">
+    <script>
+    // Browser-side mirror of validate_phone() in config/auth.php, so people see
+    // the problem straight away. The server check is still the one that counts.
+    function phoneProblem(v, required) {
+        var d = (v || '').replace(/[\s\-().]/g, '');
+        if (d === '') return required ? 'Please enter a contact number.' : '';
+        if (!/^\+?\d+$/.test(d)) return 'The contact number can only contain digits (spaces, dashes and +63 are fine).';
+        d = d.replace(/^\+/, '');
+        if (d.indexOf('63') === 0 && d.length >= 11) d = '0' + d.slice(2);
+        if (!/^09\d{9}$/.test(d)) return 'Please enter a real Philippine mobile number: 11 digits starting with 09, e.g. 0917 123 4567.';
+        var runs = '0123456789012345678', rev = runs.split('').reverse().join(''), tail = d.slice(2);
+        if (/^(\d)\1+$/.test(tail) || /^(\d)\1{6}$/.test(d.slice(-7)) || runs.indexOf(tail) >= 0 || rev.indexOf(tail) >= 0)
+            return 'That does not look like a real contact number. Please enter your actual number.';
+        return '';
+    }
+    </script>
 </head>
 <body>
 <?php

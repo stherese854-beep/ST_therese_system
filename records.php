@@ -56,6 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ----- Overview: save edited patient info -----
     if ($action === 'update_patient_info') {
+        [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '', false);
+        if ($phoneError !== '') {
+            set_flash($phoneError, 'error');
+            header("Location: records?patient=$pid&tab=overview"); exit;
+        }
         $pdo->prepare(
             "UPDATE patients SET name=?, age=?, blood_type=?, phone=?, email=?, patient_type=?,
              primary_dentist=?, last_visit=?, next_visit=?, medical_alert=?, chart_remarks=?
@@ -64,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             trim($_POST['name']),
             ($_POST['age'] !== '' ? (int)$_POST['age'] : null),
             trim($_POST['blood_type']),
-            trim($_POST['phone']),
+            $cleanPhone,
             trim($_POST['email']),
             $_POST['patient_type'],
             trim($_POST['primary_dentist']),
@@ -244,7 +249,7 @@ $active = 'records';
                             </select></div>
 
                         <div class="col-md-4"><label class="field-label">Phone</label>
-                            <input name="phone" class="form-control" value="<?= e($patientRow['phone']) ?>"></div>
+                            <input name="phone" class="form-control" value="<?= e($patientRow['phone']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
                         <div class="col-md-4"><label class="field-label">Email</label>
                             <input type="email" name="email" class="form-control" value="<?= e($patientRow['email']) ?>"></div>
                         <div class="col-md-4"><label class="field-label">Patient Type</label>
