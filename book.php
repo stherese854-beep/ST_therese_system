@@ -240,7 +240,8 @@ include 'includes/head.php';
 <div class="booking-body">
 <?php if ($booked): ?>
     <!-- ===== SUCCESS SCREEN ===== -->
-    <div class="wizard-card text-center">
+    <div class="wizard-card text-center" style="position:relative;">
+        <a href="portal.php" class="back-arrow" title="Back to Dashboard">&#8592;</a>
         <div style="width:70px;height:70px;background:#fff6e0;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:2rem;">⏳</div>
         <h2 style="color:var(--teal)">Booking Request Submitted!</h2>
 
