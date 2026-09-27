@@ -599,64 +599,8 @@ include 'includes/head.php';
         <?php elseif ($view === 'appointments'): ?>
             <!-- ===== MY APPOINTMENTS: upcoming + full history ===== -->
 
-            <!-- Clinic announcements (latest 3; all of them are under Announcements).
-                 The patient can hide the card; it stays hidden in this browser until
-                 the clinic posts a NEW announcement, then it opens again by itself. -->
-            <?php if ($news): ?>
-            <?php $topNews = array_slice($news, 0, 3); $latestAnnId = max(array_map(fn($x) => (int)$x['id'], $topNews)); ?>
-            <style>
-            /* Hidden state: a slim one-line bar instead of a full card */
-            #ann-card.ann-collapsed { padding: 7px 14px !important; }
-            #ann-card.ann-collapsed h5 { font-size: .9rem; font-weight: 600; }
-            #ann-card.ann-collapsed #ann-toggle { padding: 1px 10px; font-size: .78rem; }
-            </style>
-            <div class="card-box" id="ann-card" data-latest="<?= $latestAnnId ?>" style="border-left:4px solid var(--gold);">
-                <div class="flex-between gap-2">
-                    <h5 class="mb-0">📣 Clinic Announcements
-                        <small id="ann-hidden-note" class="text-muted2" style="display:none;font-size:.78rem;font-weight:400;">
-                            · <?= count($topNews) ?> hidden
-                        </small>
-                    </h5>
-                    <div class="d-flex gap-2">
-                        <?php if (count($news) > 3): ?><a href="portal?view=news" class="btn btn-sm btn-light">See all</a><?php endif; ?>
-                        <button type="button" id="ann-toggle" class="btn btn-sm btn-light" aria-expanded="true" aria-controls="ann-body">Hide ▲</button>
-                    </div>
-                </div>
-                <div id="ann-body" class="mt-1">
-                <?php foreach ($topNews as $i => $n): ?>
-                    <div class="py-2 <?= $i < count($topNews) - 1 ? 'border-bottom' : '' ?>">
-                        <div class="flex-between">
-                            <strong><?= e($n['title']) ?></strong>
-                            <small class="text-muted2"><?= date('M j, Y', strtotime($n['created_at'])) ?></small>
-                        </div>
-                        <div style="font-size:.92rem;color:#55606a;margin-top:4px;white-space:pre-line;"><?= format_announcement($n['content']) ?></div>
-                    </div>
-                <?php endforeach; ?>
-                </div>
-            </div>
-            <script>
-            (function () {
-                var card = document.getElementById('ann-card'), body = document.getElementById('ann-body'),
-                    btn = document.getElementById('ann-toggle'), note = document.getElementById('ann-hidden-note');
-                var KEY = 'annHiddenUpTo', latest = parseInt(card.dataset.latest, 10) || 0;
-                function set(hidden) {
-                    body.style.display = hidden ? 'none' : '';
-                    note.style.display = hidden ? '' : 'none';
-                    card.classList.toggle('ann-collapsed', hidden);
-                    btn.textContent = hidden ? 'Show ▼' : 'Hide ▲';
-                    btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
-                }
-                var hiddenUpTo = 0;
-                try { hiddenUpTo = parseInt(localStorage.getItem(KEY) || '0', 10) || 0; } catch (e) {}
-                set(hiddenUpTo >= latest);                       // a newer announcement re-opens it
-                btn.addEventListener('click', function () {
-                    var hide = body.style.display !== 'none';
-                    set(hide);
-                    try { hide ? localStorage.setItem(KEY, String(latest)) : localStorage.removeItem(KEY); } catch (e) {}
-                });
-            })();
-            </script>
-            <?php endif; ?>
+            <!-- Clinic announcements with Hide/Show (shared with the staff dashboard) -->
+            <?php $annList = $news; $annSeeAll = 'portal?view=news'; include 'includes/announcements_card.php'; ?>
 
             <!-- Upcoming -->
             <div class="card-box">
