@@ -64,6 +64,9 @@ function nav_active($page) {
     <div class="nav-label">Reports</div>
     <a class="nav-item <?= nav_active('reports') ?>"  href="reports">📑 Generate Reports</a>
     <a class="nav-item <?= nav_active('noshow') ?>"   href="noshow">📝 No-Show Report</a>
+    <?php if ($role === 'admin'): ?>
+        <a class="nav-item <?= nav_active('analytics') ?>" href="analytics">📈 Analytics</a>
+    <?php endif; ?>
 
     <?php if ($role === 'admin'): ?>
         <div class="nav-label">System</div>
