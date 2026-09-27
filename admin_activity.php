@@ -10,9 +10,29 @@
 require_once 'config/auth.php';
 require_login(['admin']);
 
+// ---------- Delete a single entry ----------
+// The log is meant to be a record, but an admin can still clean out an
+// entry that no longer needs to be kept (a test action, a mistake, etc.).
+// The deletion of a log entry is itself logged, same as everywhere else.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_log') {
+    $id = (int)($_POST['id'] ?? 0);
+    $info = $pdo->prepare("SELECT action, actor_name FROM activity_log WHERE id=?");
+    $info->execute([$id]);
+    $row = $info->fetch();
+    if ($row) {
+        $pdo->prepare("DELETE FROM activity_log WHERE id=?")->execute([$id]);
+        log_activity($pdo, 'Deleted activity log entry', $row['action'] . ' — ' . $row['actor_name']);
+        set_flash('Log entry deleted.', 'info');
+    }
+    // Keep whatever filters were active before deleting.
+    header("Location: admin_activity.php?" . http_build_query($_POST['return'] ?? []));
+    exit;
+}
+
 // ---------- Filters ----------
 $roleFilter   = $_GET['role']   ?? '';
 $actionFilter = $_GET['q']      ?? '';
+$dateFilter   = $_GET['date']   ?? '';   // exact day, e.g. 2026-10-01
 $limit        = 100;
 
 $where  = [];
@@ -26,6 +46,10 @@ if ($actionFilter !== '') {
     $where[] = "(action LIKE ? OR details LIKE ? OR actor_name LIKE ?)";
     $like = '%' . $actionFilter . '%';
     $params[] = $like; $params[] = $like; $params[] = $like;
+}
+if ($dateFilter !== '') {
+    $where[] = "DATE(created_at) = ?";
+    $params[] = $dateFilter;
 }
 $sql = "SELECT * FROM activity_log";
 if ($where) $sql .= " WHERE " . implode(' AND ', $where);
@@ -86,10 +110,12 @@ $active = 'activity';
                             <option value="<?= e($r) ?>" <?= $roleFilter === $r ? 'selected' : '' ?>><?= ucfirst(e($r)) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <input type="date" name="date" class="form-control form-control-sm" style="width:auto;"
+                           title="Show only this exact date" value="<?= e($dateFilter) ?>" onchange="this.form.submit()">
                     <input type="text" name="q" class="form-control form-control-sm" style="width:200px;"
                            placeholder="Search action, name, details..." value="<?= e($actionFilter) ?>">
                     <button class="btn btn-sm btn-teal" type="submit">Filter</button>
-                    <?php if ($roleFilter !== '' || $actionFilter !== ''): ?>
+                    <?php if ($roleFilter !== '' || $actionFilter !== '' || $dateFilter !== ''): ?>
                         <a href="admin_activity.php" class="btn btn-sm btn-outline-secondary">Clear</a>
                     <?php endif; ?>
                 </form>
@@ -103,7 +129,7 @@ $active = 'activity';
             <?php else: ?>
             <div class="table-responsive">
                 <table class="data">
-                    <thead><tr><th>When</th><th>Who</th><th>Role</th><th>Action</th><th>Details</th></tr></thead>
+                    <thead><tr><th>When</th><th>Who</th><th>Role</th><th>Action</th><th>Details</th><th></th></tr></thead>
                     <tbody>
                     <?php foreach ($logs as $log): ?>
                         <tr>
@@ -112,6 +138,16 @@ $active = 'activity';
                             <td><?= $log['actor_role'] ? '<span class="badge-pill b-pending">' . ucfirst(e($log['actor_role'])) . '</span>' : '<span class="text-muted2">-</span>' ?></td>
                             <td><span class="badge-pill <?= activity_badge($log['action']) ?>"><?= e($log['action']) ?></span></td>
                             <td class="text-muted2"><?= e($log['details'] ?: '-') ?></td>
+                            <td class="text-end">
+                                <form method="POST" onsubmit="return confirm('Delete this log entry? This cannot be undone.');">
+                                    <input type="hidden" name="action" value="delete_log">
+                                    <input type="hidden" name="id" value="<?= (int)$log['id'] ?>">
+                                    <input type="hidden" name="return[role]" value="<?= e($roleFilter) ?>">
+                                    <input type="hidden" name="return[q]" value="<?= e($actionFilter) ?>">
+                                    <input type="hidden" name="return[date]" value="<?= e($dateFilter) ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Delete entry">🗑️</button>
+                                </form>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>
