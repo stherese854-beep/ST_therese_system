@@ -417,6 +417,17 @@ function activity_badge($action) {
     return 'b-pending';
 }
 
+// Has this patient actually been seen at the clinic? (A completed
+// appointment or any treatment on file.) Needed before they may review.
+function patient_has_clinic_record($pdo, $pid) {
+    $pid = (int)$pid;
+    if ($pid <= 0) return false;
+    $st = $pdo->prepare("SELECT (EXISTS(SELECT 1 FROM appointments WHERE patient_id = ? AND status = 'Completed')
+                              OR EXISTS(SELECT 1 FROM treatments  WHERE patient_id = ?))");
+    $st->execute([$pid, $pid]);
+    return (bool)$st->fetchColumn();
+}
+
 // A patient's name for log details ("Patient #12" if it can't be found).
 function patient_name_of($pdo, $pid) {
     $st = $pdo->prepare("SELECT name FROM patients WHERE id = ?");

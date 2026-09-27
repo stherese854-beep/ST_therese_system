@@ -234,7 +234,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $rating  = max(1, min(5, (int)($_POST['rating'] ?? 5)));
         $comment = trim($_POST['comment'] ?? '');
 
-        if ($comment === '') {
+        if (!patient_has_clinic_record($pdo, $pid)) {
+            set_flash('You can leave a review after your first completed visit at the clinic.', 'error');
+        } elseif ($comment === '') {
             set_flash('Please write your comment first.', 'error');
         } else {
             // One review per patient: update it if they already wrote one.
@@ -289,6 +291,10 @@ $myActivity = ($view === 'activity') ? my_activity_rows($pdo, $actQ, $actDate, 1
 $avStmt = $pdo->prepare("SELECT photo FROM users WHERE id=?");
 $avStmt->execute([$_SESSION['user_id']]);
 $myPhoto = $avStmt->fetchColumn();
+
+// May this patient leave a review? Only once they have a record at the
+// clinic: a completed visit or a treatment on file.
+$canReview = patient_has_clinic_record($pdo, $pid);
 
 $rvStmt = $pdo->prepare("SELECT * FROM reviews WHERE user_id=?");
 $rvStmt->execute([$_SESSION['user_id']]);
@@ -598,6 +604,12 @@ include 'includes/head.php';
                  the clinic posts a NEW announcement, then it opens again by itself. -->
             <?php if ($news): ?>
             <?php $topNews = array_slice($news, 0, 3); $latestAnnId = max(array_map(fn($x) => (int)$x['id'], $topNews)); ?>
+            <style>
+            /* Hidden state: a slim one-line bar instead of a full card */
+            #ann-card.ann-collapsed { padding: 7px 14px !important; }
+            #ann-card.ann-collapsed h5 { font-size: .9rem; font-weight: 600; }
+            #ann-card.ann-collapsed #ann-toggle { padding: 1px 10px; font-size: .78rem; }
+            </style>
             <div class="card-box" id="ann-card" data-latest="<?= $latestAnnId ?>" style="border-left:4px solid var(--gold);">
                 <div class="flex-between gap-2">
                     <h5 class="mb-0">📣 Clinic Announcements
@@ -630,7 +642,7 @@ include 'includes/head.php';
                 function set(hidden) {
                     body.style.display = hidden ? 'none' : '';
                     note.style.display = hidden ? '' : 'none';
-                    card.style.paddingBottom = hidden ? '14px' : '';
+                    card.classList.toggle('ann-collapsed', hidden);
                     btn.textContent = hidden ? 'Show ▼' : 'Hide ▲';
                     btn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
                 }
@@ -819,6 +831,12 @@ include 'includes/head.php';
                     </div>
                 <?php endif; ?>
 
+                <?php if (!$canReview): ?>
+                    <div class="alert alert-light border py-2 mb-0" style="font-size:.86rem;">
+                        🦷 You can rate the clinic after your <strong>first completed visit</strong>.
+                        Once the clinic marks an appointment as completed (or records a treatment), this form opens here.
+                    </div>
+                <?php else: ?>
                 <form method="POST">
                     <input type="hidden" name="action" value="save_review">
 
@@ -836,6 +854,7 @@ include 'includes/head.php';
 
                     <button class="btn btn-teal"><?= $myReview ? '💾 Update My Review' : '⭐ Submit Review' ?></button>
                 </form>
+                <?php endif; ?>
             </div>
 
             <div class="row g-3">

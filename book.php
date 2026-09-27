@@ -30,6 +30,24 @@ if (empty($slots)) $slots = ['09:00 AM'];   // safety fallback
 
 // ---- The patient's dentist + that dentist's UPCOMING days off ----
 $myDentist = $me['primary_dentist'] ?? '';
+
+// ---- One active booking per PERSON ----
+// Each person (the account owner, or a family member booked by them) may
+// hold only one Pending/Confirmed appointment at a time. Names are compared
+// ignoring case and extra spaces.
+function person_key($name) { return strtolower(preg_replace('/\s+/', ' ', trim((string)$name))); }
+$busyPeople = [];   // person_key => date of their active appointment
+if ($me['id']) {
+    $bp = $pdo->prepare("SELECT patient_name, appointment_date FROM appointments
+                          WHERE patient_id=? AND status IN ('Pending','Confirmed')
+                          ORDER BY appointment_date");
+    $bp->execute([$me['id']]);
+    foreach ($bp->fetchAll() as $b) {
+        $k = person_key($b['patient_name']);
+        if ($k !== '' && !isset($busyPeople[$k])) $busyPeople[$k] = $b['appointment_date'];
+    }
+}
+$ownerBusyDate = $busyPeople[person_key($me['name'])] ?? null;   // owner already booked?
 if (empty($myDentist)) $myDentist = 'Dr. Ana Santos';
 $doStmt = $pdo->prepare("SELECT off_date, reason FROM dentist_daysoff WHERE dentist_name=? AND off_date >= CURDATE() ORDER BY off_date");
 $doStmt->execute([$myDentist]);
@@ -94,14 +112,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
             $manualBlockReason = trim((string)$mbRow['booking_block_reason']);
         }
     }
-    // (b) Does this SAME person already have an appointment on this SAME date?
-    $isDuplicate = false;
-    if ($me['id']) {
-        $dc = $pdo->prepare("SELECT COUNT(*) FROM appointments
-                             WHERE patient_id=? AND patient_name=? AND appointment_date=? AND status IN ('Pending','Confirmed')");
-        $dc->execute([$me['id'], $patientName, $_POST['date']]);
-        $isDuplicate = ((int)$dc->fetchColumn()) > 0;
-    }
+    // (b) Does this SAME person already have an active appointment (any date)?
+    //     One booking per person: the next one must be for someone else.
+    $dupDate     = $busyPeople[person_key($patientName)] ?? null;
+    $isDuplicate = ($dupDate !== null);
 
     // (c) SCHEDULING CONFLICT: is that dentist already booked at that exact
     //     date + time by someone else? (a system warning, not just a message)
@@ -147,7 +161,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = "You already have 3 upcoming appointments, which is the most an account may hold at once. "
                    . "Once one of them is completed or cancelled, you can book another.";
     } elseif ($isDuplicate) {
-        $bookError = $patientName . " already has an appointment on " . date('M j, Y', strtotime($_POST['date'])) . ". Please pick another date.";
+        $isOwner   = (person_key($patientName) === person_key($me['name']));
+        $bookError = "<strong>" . e($patientName) . " already has an appointment</strong> on "
+                   . date('M j, Y', strtotime($dupDate)) . ".<br><br>"
+                   . "Each person can only have one booking at a time. "
+                   . ($isOwner
+                        ? "To book another appointment now, choose <strong>Someone else</strong> and enter that person's name."
+                        : "Please book for a different person, or wait until that visit is completed or cancelled.");
     } elseif ($conflict) {
         $bookError = "⚠️ Scheduling conflict: " . $bookDentist . " is already booked at "
                    . $_POST['time'] . " on " . date('M j, Y', strtotime($_POST['date']))
@@ -400,12 +420,18 @@ include 'includes/head.php';
                 <label class="field-label">Who is this appointment for?</label>
                 <div class="d-flex gap-3 mb-3">
                     <label class="d-flex align-items-center gap-1" style="cursor:pointer;">
-                        <input type="radio" name="for" value="myself" checked onclick="toggleFor()"> Myself
+                        <input type="radio" name="for" value="myself" <?= $ownerBusyDate ? 'disabled' : 'checked' ?> onclick="toggleFor()"> Myself
                     </label>
                     <label class="d-flex align-items-center gap-1" style="cursor:pointer;">
-                        <input type="radio" name="for" value="other" onclick="toggleFor()"> Someone else (e.g. my child)
+                        <input type="radio" name="for" value="other" <?= $ownerBusyDate ? 'checked' : '' ?> onclick="toggleFor()"> Someone else (e.g. my child)
                     </label>
                 </div>
+                <?php if ($ownerBusyDate): ?>
+                <div class="alert alert-warning py-2 mb-3" style="font-size:.83rem;">
+                    📅 You already have an appointment on <strong><?= date('M j, Y', strtotime($ownerBusyDate)) ?></strong>.
+                    Each person can only have one booking at a time, so this booking must be for <strong>someone else</strong>.
+                </div>
+                <?php endif; ?>
                 <div id="dependent-note" class="alert alert-light border py-2 mb-3" style="display:none;font-size:.83rem;">
                     ℹ️ Enter the patient's name below. The appointment will still be under your account.
                 </div>
@@ -675,6 +701,18 @@ function validateStep3() {
     }
     document.getElementById('name-warn').style.display = 'none';
 
+    // One booking per person: this name must not already have an active one.
+    var busy = <?= json_encode($busyPeople, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+    var key = (fn + ' ' + ln).toLowerCase().replace(/\s+/g, ' ').trim();
+    if (busy[key]) {
+        var nw = document.getElementById('name-warn');
+        nw.textContent = (fn + ' ' + ln) + ' already has an appointment (' + busy[key] + '). '
+                       + 'Each person can only have one booking at a time — please book for a different person.';
+        nw.style.display = 'block';
+        return;
+    }
+    document.getElementById('name-warn').textContent = "Please enter the patient's first and last name.";
+
     // When booking for someone else, the relationship AND their birthday are required.
     var forOther = document.querySelector('input[name="for"]:checked').value === 'other';
     if (forOther && document.getElementById('sel-rel').value === '') {
@@ -700,6 +738,9 @@ function validateStep3() {
 }
 
 // Toggle between booking for "myself" (name locked) and "someone else" (name editable).
+<?php if ($ownerBusyDate): ?>
+document.addEventListener('DOMContentLoaded', function () { toggleFor(); });
+<?php endif; ?>
 function toggleFor() {
     var forOther = document.querySelector('input[name="for"]:checked').value === 'other';
     var fn = document.getElementById('sel-fname');
