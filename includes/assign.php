@@ -145,3 +145,47 @@ function appt_slot_is_open($pdo, $date, $time, $dentist, $ignoreId = 0) {
 
     return true;
 }
+
+// ============================================================
+//  WHICH DENTIST TAKES THIS BOOKING?  (date + time)
+// ============================================================
+//  1. The patient's own dentist, if they are free at that date + time.
+//  2. Otherwise another dentist who IS free — the one with the FEWEST
+//     assigned patients; if several tie, one of them at random.
+//  "Free" = the clinic is open, the dentist has not marked the day off,
+//  and they have no Pending/Confirmed appointment at that time
+//  (see appt_slot_is_open()). Returns the dentist's name, or NULL when
+//  no dentist at all is free at that time.
+// ============================================================
+function dentist_patient_count($pdo, $dentist) {
+    $p = [];
+    $st = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE " . dentist_match_sql('primary_dentist', $dentist, $p));
+    $st->execute($p);
+    return (int)$st->fetchColumn();
+}
+
+function pick_dentist_for_slot($pdo, $date, $time, $preferred = '') {
+    $active = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")
+                  ->fetchAll(PDO::FETCH_COLUMN);
+
+    // 1. Keep the patient's own dentist when they are free.
+    if ($preferred !== '' && $preferred !== null) {
+        foreach ($active as $d) {
+            if (in_array($d, dentist_name_variants($preferred), true) || $d === $preferred) {
+                if (appt_slot_is_open($pdo, $date, $time, $d)) return $d;
+                break;
+            }
+        }
+    }
+
+    // 2. Otherwise the free dentist with the fewest patients (random on a tie).
+    $best = []; $lowest = null;
+    foreach ($active as $d) {
+        if (!appt_slot_is_open($pdo, $date, $time, $d)) continue;
+        $n = dentist_patient_count($pdo, $d);
+        if ($lowest === null || $n < $lowest) { $lowest = $n; $best = [$d]; }
+        elseif ($n === $lowest)               { $best[] = $d; }
+    }
+    return $best ? $best[random_int(0, count($best) - 1)] : null;
+}
+

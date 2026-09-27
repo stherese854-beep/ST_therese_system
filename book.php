@@ -48,6 +48,35 @@ if ($me['id']) {
     }
 }
 $ownerBusyDate = $busyPeople[person_key($me['name'])] ?? null;   // owner already booked?
+
+// ---- Is online booking paused for this account? ----
+// Checked when the page OPENS, so a paused patient sees why straight away
+// instead of filling in the whole form first. (The same checks run again
+// when a booking is submitted.)
+$pauseMessage = '';
+if ($me['id']) {
+    $mb = $pdo->prepare("SELECT booking_blocked, booking_block_reason FROM patients WHERE id=?");
+    $mb->execute([$me['id']]);
+    $mbRow = $mb->fetch();
+    $missed = patient_noshow_count($pdo, $me['id']);
+    $pc = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id=? AND status IN ('Pending','Confirmed')");
+    $pc->execute([$me['id']]);
+    $activeNow = (int)$pc->fetchColumn();
+
+    if ($mbRow && !empty($mbRow['booking_blocked'])) {
+        $pauseMessage = "<strong>Online booking is currently paused on your account.</strong><br><br>"
+                      . (trim((string)$mbRow['booking_block_reason']) !== '' ? e($mbRow['booking_block_reason']) . "<br><br>" : '')
+                      . "Please visit the clinic and our staff will be happy to help you.";
+    } elseif ($missed >= 3) {
+        $pauseMessage = "<strong>Online booking is paused on your account.</strong><br><br>"
+                      . "You have missed <strong>$missed scheduled appointments</strong>. "
+                      . "We encourage you to <strong>walk in to the clinic</strong> and talk to our staff — "
+                      . "they will be happy to help you book again and find a schedule that works better for you.";
+    } elseif ($activeNow >= 3) {
+        $pauseMessage = "<strong>You already have 3 upcoming appointments</strong>, which is the most an account may hold at once.<br><br>"
+                      . "Once one of them is completed or cancelled, you can book another.";
+    }
+}
 if (empty($myDentist)) $myDentist = 'Dr. Ana Santos';
 $doStmt = $pdo->prepare("SELECT off_date, reason FROM dentist_daysoff WHERE dentist_name=? AND off_date >= CURDATE() ORDER BY off_date");
 $doStmt->execute([$myDentist]);
@@ -64,20 +93,15 @@ $dentistList = $pdo->query("SELECT name, specialty FROM users WHERE role='dentis
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book') {
     // Which dentist? The patient may pick one, or choose "No preference",
     // in which case we use their primary dentist (or auto-assign the least busy).
-    $chosen = trim($_POST['pref_dentist'] ?? '');
-    if ($chosen !== '') {
-        $bookDentist = $chosen;                     // patient picked a specific dentist
-    } else {
-        $bookDentist = $me['primary_dentist'] ?? '';
-        if (empty($bookDentist)) {
-            $bookDentist = pick_dentist_for_new_patient($pdo) ?: 'Dr. Ana Santos';
-        }
-    }
-
-    // Is that dentist unavailable (day off) on the chosen date?
-    $off = $pdo->prepare("SELECT reason FROM dentist_daysoff WHERE dentist_name=? AND off_date=?");
-    $off->execute([$bookDentist, $_POST['date']]);
-    $offRow = $off->fetch();
+    // Their own dentist if free at that date + time; otherwise another free
+    // dentist (fewest patients, random on a tie). See pick_dentist_for_slot().
+    $chosen          = trim($_POST['pref_dentist'] ?? '');
+    $ownDentist      = $chosen !== '' ? $chosen : ($me['primary_dentist'] ?? '');
+    $bookDentist     = pick_dentist_for_slot($pdo, $_POST['date'] ?? '', $_POST['time'] ?? '', $ownDentist);
+    $noDentistFree   = ($bookDentist === null);
+    $reassignedFrom  = (!$noDentistFree && $ownDentist !== ''
+                        && !in_array($bookDentist, dentist_name_variants($ownDentist), true)
+                        && $bookDentist !== $ownDentist) ? $ownDentist : '';
 
     // Is the clinic even open on that weekday?
     $dayName = date('D', strtotime($_POST['date']));   // Mon, Tue, ...
@@ -117,16 +141,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     $dupDate     = $busyPeople[person_key($patientName)] ?? null;
     $isDuplicate = ($dupDate !== null);
 
-    // (c) SCHEDULING CONFLICT: is that dentist already booked at that exact
-    //     date + time by someone else? (a system warning, not just a message)
-    $conflict = false;
-    if ($bookDentist) {
-        $cf = $pdo->prepare("SELECT COUNT(*) FROM appointments
-                             WHERE dentist=? AND appointment_date=? AND appointment_time=?
-                               AND status IN ('Pending','Confirmed')");
-        $cf->execute([$bookDentist, $_POST['date'], $_POST['time']]);
-        $conflict = ((int)$cf->fetchColumn()) > 0;
-    }
+    // (c) Scheduling conflicts (dentist away / already booked at that time) are
+    //     handled above: pick_dentist_for_slot() only returns a dentist who is free.
 
     // Appointments must be booked at least a day ahead — no same-day booking.
     $minBookDate = date('Y-m-d', strtotime('+1 day'));
@@ -153,10 +169,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
                    . "You have missed <strong>$noShowCount scheduled appointments</strong>. "
                    . "We encourage you to <strong>walk in to the clinic</strong> and talk to our staff — "
                    . "they will be happy to help you book again and find a schedule that works better for you.";
-    } elseif ($offRow) {
-        // Dentist marked this day as unavailable -> do NOT book; show an error.
-        $bookError = $bookDentist . " is not available on " . date('M j, Y', strtotime($_POST['date']))
-                   . ($offRow['reason'] ? " (" . $offRow['reason'] . ")" : "") . ". Please pick another date.";
+    } elseif ($noDentistFree) {
+        // Every dentist is away or already booked at that date + time.
+        $bookError = "No dentist is available at <strong>" . e($_POST['time']) . "</strong> on "
+                   . date('M j, Y', strtotime($_POST['date'])) . ". Please choose a different time or date.";
     } elseif ($activeCount >= 3) {
         $bookError = "You already have 3 upcoming appointments, which is the most an account may hold at once. "
                    . "Once one of them is completed or cancelled, you can book another.";
@@ -168,10 +184,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
                    . ($isOwner
                         ? "To book another appointment now, choose <strong>Someone else</strong> and enter that person's name."
                         : "Please book for a different person, or wait until that visit is completed or cancelled.");
-    } elseif ($conflict) {
-        $bookError = "⚠️ Scheduling conflict: " . $bookDentist . " is already booked at "
-                   . $_POST['time'] . " on " . date('M j, Y', strtotime($_POST['date']))
-                   . ". Please choose a different time slot.";
     } else {
         // Save the phone number the patient entered (keeps their record current).
         // Numbers only — strip out anything that isn't a digit.
@@ -231,6 +243,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $confirm = $_POST;   // keep details to show on the success screen
         $confirm['patient_name'] = $patientName;
         $confirm['dentist']      = $bookDentist;
+        $confirm['reassigned_from'] = $reassignedFrom;
         $confirm['booked_by']    = $bookedBy;
         $confirm['relationship'] = $relationship;
     }
@@ -238,13 +251,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
 
 $treatments = ['Cleaning','Dental Filling','Tooth Extraction','Root Canal','Dental Crown','Consultation','Braces / Orthodontics'];
 
-// Real taken slots — only CONFIRMED appointments block a slot (Pending stays available)
-$takenByDate = [];
-$ts = $pdo->prepare("SELECT appointment_date, appointment_time FROM appointments
-                      WHERE dentist = ? AND status = 'Confirmed' AND appointment_date >= CURDATE()");
-$ts->execute([$myDentist]);
-foreach ($ts->fetchAll() as $row) {
-    $takenByDate[$row['appointment_date']][] = $row['appointment_time'];
+// ---- What the date & time pickers treat as unavailable ----
+// A booking goes to ANY free dentist, so a date or time is only blocked
+// when EVERY active dentist is away or already booked then.
+$activeDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active'")->fetchAll(PDO::FETCH_COLUMN);
+$canon = [];                                          // any stored name shape -> dentist's full name
+foreach ($activeDentists as $d) foreach (dentist_name_variants($d) as $v) $canon[$v] = $d;
+$offBy = []; $busyBy = [];                            // [date][dentist] / [date][time][dentist]
+foreach ($pdo->query("SELECT dentist_name, off_date FROM dentist_daysoff WHERE off_date >= CURDATE()") as $r) {
+    if (isset($canon[$r['dentist_name']])) $offBy[$r['off_date']][$canon[$r['dentist_name']]] = true;
+}
+foreach ($pdo->query("SELECT dentist, appointment_date, appointment_time FROM appointments
+                       WHERE status IN ('Pending','Confirmed') AND appointment_date >= CURDATE()") as $r) {
+    if (isset($canon[$r['dentist']])) $busyBy[$r['appointment_date']][$r['appointment_time']][$canon[$r['dentist']]] = true;
+}
+$nDentists = max(1, count($activeDentists));
+$allOffDates = [];                                    // dates when every dentist is away
+foreach ($offBy as $date => $who) if (count($who) >= $nDentists) $allOffDates[] = $date;
+$takenByDate = [];                                    // times when every dentist is away or booked
+foreach ($busyBy as $date => $times) {
+    foreach ($times as $time => $who) {
+        if (count(($offBy[$date] ?? []) + $who) >= $nDentists) $takenByDate[$date][] = $time;
+    }
 }
 
 // Past time slots computed in JS in real-time (so the page doesn't go stale)
@@ -296,6 +324,12 @@ include 'includes/head.php';
             <div class="flex-between py-1"><span>Date</span><b><?= date('M j, Y', strtotime($confirm['date'])) ?></b></div>
             <div class="flex-between py-1"><span>Time</span><b><?= e($confirm['time']) ?></b></div>
             <div class="flex-between py-1"><span>Dentist</span><b><?= e($confirm['dentist'] ?? '') ?></b></div>
+            <?php if (!empty($confirm['reassigned_from'])): ?>
+                <div class="text-muted2 pb-1" style="font-size:.8rem;">
+                    ℹ️ <?= e($confirm['reassigned_from']) ?> is not available at that time, so
+                    <?= e($confirm['dentist']) ?> will see you instead.
+                </div>
+            <?php endif; ?>
             <div class="flex-between py-1"><span>Status</span><span class="badge-pill b-pending">Pending</span></div>
         </div>
 
@@ -308,6 +342,18 @@ include 'includes/head.php';
             <?php endif; ?>
         </p>
         <a href="portal" class="btn btn-teal">&#8592; Back</a>
+    </div>
+
+<?php elseif ($pauseMessage): ?>
+    <!-- ===== BOOKING PAUSED: explain right away, no form to fill in ===== -->
+    <div class="wizard-card text-center" style="position:relative;">
+        <a href="portal" class="back-arrow" title="Back to Dashboard">&#8592;</a>
+        <div style="width:70px;height:70px;background:#fff0f0;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:2rem;">⚠️</div>
+        <h2 style="color:#c0392b;">Unable to Book Online</h2>
+        <div class="alert text-start mt-3" style="background:#fff6f5;border:1px solid #f0c9c9;color:#5b2b27;font-size:.95rem;line-height:1.6;">
+            <?= $pauseMessage /* built above from escaped text + intentional <strong>/<br> */ ?>
+        </div>
+        <a href="portal" class="btn btn-teal">&#8592; Back to my appointments</a>
     </div>
 
 <?php else: ?>
@@ -359,7 +405,8 @@ include 'includes/head.php';
 
                 <?php if (!empty($myDaysOff)): ?>
                     <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.85rem;">
-                        ⚠️ <strong><?= e($myDentist) ?></strong> is unavailable on these dates — please avoid them:
+                        📅 Your dentist, <strong><?= e($myDentist) ?></strong>, is away on these dates.
+                        You can still book them — another available dentist will see you:
                         <div class="mt-2 d-flex flex-wrap gap-1">
                             <?php foreach ($myDaysOff as $d): ?>
                                 <span class="badge-pill b-cancelled"><?= date('M j, Y', strtotime($d['off_date'])) ?><?= $d['reason'] ? ' · '.e($d['reason']) : '' ?></span>
@@ -666,12 +713,12 @@ body,
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 // Dates/days the patient must avoid (from the dentist's days off and clinic open days).
-const DAYS_OFF   = <?= json_encode($myDaysOffDates) ?>;   // e.g. ['2026-07-10', ...]
+const DAYS_OFF   = <?= json_encode($allOffDates) ?>;   // dates when NO dentist is available   // e.g. ['2026-07-10', ...]
 const OPEN_DAYS  = <?= json_encode($openDaysArr) ?>;      // e.g. ['Mon','Tue',...]
 const SHORT_DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const TODAY_STR  = <?= json_encode($todayStr) ?>;
 const MIN_BOOK_DATE = <?= json_encode($minBookDateStr) ?>;   // earliest selectable date — no same-day booking
-const TAKEN_BY_DATE = <?= json_encode($takenByDate) ?>;   // confirmed bookings by date
+const TAKEN_BY_DATE = <?= json_encode($takenByDate) ?>;   // times when every dentist is away or booked
 const ALL_SLOTS  = <?= json_encode($slots) ?>;            // all clinic time slots
 
 // Returns true if a slot string like "01:30 PM" is already past right now
@@ -816,7 +863,7 @@ function checkDate() {
     var dentistOff = DAYS_OFF.indexOf(v) !== -1;
     if (closedDay || dentistOff) {
         var reason = closedDay ? ('The clinic is closed on ' + wd + 's')
-                                : "Your dentist is not available that day";
+                                : "No dentist is available that day";
         var nextDate = nextOpenDate(v);
         document.getElementById('sel-date').value = nextDate;
         warn.textContent = reason + ' — skipped ahead to the next available date, ' +
