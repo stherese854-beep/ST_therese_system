@@ -6,6 +6,17 @@
 //  It starts the session and gives small helper functions.
 // ============================================================
 
+// Session cookie: not readable by JavaScript, not sent from other sites,
+// and only over HTTPS when the site is served over HTTPS.
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'httponly' => true,
+    'samesite' => 'Lax',
+    'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                  || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
+]);
+ini_set('session.use_strict_mode', '1');   // refuse made-up session IDs
 session_start();               // turn on PHP sessions (remembers who is logged in)
 
 require_once __DIR__ . '/db.php';
@@ -13,6 +24,56 @@ ensure_archive_schema($pdo);                        // self-heals the archive co
 ensure_activity_log_schema($pdo);                   // self-heals the activity_log table
 ensure_patient_archive_schema($pdo);                // self-heals the patients table's archive columns
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
+
+// ============================================================
+//  CSRF PROTECTION  (forged form submissions)
+// ============================================================
+//  Every POST must carry this session's secret token. Another website
+//  can make a logged-in user's browser submit a form to us, but it
+//  cannot read the token, so its forged request is rejected here —
+//  before any page code runs.
+//
+//  The token is added to every <form method="post"> automatically
+//  (see csrf_inject_forms below), so pages need no changes. JavaScript
+//  requests send it in an "X-CSRF-Token" header, read from the
+//  <meta name="csrf-token"> tag in includes/head.php.
+// ============================================================
+function csrf_token() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+// Adds the hidden token field right after each POST form's opening tag.
+function csrf_inject_forms($html) {
+    if (stripos($html, '<form') === false) return $html;
+    $field = '<input type="hidden" name="csrf_token" value="' . csrf_token() . '">';
+    return preg_replace('/(<form\b[^>]*\bmethod\s*=\s*["\']?post\b[^>]*>)/i', '$1' . $field, $html);
+}
+
+if (php_sapi_name() !== 'cli') {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+        $sent = $_POST['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!is_string($sent) || empty($_SESSION['csrf_token'])
+            || !hash_equals($_SESSION['csrf_token'], $sent)) {
+            http_response_code(403);
+            echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Request blocked</title>
+                  <meta name='viewport' content='width=device-width,initial-scale=1'></head>
+                  <body style='font-family:system-ui,sans-serif;background:#f4f6f8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;'>
+                  <div style='background:#fff;padding:36px 40px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08);text-align:center;max-width:440px;'>
+                    <div style='font-size:2.4rem;'>&#9888;&#65039;</div>
+                    <h2 style='margin:.4em 0;'>Request blocked</h2>
+                    <p style='color:#555;'>This form has expired or did not come from this site
+                       (an uploaded file may also have been too large). Please go back, reload the page and try again.</p>
+                    <a href='javascript:history.back()' style='display:inline-block;margin-top:10px;background:#0f766e;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;'>Go back</a>
+                  </div></body></html>";
+            exit;
+        }
+    }
+    csrf_token();                       // make sure one exists for this session
+    ob_start('csrf_inject_forms');      // stamp the token into every POST form on the page
+}
 
 // Is someone logged in right now?
 function is_logged_in() {
@@ -27,21 +88,48 @@ function current_role() {
 // Block access to a page unless the user is logged in.
 // $allowed_roles is an optional list, e.g. ['admin'] or ['dentist','staff'].
 function require_login($allowed_roles = null) {
+    // Private pages must never be cached, so pressing Back after logging out
+    // cannot show a previous user's data.
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+
     if (!is_logged_in()) {
         header("Location: index.php");   // not logged in -> go to login page
         exit;
     }
-    if ($allowed_roles !== null && !in_array(current_role(), $allowed_roles)) {
-        // Logged in but WRONG role -> send them to THEIR OWN home page.
-        // (Patients live in the portal; everyone else uses the dashboard.)
-        // Sending them to their own page avoids an endless redirect loop.
-        if (current_role() === 'patient') {
-            header("Location: portal.php");
-        } else {
-            header("Location: dashboard.php");
-        }
-        exit;
+    if ($allowed_roles !== null && !in_array(current_role(), $allowed_roles, true)) {
+        // Logged in but WRONG role (e.g. someone typed an admin page into the
+        // address bar). Refuse it outright and record the attempt, instead of
+        // quietly redirecting.
+        deny_access('Tried to open ' . basename($_SERVER['SCRIPT_NAME'] ?? ''));
     }
+}
+
+// The logged-in user's own home page (patients live in the portal).
+function home_page() {
+    return current_role() === 'patient' ? 'portal.php' : 'dashboard.php';
+}
+
+// Stops the request with a 403 "Access denied" page and logs the attempt.
+// Used whenever someone edits the URL to reach a page or record they are
+// not allowed to see.
+function deny_access($logDetails = '') {
+    global $pdo;
+    if ($logDetails !== '' && isset($pdo)) {
+        log_activity($pdo, 'Access denied', $logDetails);
+    }
+    http_response_code(403);
+    $home = e(home_page());
+    echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Access denied</title>
+          <meta name='viewport' content='width=device-width,initial-scale=1'></head>
+          <body style='font-family:system-ui,sans-serif;background:#f4f6f8;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;'>
+          <div style='background:#fff;padding:36px 40px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08);text-align:center;max-width:420px;'>
+            <div style='font-size:2.4rem;'>&#128274;</div>
+            <h2 style='margin:.4em 0;'>Access denied</h2>
+            <p style='color:#555;'>You do not have permission to view this page or record.</p>
+            <a href='$home' style='display:inline-block;margin-top:10px;background:#0f766e;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;'>Back to my home page</a>
+          </div></body></html>";
+    exit;
 }
 
 // Small helper to safely print text (prevents broken HTML / XSS).

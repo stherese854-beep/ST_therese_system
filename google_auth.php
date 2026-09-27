@@ -131,6 +131,7 @@ if ($user) {
     // Existing account -> just log in. Google has already verified the email.
     $pdo->prepare("UPDATE users SET google_id=?, email_verified=1, last_login=NOW() WHERE id=?")
         ->execute([$gId, $user['id']]);
+    session_regenerate_id(true);   // fresh session ID on sign-in
     $_SESSION['user_id'] = $user['id'];
     $_SESSION['name']    = $user['name'];
     $_SESSION['role']    = $user['role'];
@@ -151,6 +152,8 @@ $assignedDentist = pick_dentist_for_new_patient($pdo);
 $pdo->prepare("INSERT INTO patients (user_id,name,email,patient_type,status,primary_dentist)
                VALUES (?,?,?,'New','Active',?)")
     ->execute([$newId, $gName, $gEmail, $assignedDentist]);
+
+session_regenerate_id(true);   // fresh session ID on sign-in
 
 $_SESSION['user_id'] = $newId;
 $_SESSION['name']    = $gName;

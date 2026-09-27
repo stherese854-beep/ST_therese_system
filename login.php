@@ -61,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "This account is inactive. Please contact the clinic.";
             } else {
                 // Save who is logged in inside the session.
+                session_regenerate_id(true);   // fresh session ID on sign-in
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['name']    = $user['name'];
                 $_SESSION['role']    = $user['role'];
@@ -240,6 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                            $p['dob'] ?: null, $p['age'] ?? null]);
 
             unset($_SESSION['pending']);
+            session_regenerate_id(true);   // fresh session ID on sign-in
             $_SESSION['user_id'] = $newId;
             $_SESSION['name']    = $p['name'];
             $_SESSION['role']    = 'patient';

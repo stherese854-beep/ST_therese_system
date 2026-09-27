@@ -21,9 +21,9 @@ try {
         PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4",
     ]);
 } catch (PDOException $e) {
-    die("<b>Database connection failed:</b> " . $e->getMessage() .
-        "<br><br><b>Host:</b> {$db_host}:{$db_port}" .
-        "<br><b>Database:</b> {$db_name}" .
-        "<br><b>User:</b> {$db_user}");
+    // Details go to the server error log only — never show hosts/usernames to visitors.
+    error_log('Database connection failed: ' . $e->getMessage() . " (host {$db_host}:{$db_port}, db {$db_name}, user {$db_user})");
+    http_response_code(500);
+    die('The system is temporarily unavailable. Please try again later.');
 }
 ?>

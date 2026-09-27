@@ -22,14 +22,14 @@ $stmt->execute([$id]);
 $appt = $stmt->fetch();
 
 if (!$appt) {
-    http_response_code(404);
-    exit('Appointment not found.');
+    // Same answer as "not yours", so guessing IDs does not reveal which exist.
+    deny_access("Appointment slip #$id");
 }
 
 // ---- Access control ----
 $role = current_role();
 $allowed = false;
-if ($role === 'admin' || $role === 'admin') {
+if ($role === 'admin' || $role === 'staff') {
     $allowed = true;
 } elseif ($role === 'patient') {
     // The appointment must belong to this patient's account.
@@ -47,8 +47,7 @@ if ($role === 'admin' || $role === 'admin') {
 }
 
 if (!$allowed) {
-    http_response_code(403);
-    exit('You are not allowed to view this appointment slip.');
+    deny_access("Appointment slip #$id");
 }
 
 // Only confirmed appointments have a slip.

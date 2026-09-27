@@ -16,6 +16,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?= e(csrf_token()) ?>"><!-- sent with JS POST requests -->
     <title><?= e($page_title) ?> — St. Therese Dental Clinic</title>
 
     <!-- Bootstrap 5 CSS (CDN) -->
@@ -28,8 +29,14 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
 <?php
 // ---- Toast pop-up (shows a one-time flash message, or a ?toast= URL message) ----
 $__flash = function_exists('take_flash') ? take_flash() : null;
-if (!$__flash && isset($_GET['toast']) && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    $__flash = ['msg' => $_GET['toast'], 'type' => $_GET['tt'] ?? 'success'];
+// Only known codes are accepted, so nobody can craft a link that shows their
+// own text (e.g. a fake "call this number") on the clinic's site.
+$__urlToasts = [
+    'loggedout' => ['msg' => 'You have been logged out.', 'type' => 'info'],
+    'pwreset'   => ['msg' => 'Password reset! You can now sign in with your new password.', 'type' => 'success'],
+];
+if (!$__flash && isset($_GET['toast'], $__urlToasts[$_GET['toast']]) && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    $__flash = $__urlToasts[$_GET['toast']];
 }
 if ($__flash):
     $__toastColors = ['success'=>'#138a4e','error'=>'#c0392b','danger'=>'#c0392b','info'=>'#0f766e','warning'=>'#c79a5c'];

@@ -18,6 +18,13 @@ require_once 'includes/assign.php';    // dentist_match_sql() for the dentist fi
 // those values then appear in the printed report.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_clinical') {
     $pid = (int)$_POST['patient_id'];
+    if (current_role() === 'dentist') {
+        $own = [];
+        $ownSql = "SELECT COUNT(*) FROM patients p WHERE p.id = ? AND " .
+                  dentist_match_sql('p.primary_dentist', $_SESSION['name'] ?? '', $own);
+        $chk = $pdo->prepare($ownSql); $chk->execute(array_merge([$pid], $own));
+        if (!(int)$chk->fetchColumn()) deny_access("Changed clinical info of patient #$pid");
+    }
     $pdo->prepare("UPDATE patients SET medical_alert=?, last_visit=?, next_visit=? WHERE id=?")
         ->execute([
             trim($_POST['medical_alert']),

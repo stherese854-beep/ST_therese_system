@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
         $pdo->prepare("UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL WHERE email = ?")
             ->execute([$hash, $email]);
         unset($_SESSION['reset_email'], $_SESSION['reset_verified']);
-        header("Location: login.php?toast=" . urlencode("Password reset! You can now sign in with your new password."));
+        header("Location: login.php?toast=pwreset");
         exit;
     }
 }

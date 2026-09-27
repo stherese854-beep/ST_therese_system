@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
 
 # Disable conflicting MPM modules at BUILD time
 RUN a2dismod mpm_event mpm_worker 2>/dev/null || true \
-    && a2enmod mpm_prefork rewrite
+    && a2enmod mpm_prefork rewrite headers
 
 # Copy project files
 COPY . /var/www/html/

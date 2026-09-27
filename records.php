@@ -10,7 +10,8 @@
 //  Records pile up over time (each has its own date) and every
 //  entry has a Delete button.
 //
-//  X-ray images are saved as files in  uploads/xrays/  and the
+//  X-ray images are saved as files in  uploads/xrays/  (served only through
+//  xray.php, which checks who is asking) and the
 //  file name is stored in the `xrays` table.
 // ============================================================
 require_once 'config/auth.php';
@@ -31,6 +32,13 @@ $patients = $recStmt->fetchAll();
 $pid = (int)($_GET['patient'] ?? ($patients[0]['id'] ?? 0));
 $tab = $_GET['tab'] ?? 'overview';
 
+// Only patients in the list above may be opened. Stops a dentist from
+// editing ?patient=ID in the URL to read someone else's patient.
+$allowedPids = array_map('intval', array_column($patients, 'id'));
+if ($pid && !in_array($pid, $allowedPids, true)) {
+    deny_access("Records of patient #$pid");
+}
+
 // Name of the selected patient (saved into the treatments table).
 $patientName = '';
 foreach ($patients as $p) { if ($p['id'] == $pid) $patientName = $p['name']; }
@@ -42,6 +50,9 @@ $XRAY_DIR = __DIR__ . '/uploads/xrays';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $pid    = (int)($_POST['patient_id'] ?? $pid);
+    if (!in_array($pid, $allowedPids, true)) {      // same check for form posts
+        deny_access("Changed records of patient #$pid");
+    }
 
     // ----- Overview: save edited patient info -----
     if ($action === 'update_patient_info') {
@@ -80,10 +91,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: records.php?patient=$pid&tab=treatments"); exit;
     }
     if ($action === 'delete_treatment') {
-        $t = $pdo->prepare("SELECT patient_name, treatment_name FROM treatments WHERE id=?");
-        $t->execute([$_POST['id']]);
+        $t = $pdo->prepare("SELECT patient_name, treatment_name FROM treatments WHERE id=? AND patient_id=?");
+        $t->execute([$_POST['id'], $pid]);
         $tRow = $t->fetch();
-        $pdo->prepare("DELETE FROM treatments WHERE id=?")->execute([$_POST['id']]);
+        $pdo->prepare("DELETE FROM treatments WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
         log_activity($pdo, 'Deleted treatment record', $tRow ? ($tRow['patient_name'] . ' — ' . $tRow['treatment_name']) : ('#' . $_POST['id']));
         set_flash('Treatment record deleted.', 'info');
         header("Location: records.php?patient=$pid&tab=treatments"); exit;
@@ -114,11 +125,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: records.php?patient=$pid&tab=xrays"); exit;
     }
     if ($action === 'delete_xray') {
-        $x = $pdo->prepare("SELECT image_file FROM xrays WHERE id=?");
-        $x->execute([$_POST['id']]);
+        $x = $pdo->prepare("SELECT image_file FROM xrays WHERE id=? AND patient_id=?");
+        $x->execute([$_POST['id'], $pid]);
         $row = $x->fetch();
-        if ($row && is_file("$XRAY_DIR/{$row['image_file']}")) @unlink("$XRAY_DIR/{$row['image_file']}");
-        $pdo->prepare("DELETE FROM xrays WHERE id=?")->execute([$_POST['id']]);
+        if ($row && is_file("$XRAY_DIR/" . basename($row['image_file']))) @unlink("$XRAY_DIR/" . basename($row['image_file']));
+        $pdo->prepare("DELETE FROM xrays WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
         $xrPatientName = 'Patient #' . $pid;
         foreach ($patients as $pRow) { if ((int)$pRow['id'] === $pid) { $xrPatientName = $pRow['name']; break; } }
         log_activity($pdo, 'Deleted X-ray', $xrPatientName);
@@ -136,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete_note') {
         $nPatientName = 'Patient #' . $pid;
         foreach ($patients as $pRow) { if ((int)$pRow['id'] === $pid) { $nPatientName = $pRow['name']; break; } }
-        $pdo->prepare("DELETE FROM clinical_notes WHERE id=?")->execute([$_POST['id']]);
+        $pdo->prepare("DELETE FROM clinical_notes WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
         log_activity($pdo, 'Deleted clinical note', $nPatientName);
         set_flash('Note deleted.', 'info');
         header("Location: records.php?patient=$pid&tab=notes"); exit;
@@ -388,8 +399,8 @@ $active = 'records';
                 <div class="d-flex flex-wrap gap-3">
                     <?php foreach ($xrays as $xr): ?>
                         <div style="width:180px;border:1px solid #e3e9ee;border-radius:10px;overflow:hidden;">
-                            <a href="uploads/xrays/<?= e($xr['image_file']) ?>" target="_blank">
-                                <img src="uploads/xrays/<?= e($xr['image_file']) ?>" alt="X-ray" style="width:100%;height:130px;object-fit:cover;background:#000;">
+                            <a href="xray.php?id=<?= (int)$xr['id'] ?>" target="_blank">
+                                <img src="xray.php?id=<?= (int)$xr['id'] ?>" alt="X-ray" style="width:100%;height:130px;object-fit:cover;background:#000;">
                             </a>
                             <div style="padding:8px;">
                                 <div style="font-size:.82rem;font-weight:600;"><?= $xr['caption'] ? e($xr['caption']) : 'X-ray' ?></div>

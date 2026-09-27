@@ -21,10 +21,15 @@
 //     crontab -e   then add:
 //     0 8 * * *  /usr/bin/php /path/to/htdocs/dental-clinic/cron_reminders.php
 //
-//  You can also just open this file in the browser to run it by hand:
+//  An ADMIN can also run it by hand from the browser (must be logged in):
 //     http://localhost/dental-clinic/cron_reminders.php
 // ============================================================
 
+if (php_sapi_name() !== 'cli') {
+    // From the web, only a logged-in admin may trigger the mailer.
+    require_once __DIR__ . '/config/auth.php';
+    require_login(['admin']);
+}
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/mailer.php';
 require_once __DIR__ . '/includes/message_templates.php';

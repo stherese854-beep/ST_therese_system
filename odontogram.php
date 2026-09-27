@@ -25,12 +25,27 @@ function touch_primary_dentist($pdo, $pid) {
     }
 }
 
+// Patients this user may chart: only real patients, and a DENTIST only
+// their own assigned ones. Used to reject a tampered ?patient= / patient_id.
+$odoSql = "SELECT p.id, p.name FROM patients p
+           LEFT JOIN users u ON p.user_id = u.id
+           WHERE (u.id IS NULL OR u.role = 'patient')";
+$odoPrm = [];
+if (current_role() === 'dentist') { $odoSql .= " AND p.primary_dentist = ?"; $odoPrm[] = $_SESSION['name'] ?? ''; }
+$odoSql .= " ORDER BY p.name";
+$odoStmt = $pdo->prepare($odoSql); $odoStmt->execute($odoPrm);
+$patients = $odoStmt->fetchAll();
+$allowedPids = array_map('intval', array_column($patients, 'id'));
+
 // ============================================================
 //  ACTIONS
 // ============================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $pid    = (int)($_POST['patient_id'] ?? 0);
+    if (!in_array($pid, $allowedPids, true)) {
+        deny_access("Changed dental chart of patient #$pid");
+    }
 
     // ---------- Save a tooth's condition (into ONE visit's chart) ----------
     if ($action === 'save_tooth') {
@@ -107,16 +122,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ============================================================
 //  LOAD THE PAGE
 // ============================================================
-// Only real patients. A dentist sees only their own assigned patients.
-$odoSql = "SELECT p.id, p.name FROM patients p
-           LEFT JOIN users u ON p.user_id = u.id
-           WHERE (u.id IS NULL OR u.role = 'patient')";
-$odoPrm = [];
-if (current_role() === 'dentist') { $odoSql .= " AND p.primary_dentist = ?"; $odoPrm[] = $_SESSION['name'] ?? ''; }
-$odoSql .= " ORDER BY p.name";
-$odoStmt = $pdo->prepare($odoSql); $odoStmt->execute($odoPrm);
-$patients = $odoStmt->fetchAll();
+// ($patients / $allowedPids were loaded above, before the actions.)
 $pid = (int)($_GET['patient'] ?? ($patients[0]['id'] ?? 0));
+if ($pid && !in_array($pid, $allowedPids, true)) {
+    deny_access("Dental chart of patient #$pid");
+}
 
 // Every patient needs at least one chart, so create one the first time.
 if ($pid) ensure_chart_session($pdo, $pid, $_SESSION['name'] ?? 'System');

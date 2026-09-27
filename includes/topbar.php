@@ -252,7 +252,9 @@ function toggleNotif(e){
     var dot = document.getElementById('notifDot');
     if (dot) {
         dot.remove();
-        fetch('notif_seen.php', { method: 'POST', credentials: 'same-origin' }).catch(function(){});
+        var tk = document.querySelector('meta[name="csrf-token"]');
+        fetch('notif_seen.php', { method: 'POST', credentials: 'same-origin',
+              headers: { 'X-CSRF-Token': tk ? tk.content : '' } }).catch(function(){});
     }
 }
 // Click anywhere else closes both menus.

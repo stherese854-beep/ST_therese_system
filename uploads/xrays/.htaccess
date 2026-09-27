@@ -1,0 +1,9 @@
+# X-rays are private medical images. They are never served directly;
+# xray.php streams them after checking the viewer may see that patient.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order Allow,Deny
+    Deny from all
+</IfModule>

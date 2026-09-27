@@ -1,0 +1,9 @@
+# These files are only meant to be included by other PHP pages.
+# Block anyone from opening them directly in the browser.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order Allow,Deny
+    Deny from all
+</IfModule>
