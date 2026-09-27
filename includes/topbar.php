@@ -161,7 +161,7 @@ $badgeCount = ($unreadCount === null) ? $notifCount : $unreadCount;
             </div>
         </div>
         <a href="<?= $tbProfileLink ?>" class="pw-item">⚙️ Profile &amp; Settings</a>
-        <a href="logout" class="pw-item pw-signout">⏻ Sign Out</a>
+        <a href="logout" class="pw-item pw-signout" data-confirm="Are you sure you want to log out?" data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-icon="⏻">⏻ Sign Out</a>
     </div>
 </div>
 </div><!-- /#topbarWidgets -->

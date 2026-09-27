@@ -414,7 +414,7 @@ include 'includes/head.php';
         <div class="spacer"></div>
         <div class="user-card">
             <strong><?= e($_SESSION['name']) ?></strong><br><small>Patient Account</small>
-            <br><a class="signout" href="logout">⏻ Sign Out</a>
+            <br><a class="signout" href="logout" data-confirm="Are you sure you want to log out?" data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-icon="⏻">⏻ Sign Out</a>
         </div>
     </aside>
 

@@ -184,13 +184,18 @@ include 'includes/head.php';
 startClock();
 
 function resetOne(kind, label){
-    if (!confirm('Restore "' + label + '" to its original wording?\n\nYour edited version will be discarded.')) return;
-    document.getElementById('resetKind').value = kind;
-    document.getElementById('resetOneForm').submit();
+    askConfirm({ title: 'Restore original wording?', danger: true, okText: 'Yes, restore',
+                 message: 'Restore "' + label + '" to its original wording?\n\nYour edited version will be discarded.' })
+        .then(function (ok) {
+            if (!ok) return;
+            document.getElementById('resetKind').value = kind;
+            document.getElementById('resetOneForm').submit();
+        });
 }
 function resetAll(){
-    if (!confirm('Restore EVERY message to its original wording?\n\nAll of your edits will be discarded.')) return;
-    document.getElementById('resetAllForm').submit();
+    askConfirm({ title: 'Restore all messages?', danger: true, okText: 'Yes, restore all',
+                 message: 'Restore EVERY message to its original wording?\n\nAll of your edits will be discarded.' })
+        .then(function (ok) { if (ok) document.getElementById('resetAllForm').submit(); });
 }
 </script>
 </body>

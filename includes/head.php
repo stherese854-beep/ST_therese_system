@@ -40,6 +40,157 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         return '';
     }
     </script>
+
+    <!-- ============================================================
+         CONFIRMATION MODAL (used everywhere: deletes, archive, logout...)
+         ============================================================
+         askConfirm({title, message, okText, danger}) -> Promise<boolean>
+
+         Existing code calls confirm('...') inside onsubmit="return ..."
+         (and confirmDelete()). The browser's plain pop-up is replaced by
+         this modal: the first submit is held back while the modal is
+         open; "Yes" re-submits the same form (same button) and the same
+         confirm() call then answers true. Links carrying data-confirm
+         (e.g. Sign Out) ask first, then follow the link.
+         ============================================================ -->
+    <style>
+    #cm-backdrop { position: fixed; inset: 0; background: rgba(15,35,40,.45); z-index: 20000;
+                   display: none; align-items: center; justify-content: center; padding: 16px; }
+    #cm-backdrop.open { display: flex; animation: cmFade .15s ease-out; }
+    #cm-box { background: #fff; border-radius: 16px; width: 100%; max-width: 420px; box-shadow: 0 18px 50px rgba(0,0,0,.28);
+              padding: 26px 24px 20px; text-align: center; font-family: inherit; animation: cmPop .18s ease-out; }
+    #cm-icon { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 12px; display: flex; align-items: center;
+               justify-content: center; font-size: 1.6rem; background: #e6f4f1; color: #0f766e; }
+    #cm-box.danger #cm-icon { background: #fdecec; color: #c0392b; }
+    #cm-title { font-size: 1.15rem; font-weight: 700; margin: 0 0 6px; color: #1d2b33; }
+    #cm-msg { font-size: .93rem; color: #5b6770; white-space: pre-line; margin: 0 0 20px; line-height: 1.5; }
+    #cm-actions { display: flex; gap: 10px; }
+    #cm-actions button { flex: 1; border: none; border-radius: 10px; padding: 11px 12px; font-weight: 600; font-size: .95rem; cursor: pointer; }
+    #cm-cancel { background: #eef2f5; color: #34434c; }
+    #cm-cancel:hover { background: #e2e8ed; }
+    #cm-ok { background: #0f766e; color: #fff; }
+    #cm-ok:hover { filter: brightness(1.08); }
+    #cm-box.danger #cm-ok { background: #c0392b; }
+    @keyframes cmFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes cmPop  { from { transform: translateY(8px) scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
+    @media print { #cm-backdrop { display: none !important; } }
+    </style>
+    <script>
+    (function () {
+        var DANGER = /delete|remove|archive|discard|reset|restore every|cannot be undone|permanently|did not attend/i;
+        var resolver = null, lastFocus = null;
+
+        function build() {
+            if (document.getElementById('cm-backdrop')) return;
+            var wrap = document.createElement('div');
+            wrap.id = 'cm-backdrop';
+            wrap.setAttribute('role', 'dialog');
+            wrap.setAttribute('aria-modal', 'true');
+            wrap.setAttribute('aria-labelledby', 'cm-title');
+            wrap.innerHTML =
+                '<div id="cm-box"><div id="cm-icon"></div><h3 id="cm-title"></h3><p id="cm-msg"></p>' +
+                '<div id="cm-actions"><button type="button" id="cm-cancel">Cancel</button>' +
+                '<button type="button" id="cm-ok">Confirm</button></div></div>';
+            document.body.appendChild(wrap);
+            document.getElementById('cm-cancel').onclick = function () { close(false); };
+            document.getElementById('cm-ok').onclick = function () { close(true); };
+            wrap.addEventListener('mousedown', function (e) { if (e.target === wrap) close(false); });
+            document.addEventListener('keydown', function (e) {
+                if (!wrap.classList.contains('open')) return;
+                if (e.key === 'Escape') { e.preventDefault(); close(false); }
+                if (e.key === 'Tab') {                         // keep focus inside the modal
+                    var c = document.getElementById('cm-cancel'), o = document.getElementById('cm-ok');
+                    if (e.shiftKey && document.activeElement === c) { e.preventDefault(); o.focus(); }
+                    else if (!e.shiftKey && document.activeElement === o) { e.preventDefault(); c.focus(); }
+                }
+            });
+        }
+
+        function close(answer) {
+            document.getElementById('cm-backdrop').classList.remove('open');
+            if (lastFocus && lastFocus.focus) lastFocus.focus();
+            var r = resolver; resolver = null;
+            if (r) r(answer);
+        }
+
+        // Tidy the old pop-up wording for the modal ("⚠️ WARNING: ..." etc.).
+        function clean(msg) {
+            return String(msg || 'Are you sure?').replace(/^\s*⚠️\s*(WARNING:\s*)?/i, '').trim();
+        }
+
+        window.askConfirm = function (opts) {
+            if (typeof opts === 'string') opts = { message: opts };
+            opts = opts || {};
+            build();
+            var msg = clean(opts.message);
+            var danger = opts.danger !== undefined ? opts.danger : DANGER.test(msg);
+            var box = document.getElementById('cm-box');
+            box.classList.toggle('danger', !!danger);
+            document.getElementById('cm-icon').textContent = opts.icon || (danger ? '🗑' : '❔');
+            document.getElementById('cm-title').textContent = opts.title || (danger ? 'Please confirm' : 'Are you sure?');
+            document.getElementById('cm-msg').textContent = msg;
+            document.getElementById('cm-ok').textContent = opts.okText ||
+                (danger ? (/delete/i.test(msg) ? 'Delete' : 'Yes, continue') : 'Yes, continue');
+            document.getElementById('cm-cancel').textContent = opts.cancelText || 'Cancel';
+            lastFocus = document.activeElement;
+            // If a Bootstrap modal is open, sit inside it — Bootstrap keeps focus
+            // trapped in its modal and would otherwise steal it from our buttons.
+            var wrap = document.getElementById('cm-backdrop');
+            var host = document.querySelector('.modal.show') || document.body;
+            if (wrap.parentNode !== host) host.appendChild(wrap);
+            wrap.classList.add('open');
+            document.getElementById(danger ? 'cm-cancel' : 'cm-ok').focus();   // safe default for deletes
+            return new Promise(function (res) { resolver = res; });
+        };
+
+        // ---- confirm() inside a form's onsubmit -> modal, then re-submit ----
+        var pendingForm = null, pendingSubmitter = null;
+        document.addEventListener('submit', function (e) {
+            if (e.target.dataset.cmConfirmed === '1') return;       // second pass after "Yes"
+            var f = e.target;
+            pendingForm = f; pendingSubmitter = e.submitter || null;
+            // Forget it once this submit is over, so an unrelated confirm() later
+            // is never mistaken for part of this form.
+            setTimeout(function () { if (pendingForm === f && f.dataset.cmConfirmed !== '1') pendingForm = null; }, 0);
+        }, true);
+
+        var nativeConfirm = window.confirm.bind(window);
+        window.confirm = function (message) {
+            var form = pendingForm;
+            if (form && form.dataset.cmConfirmed === '1') {          // user already said yes
+                delete form.dataset.cmConfirmed;
+                return true;
+            }
+            if (!form) return nativeConfirm(message);                // not from a form submit
+            pendingForm = null;
+            var submitter = pendingSubmitter;
+            askConfirm({ message: message }).then(function (ok) {
+                if (!ok) return;
+                form.dataset.cmConfirmed = '1';
+                pendingForm = form;
+                if (form.requestSubmit) form.requestSubmit(submitter && submitter.form === form ? submitter : undefined);
+                else form.submit();
+            });
+            return false;                                            // hold the submit for now
+        };
+        // Older helper some pages use: same modal.
+        window.confirmDelete = function (message) { return window.confirm(message || 'Are you sure you want to delete this?'); };
+
+        // ---- Links that need confirming (e.g. Sign Out): <a data-confirm="..."> ----
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest && e.target.closest('a[data-confirm]');
+            if (!a || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+            e.preventDefault();
+            askConfirm({
+                title: a.dataset.confirmTitle || '',
+                message: a.dataset.confirm,
+                okText: a.dataset.confirmOk || '',
+                icon: a.dataset.confirmIcon || '',
+                danger: a.dataset.confirmDanger === '1'
+            }).then(function (ok) { if (ok) window.location.href = a.href; });
+        });
+    })();
+    </script>
 </head>
 <body>
 <?php
