@@ -92,17 +92,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!$user && $email !== '') {
             // No live account under that email — but it may have been
             // permanently deleted from the Archive. Check the log so we can
-            // tell the person what actually happened instead of just saying
-            // "wrong email or password".
+            // tell the person what actually happened instead of a generic
+            // error.
             $log = $pdo->prepare("SELECT id FROM deleted_accounts_log WHERE email = ? ORDER BY deleted_at DESC LIMIT 1");
             $log->execute([$email]);
             if ($log->fetch()) {
                 $deletionNotice = 'permadeleted';
             } else {
-                $error = "Wrong email or password.";
+                // Nobody has ever registered with this email — say so plainly
+                // instead of "wrong password", which would wrongly suggest an
+                // account exists.
+                $error = "No account found with that email. Please check the email or register.";
             }
         } else {
-            $error = "Wrong email or password.";
+            // The email IS registered, so the only thing left to be wrong is
+            // the password.
+            $error = "Wrong password. Please try again.";
         }
     }
 
@@ -305,7 +310,8 @@ include 'includes/head.php';
                 <form method="POST" action="login.php">
                     <input type="hidden" name="action" value="signin">
                     <label class="field-label">Email Address</label>
-                    <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com" required>
+                    <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com"
+                           value="<?= (($_POST['action'] ?? '') === 'signin') ? e($_POST['email'] ?? '') : '' ?>" required>
 
                     <label class="field-label">Password</label>
 <div class="pw-wrap mb-3">
