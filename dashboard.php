@@ -241,9 +241,10 @@ $active = 'dashboard';
             </div>
         </div>
 
-        <!-- ===== Clinic announcements (visible to all staff) ===== -->
+        <!-- ===== Clinic announcements (dentists & staff; the admin writes them
+             on the Announcements page, so they are not repeated here) ===== -->
         <?php
-        $dashAnns = $pdo->query(
+        $dashAnns = current_role() === 'admin' ? [] : $pdo->query(
             "SELECT title, content, created_at FROM announcements
              WHERE status='Published' ORDER BY created_at DESC LIMIT 3"
         )->fetchAll();
@@ -252,14 +253,11 @@ $active = 'dashboard';
         <div class="card-box mb-3" style="border-left:4px solid var(--gold);">
             <div class="flex-between mb-2">
                 <h6 class="mb-0">📣 Clinic Announcements</h6>
-                <?php if (current_role() === 'admin'): ?>
-                    <a href="announcements" class="btn btn-sm btn-light">Manage</a>
-                <?php endif; ?>
             </div>
             <?php foreach ($dashAnns as $an): ?>
                 <div class="py-2 border-bottom">
                     <div style="font-weight:600;font-size:.95rem;"><?= e($an['title']) ?></div>
-                    <div class="text-muted2" style="font-size:.86rem;"><?= e($an['content']) ?></div>
+                    <div class="text-muted2" style="font-size:.86rem;white-space:pre-line;"><?= format_announcement($an['content']) ?></div>
                     <div class="text-muted2" style="font-size:.75rem;margin-top:2px;"><?= date('M j, Y', strtotime($an['created_at'])) ?></div>
                 </div>
             <?php endforeach; ?>

@@ -593,6 +593,25 @@ include 'includes/head.php';
         <?php elseif ($view === 'appointments'): ?>
             <!-- ===== MY APPOINTMENTS: upcoming + full history ===== -->
 
+            <!-- Clinic announcements (latest 3; all of them are under Announcements) -->
+            <?php if ($news): ?>
+            <div class="card-box" style="border-left:4px solid var(--gold);">
+                <div class="flex-between mb-1">
+                    <h5 class="mb-0">📣 Clinic Announcements</h5>
+                    <?php if (count($news) > 3): ?><a href="portal?view=news" class="btn btn-sm btn-light">See all</a><?php endif; ?>
+                </div>
+                <?php $topNews = array_slice($news, 0, 3); foreach ($topNews as $i => $n): ?>
+                    <div class="py-2 <?= $i < count($topNews) - 1 ? 'border-bottom' : '' ?>">
+                        <div class="flex-between">
+                            <strong><?= e($n['title']) ?></strong>
+                            <small class="text-muted2"><?= date('M j, Y', strtotime($n['created_at'])) ?></small>
+                        </div>
+                        <div style="font-size:.92rem;color:#55606a;margin-top:4px;white-space:pre-line;"><?= format_announcement($n['content']) ?></div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+
             <!-- Upcoming -->
             <div class="card-box">
                 <div class="flex-between mb-1">
@@ -900,7 +919,7 @@ include 'includes/head.php';
                             <strong><?= e($n['title']) ?></strong>
                             <small class="text-muted2"><?= date('M j, Y', strtotime($n['created_at'])) ?></small>
                         </div>
-                        <div style="font-size:.92rem;color:#55606a;margin-top:4px;white-space:pre-wrap;"><?= e($n['content']) ?></div>
+                        <div style="font-size:.92rem;color:#55606a;margin-top:4px;white-space:pre-line;"><?= format_announcement($n['content']) ?></div>
                     </div>
                 <?php endforeach; ?>
                 <?php if (!$news): ?><p class="text-muted2 text-center py-4">No announcements right now.</p><?php endif; ?>

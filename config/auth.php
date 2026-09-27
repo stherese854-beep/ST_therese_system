@@ -367,6 +367,16 @@ function log_activity($pdo, $action, $details = '') {
     } catch (Throwable $e) { /* logging never blocks the real action */ }
 }
 
+// Announcement text for display: escaped first (safe), then the simple
+// markup people type — **bold** and *italic*. Line breaks are kept by the
+// caller's CSS (white-space: pre-line).
+function format_announcement($text) {
+    $html = e($text);
+    $html = preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', $html);
+    $html = preg_replace('/(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])/s', '<em>$1</em>', $html);
+    return $html;
+}
+
 // ============================================================
 //  "MY ACTIVITY" — the logged-in person's own entries only
 // ============================================================
