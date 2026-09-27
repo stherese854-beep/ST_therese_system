@@ -65,6 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['name']    = $user['name'];
                 $_SESSION['role']    = $user['role'];
 
+                // A blank last_login means this is the very first time this
+                // account has ever signed in — greet them as "Welcome" instead
+                // of "Welcome back" (matches how a brand-new patient is greeted).
+                $isFirstLogin = empty($user['last_login']);
+
                 // Update last login time.
                 $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")
                     ->execute([$user['id']]);
@@ -72,9 +77,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 set_flash('Welcome back, ' . $user['name'] . '!');   // toast on the next page
 
+                // A one-time pop-up greeting, shown once right after logging in
+                // (the patient portal and the staff/dentist/admin dashboard each
+                // show their own version of it, then it clears itself).
+                $_SESSION['show_welcome_popup'] = true;
+                $_SESSION['just_registered']    = $isFirstLogin;
+
                 // Patients go to the patient portal; everyone else to the dashboard.
                 if ($user['role'] === 'patient') {
-                    $_SESSION['show_welcome_popup'] = true;   // portal.php shows a one-time pop-up greeting
                     header("Location: portal.php");
                 } else {
                     header("Location: dashboard.php");

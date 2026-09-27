@@ -11,6 +11,14 @@ $role = current_role();
 $isDentist = ($role === 'dentist');
 $myName = $_SESSION['name'] ?? '';
 
+// A one-time pop-up greeting, shown once right after logging in
+// (set by login.php, cleared here so it never shows again this session).
+$justRegistered   = !empty($_SESSION['just_registered']);
+if ($justRegistered) unset($_SESSION['just_registered']);
+$showWelcomePopup = !empty($_SESSION['show_welcome_popup']);
+if ($showWelcomePopup) unset($_SESSION['show_welcome_popup']);
+$firstName = explode(' ', $myName)[0];
+
 // A reusable WHERE fragment so a dentist's numbers are scoped to their patients.
 $apptScope = $isDentist ? " AND dentist = " . $pdo->quote($myName) : "";
 
@@ -375,10 +383,40 @@ $active = 'dashboard';
     </main>
 </div>
 
+<?php if ($showWelcomePopup): ?>
+<?php
+    $roleBlurb = [
+        'admin'   => 'Manage the clinic, staff and patients from your dashboard.',
+        'dentist' => 'Here\'s an overview of your patients and today\'s schedule.',
+        'staff'   => 'Here\'s an overview of today\'s appointments and patients.',
+    ][$role] ?? 'Here\'s an overview of the clinic.';
+?>
+<div class="modal fade" id="welcomeModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border-radius:16px;overflow:hidden;">
+      <div class="modal-body text-center py-4 px-4">
+        <div style="width:64px;height:64px;background:#eef7f6;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:1.8rem;">🦷</div>
+        <h4 style="color:var(--teal-dark);"><?= $justRegistered ? 'Welcome' : 'Welcome back' ?>, <?= e($firstName) ?>!</h4>
+        <p class="text-muted2 mb-4"><?= e($roleBlurb) ?></p>
+        <button type="button" class="btn btn-teal px-4" data-bs-dismiss="modal">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
+<?php if ($showWelcomePopup): ?>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<?php endif; ?>
 <script src="js/app.js"></script>
 <script>
     startClock();          // live clock (top right)
     buildCalendar();       // simple month calendar
+    <?php if ($showWelcomePopup): ?>
+    document.addEventListener('DOMContentLoaded', function () {
+        new bootstrap.Modal(document.getElementById('welcomeModal')).show();
+    });
+    <?php endif; ?>
 </script>
 </body>
 </html>
