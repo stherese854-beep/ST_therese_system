@@ -62,7 +62,7 @@ foreach ($appts as $a) {                                      // stretch to upco
 while ($cursor <= $lastMonth) { $months[$cursor->format('Y-m')] = 0; $cursor = $cursor->modify('+1 month'); }
 foreach ($appts as $a) { $k = substr($a['appointment_date'], 0, 7); if (isset($months[$k])) $months[$k]++; }
 $charts['perMonth'] = ['Appointments per month', 'By appointment date · includes upcoming',
-    array_map(fn($k) => date('M Y', strtotime("$k-01")), array_keys($months)), array_values($months), 'appointment', 'v'];
+    array_map(fn($k) => date('M Y', strtotime("$k-01")), array_keys($months)), array_values($months), 'appointment', 'line'];
 
 // New patients per month
 $pm = $pdo->prepare("SELECT DATE_FORMAT(p.created_at, '%Y-%m') m, COUNT(*) n FROM patients p
@@ -72,7 +72,7 @@ $pm->execute([$start->modify('first day of this month')->format('Y-m-d')]);
 $newPts = array_fill_keys(array_keys($months), 0);
 foreach ($pm->fetchAll() as $r) if (isset($newPts[$r['m']])) $newPts[$r['m']] = (int)$r['n'];
 $charts['newPatients'] = ['New patients per month', 'Patient records created',
-    array_map(fn($k) => date('M Y', strtotime("$k-01")), array_keys($newPts)), array_values($newPts), 'patient', 'v'];
+    array_map(fn($k) => date('M Y', strtotime("$k-01")), array_keys($newPts)), array_values($newPts), 'patient', 'line'];
 
 // Helper: count by a key, sorted largest first
 $countBy = function ($rows, $fn) {
@@ -82,8 +82,23 @@ $countBy = function ($rows, $fn) {
     return $c;
 };
 
-$st = $countBy($appts, fn($a) => $a['status']);
-$charts['status'] = ['Appointments by status', 'How booked appointments ended up', array_keys($st), array_values($st), 'appointment', 'h'];
+$STATUS_COLORS = [                     // categorical slots 1-6, in this fixed order
+    'Completed'    => '#2a78d6',
+    'Confirmed'    => '#eb6834',
+    'Pending'      => '#1baf7a',
+    'Needs Review' => '#eda100',
+    'Cancelled'    => '#e87ba4',
+    'No-show'      => '#008300',
+];
+$st = []; $other = []; $stColors = [];
+foreach ($STATUS_COLORS as $name => $col) {
+    $n = $byStatus[$name] ?? 0;
+    if ($n > 0) { $st[$name] = $n; $stColors[] = $col; }
+}
+foreach ($byStatus as $name => $n) if (!isset($STATUS_COLORS[$name]) && $n > 0) $other[] = "$name $n";
+if ($other) { $st['Other'] = array_sum(array_map(fn($x) => (int)preg_replace('/.* /', '', $x), $other)); $stColors[] = '#a8a7a0'; }
+$charts['status'] = ['Appointments by status', 'Share of booked appointments' . ($other ? ' · Other = ' . implode(', ', $other) : ''),
+    array_keys($st), array_values($st), 'appointment', 'donut', $stColors];
 
 $tr = $countBy($appts, fn($a) => $a['treatment']);
 $charts['treatments'] = ['Top treatments', 'Most-booked services', array_keys($tr), array_values($tr), 'appointment', 'h'];
@@ -109,9 +124,9 @@ $charts['hours'] = ['Busiest times of day', 'Appointments by starting hour',
     array_map(fn($h) => date('g A', mktime($h, 0)), array_keys($hr)), array_values($hr), 'appointment', 'v'];
 
 // Who cancels
-$cb = $countBy(array_filter($appts, fn($a) => $a['status'] === 'Cancelled'),
-               fn($a) => $a['cancelled_by'] === 'patient' ? 'Patient' : ($a['cancelled_by'] ? ucfirst($a['cancelled_by']) : 'Clinic / not recorded'));
-$charts['cancelledBy'] = ['Who cancels', 'Cancelled appointments by who cancelled', array_keys($cb), array_values($cb), 'cancellation', 'h'];
+$cb = ['Patient' => 0, 'Clinic' => 0];      // anyone other than the patient counts as the clinic
+foreach ($appts as $a) if ($a['status'] === 'Cancelled') $cb[$a['cancelled_by'] === 'patient' ? 'Patient' : 'Clinic']++;
+$charts['cancelledBy'] = ['Who cancels', 'Share of cancelled appointments', array_keys($cb), array_values($cb), 'cancellation', 'split', ['#2a78d6', '#eb6834']];
 
 // Patient age groups (all active patients — not date-filtered)
 $ages = array_fill_keys(['0–12','13–17','18–29','30–44','45–59','60+','Unknown'], 0);
@@ -128,12 +143,12 @@ if ($ages['Unknown'] === 0) unset($ages['Unknown']);
 $charts['ages'] = ['Patient age groups', 'All active patients (not date-filtered)', array_keys($ages), array_values($ages), 'patient', 'v'];
 
 // Review ratings 1–5 (all reviews — not date-filtered)
-$rt = array_fill_keys([1,2,3,4,5], 0);
+$rt = array_fill_keys([5,4,3,2,1], 0);
 foreach ($pdo->query("SELECT rating FROM reviews")->fetchAll(PDO::FETCH_COLUMN) as $r) if (isset($rt[(int)$r])) $rt[(int)$r]++;
 $charts['ratings'] = ['Review ratings', 'All patient reviews (not date-filtered)',
-    array_map(fn($s) => $s . ' ★', array_keys($rt)), array_values($rt), 'review', 'v'];
+    array_map(fn($s) => $s . ' ★', array_keys($rt)), array_values($rt), 'review', 'h'];
 
-$chartOrder = ['perMonth', 'newPatients', 'status', 'treatments', 'dentists', 'weekdays', 'hours', 'cancelledBy', 'ages', 'ratings'];
+$chartOrder = ['perMonth', 'newPatients', 'status', 'treatments', 'dentists', 'weekdays', 'hours', 'ages', 'ratings', 'cancelledBy'];
 
 $page_title = "Analytics";
 include 'includes/head.php';
@@ -151,6 +166,11 @@ $active = 'analytics';
 .viz-card .sub { font-size: .78rem; color: var(--muted); margin: 2px 0 10px; }
 .viz-canvas { position: relative; height: 240px; }
 .viz-canvas.tall { height: 280px; }
+.viz-canvas.short { height: 64px; }
+.viz-legend { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8rem; color: var(--ink-2); }
+.viz-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.viz-legend b { color: var(--ink); font-weight: 600; margin-left: 3px; }
+.viz-legend span { color: var(--muted); }
 .viz-empty { height: 240px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: .9rem; }
 .viz-card details { margin-top: 6px; font-size: .82rem; }
 .viz-card summary { cursor: pointer; color: var(--ink-2); }
@@ -202,25 +222,36 @@ $active = 'analytics';
         <div class="viz-grid">
             <?php foreach ($chartOrder as $id):
                 [$title, $sub, $labels, $values, $unit, $orient] = $charts[$id];
-                $isWide = in_array($id, ['perMonth'], true);
+                $colors = $charts[$id][6] ?? [];
+                $isWide = in_array($id, ['perMonth', 'cancelledBy'], true);   // cancelledBy: one short bar, full width
                 $hasData = array_sum($values) > 0;
                 $tall = $orient === 'h' && count($labels) > 5;
+                $sum = max(1, array_sum($values));
             ?>
             <section class="viz-card <?= $isWide ? 'wide' : '' ?>" aria-labelledby="t-<?= $id ?>">
                 <h6 id="t-<?= $id ?>"><?= e($title) ?></h6>
                 <div class="sub"><?= e($sub) ?></div>
                 <?php if ($hasData): ?>
-                    <div class="viz-canvas <?= $tall ? 'tall' : '' ?>">
+                    <div class="viz-canvas <?= $tall ? 'tall' : '' ?> <?= $orient === 'split' ? 'short' : '' ?>">
                         <canvas id="c-<?= $id ?>" role="img"
                                 aria-label="<?= e($title) ?>: <?= e(implode(', ', array_map(fn($l, $v) => "$l $v", $labels, $values))) ?>"></canvas>
                     </div>
+                    <?php if ($colors): ?>
+                        <!-- Legend with counts + %: identity never rests on colour alone -->
+                        <ul class="viz-legend">
+                            <?php foreach ($labels as $i => $l): if ((int)$values[$i] === 0 && $orient === 'split') continue; ?>
+                                <li><i style="background:<?= e($colors[$i]) ?>"></i><?= e($l) ?>
+                                    <b><?= number_format($values[$i]) ?></b> <span>(<?= round($values[$i] * 100 / $sum) ?>%)</span></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
                 <?php else: ?>
                     <div class="viz-empty">No data in this range yet.</div>
                 <?php endif; ?>
                 <details>
                     <summary>View as table</summary>
                     <table>
-                        <thead><tr><th><?= $orient === 'v' && in_array($id, ['perMonth','newPatients'], true) ? 'Month' : 'Category' ?></th><th><?= ucfirst($unit) ?>s</th></tr></thead>
+                        <thead><tr><th><?= in_array($id, ['perMonth','newPatients'], true) ? 'Month' : 'Category' ?></th><th><?= ucfirst($unit) ?>s</th></tr></thead>
                         <tbody>
                         <?php foreach ($labels as $i => $l): ?>
                             <tr><td><?= e($l) ?></td><td><?= number_format($values[$i]) ?></td></tr>
@@ -250,13 +281,94 @@ if (document.getElementById('clock')) startClock();
     Chart.defaults.font.size   = 12;
     Chart.defaults.color       = v('--muted');
 
-    var charts = <?= json_encode(array_map(fn($c) => ['labels' => $c[2], 'values' => $c[3], 'unit' => $c[4], 'h' => $c[5] === 'h'], $charts), JSON_HEX_TAG) ?>;
+    var charts = <?= json_encode(array_map(fn($c) => ['labels' => $c[2], 'values' => $c[3], 'unit' => $c[4], 'form' => $c[5], 'colors' => $c[6] ?? []], $charts), JSON_HEX_TAG) ?>;
+    var GRID = v('--grid'), AXIS = v('--axis'), INK2 = v('--ink-2');
+    var tooltipBase = { backgroundColor: '#1d2b33', padding: 10, displayColors: false };
 
     Object.keys(charts).forEach(function (id) {
         var el = document.getElementById('c-' + id);
         if (!el) return;
-        var c = charts[id], horizontal = c.h;
+        var c = charts[id];
         var plural = function (n) { return n + ' ' + c.unit + (n === 1 ? '' : 's'); };
+        var total  = c.values.reduce(function (a, b) { return a + b; }, 0);
+        var pct    = function (n) { return total ? Math.round(n * 100 / total) + '%' : '0%'; };
+
+        // ---- Trend over time: 2px line, soft area wash, ringed markers ----
+        if (c.form === 'line') {
+            new Chart(el, {
+                type: 'line',
+                data: { labels: c.labels, datasets: [{
+                    data: c.values, borderColor: TEAL, borderWidth: 2,
+                    cubicInterpolationMode: 'monotone',                          // smooth, but never dips below a real value
+                    fill: true, backgroundColor: 'rgba(13,148,136,0.10)',
+                    pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: TEAL,
+                    pointBorderColor: '#fff', pointBorderWidth: 2                  // surface ring
+                }]},
+                options: {
+                    maintainAspectRatio: false, animation: { duration: 300 },
+                    interaction: { mode: 'index', intersect: false },               // crosshair-style hover
+                    plugins: { legend: { display: false },
+                               tooltip: Object.assign({}, tooltipBase, { callbacks: { label: function (ctx) { return plural(ctx.parsed.y); } } }) },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: GRID, drawTicks: false }, border: { display: false } },
+                        x: { grid: { display: false }, border: { color: AXIS }, ticks: { color: INK2, maxRotation: 0, autoSkip: true } }
+                    }
+                }
+            });
+            return;
+        }
+
+        // ---- Part-to-whole at a glance: donut with the total in the middle ----
+        if (c.form === 'donut') {
+            new Chart(el, {
+                type: 'doughnut',
+                data: { labels: c.labels, datasets: [{
+                    data: c.values, backgroundColor: c.colors,
+                    borderColor: '#fff', borderWidth: 2,                            // 2px surface gap between slices
+                    hoverOffset: 6
+                }]},
+                options: {
+                    maintainAspectRatio: false, cutout: '62%', animation: { duration: 300 },
+                    plugins: { legend: { display: false },                          // HTML legend below carries labels + %
+                               tooltip: Object.assign({}, tooltipBase, { callbacks: { label: function (ctx) {
+                                   return ctx.label + ': ' + plural(ctx.parsed) + ' (' + pct(ctx.parsed) + ')'; } } }) }
+                },
+                plugins: [{
+                    id: 'centerTotal',
+                    afterDraw: function (chart) {
+                        var m = chart.getDatasetMeta(0).data[0]; if (!m) return;
+                        var ctx = chart.ctx; ctx.save(); ctx.textAlign = 'center';
+                        ctx.fillStyle = v('--ink'); ctx.font = '700 22px system-ui, sans-serif';
+                        ctx.fillText(total, m.x, m.y + 4);
+                        ctx.fillStyle = v('--muted'); ctx.font = '12px system-ui, sans-serif';
+                        ctx.fillText('total', m.x, m.y + 22); ctx.restore();
+                    }
+                }]
+            });
+            return;
+        }
+
+        // ---- Two-part share: one 100% bar split in two (not a 2-slice pie) ----
+        if (c.form === 'split') {
+            new Chart(el, {
+                type: 'bar',
+                data: { labels: [''], datasets: c.labels.map(function (l, i) {
+                    return { label: l, data: [c.values[i]], backgroundColor: c.colors[i], borderColor: '#fff', borderWidth: { left: i ? 2 : 0 },
+                             borderSkipped: false, borderRadius: 4, barThickness: 24 };
+                }) },
+                options: {
+                    indexAxis: 'y', maintainAspectRatio: false, animation: { duration: 300 },
+                    plugins: { legend: { display: false },
+                               tooltip: Object.assign({}, tooltipBase, { callbacks: { title: function () { return ''; },
+                                   label: function (ctx) { return ctx.dataset.label + ': ' + plural(ctx.parsed.x) + ' (' + pct(ctx.parsed.x) + ')'; } } }) },
+                    scales: { x: { stacked: true, display: false, max: total }, y: { stacked: true, display: false } }
+                }
+            });
+            return;
+        }
+
+        // ---- Magnitude / ranking: thin bars ----
+        var horizontal = c.form === 'h';
         new Chart(el, {
             type: 'bar',
             data: { labels: c.labels, datasets: [{
@@ -273,22 +385,19 @@ if (document.getElementById('clock')) startClock();
                 interaction: { mode: 'index', intersect: false },  // hover target = whole band, not just the bar
                 plugins: {
                     legend: { display: false },                    // single series: the title names it
-                    tooltip: {
-                        backgroundColor: '#1d2b33', padding: 10, displayColors: false,
-                        callbacks: { label: function (ctx) { return plural(ctx.parsed[horizontal ? 'x' : 'y']); } }
-                    }
+                    tooltip: Object.assign({}, tooltipBase, { callbacks: { label: function (ctx) { return plural(ctx.parsed[horizontal ? 'x' : 'y']); } } })
                 },
                 scales: {
                     [horizontal ? 'x' : 'y']: {
                         beginAtZero: true,
                         ticks: { precision: 0 },                   // counts: whole numbers only
-                        grid: { color: v('--grid'), drawTicks: false },
+                        grid: { color: GRID, drawTicks: false },
                         border: { display: false }
                     },
                     [horizontal ? 'y' : 'x']: {
                         grid: { display: false },
-                        border: { color: v('--axis') },
-                        ticks: { color: v('--ink-2'), autoSkip: !horizontal, maxRotation: 0 }
+                        border: { color: AXIS },
+                        ticks: { color: INK2, autoSkip: !horizontal, maxRotation: 0 }
                     }
                 }
             }
