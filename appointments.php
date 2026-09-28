@@ -265,7 +265,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
         $e2 = '';
         $mailNote = send_mail($pdo, $to, $subj, $body, $e2, 'appointment_confirmed') ? ' A confirmation was emailed.' : " (The email could not be sent — $e2)";
     }
-    set_flash('Appointment booked for ' . $patient['name'] . ' — ' . date('M j, Y', strtotime($date)) . " at $time with $dentist." . $mailNote);
+    // Same name + birthday already booked under another record? Staff are told
+    // (not blocked) — it may be a genuine namesake, which they can check in person.
+    $pdob = $pdo->prepare("SELECT date_of_birth FROM patients WHERE id = ?"); $pdob->execute([$patient['id']]);
+    $twin = same_person_active_booking($pdo, $patient['name'], $pdob->fetchColumn(), [$patient['id']]);
+    $twinNote = $twin ? ' ⚠️ Note: another patient record with the same name and birthday already has a booking on '
+                       . date('M j, Y', strtotime($twin['appointment_date'])) . ' — please check it is not the same person.' : '';
+    set_flash('Appointment booked for ' . $patient['name'] . ' — ' . date('M j, Y', strtotime($date)) . " at $time with $dentist." . $mailNote . $twinNote);
     header($back); exit;
 }
 

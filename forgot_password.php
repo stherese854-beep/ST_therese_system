@@ -19,7 +19,13 @@ $error = '';
 $notice = '';
 
 // ---------- STEP 1: user asks for a reset code ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'request'
+    && rate_limited($pdo, 'reset_request', 5, 3600)) {
+    $error = "Too many reset requests from this connection. Please wait an hour and try again.";
+    $_POST['action'] = 'blocked';
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'request') {
+    rate_hit($pdo, 'reset_request');
     $email = trim($_POST['email'] ?? '');
     $stmt = $pdo->prepare("SELECT id, name FROM users WHERE email = ?");
     $stmt->execute([$email]);
@@ -53,7 +59,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reque
 }
 
 // ---------- STEP 2: user types the code ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'verify'
+    && rate_limited($pdo, 'reset_guess', 10, 900)) {
+    // A 6-digit code must not be guessable by trying thousands of times.
+    $error = "Too many wrong codes. Please wait 15 minutes, then request a new code.";
+    $step = 'verify';
+    $_POST['action'] = 'blocked';
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'verify') {
+    rate_hit($pdo, 'reset_guess');
     $email = $_SESSION['reset_email'] ?? '';
     $code  = trim($_POST['code'] ?? '');
     $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? AND reset_code = ? AND reset_expires > NOW()");

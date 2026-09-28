@@ -42,6 +42,10 @@ try {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ===== SIGN IN =====
+    if (($_POST['action'] ?? '') === 'signin' && rate_limited($pdo, 'login_fail', 10, 900)) {
+        $error = "Too many failed sign-in attempts. Please wait 15 minutes and try again.";
+        $_POST['action'] = 'signin_blocked';
+    }
     if (($_POST['action'] ?? '') === 'signin') {
         $email = trim($_POST['email'] ?? '');
         $pass  = $_POST['password'] ?? '';
@@ -101,10 +105,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // account exists.
                 $error = "No account found with that email. Please check the email or register.";
             }
+            rate_hit($pdo, 'login_fail');
         } else {
             // The email IS registered, so the only thing left to be wrong is
             // the password.
             $error = "Wrong password. Please try again.";
+            rate_hit($pdo, 'login_fail');
         }
     }
 
@@ -121,9 +127,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dob   = trim($_POST['dob'] ?? '');
         $mode  = 'register';
 
+        // ---- Anti-spam: a hidden "website" field only bots fill in, and at most
+        //      5 sign-ups per connection per day. ----
+        $botTrap  = trim($_POST['website'] ?? '') !== '';
+        $tooMany  = rate_limited($pdo, 'register', 5, 86400);
+        rate_hit($pdo, 'register');
+
         // ---- Password checks (server-side, so they cannot be bypassed) ----
         // Only Strong passwords are accepted.
-        if ($pass !== $pass2) {
+        if ($botTrap) {
+            $error = "Sorry, we could not create your account. Please try again.";
+        } elseif ($tooMany) {
+            $error = "Too many sign-ups from this connection today. Please try again tomorrow or contact the clinic.";
+        } elseif ($pass !== $pass2) {
             $error = "The passwords do not match. Please re-type them.";
         } elseif (($pwp = password_problem($pass)) !== '') {
             $error = $pwp;
@@ -377,6 +393,10 @@ include 'includes/head.php';
                 <p class="muted">Register as a patient to book appointments.</p>
                 <form method="POST">
                     <input type="hidden" name="action" value="register">
+                    <!-- Bot trap: hidden from people, bots fill it in -->
+                    <div style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+                        <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+                    </div>
                     <div class="row">
                         <div class="col"><label class="field-label">First Name</label>
                             <input type="text" name="first_name" class="form-control mb-3" placeholder="Juan" value="<?= e($_POST['first_name'] ?? '') ?>" required></div>

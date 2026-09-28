@@ -511,6 +511,26 @@ function ensure_booking_review_schema($pdo) {
             $pdo->exec("ALTER TABLE appointments MODIFY status ENUM('Pending','Confirmed','Cancelled','Completed',
                         'No-show','Rescheduled','Needs Review','Expired','Arrived') DEFAULT 'Pending'");
         }
+        // Same-person identity: normalized name (+ date_of_birth) with an index,
+        // so duplicate checks across accounts are one fast lookup.
+        try {                                            // own try: never blocks the steps below
+        if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'name_key'")->rowCount()) {
+            $pdo->exec("ALTER TABLE patients ADD COLUMN name_key VARCHAR(150)
+                        AS (LOWER(TRIM(REPLACE(REPLACE(REPLACE(name, '    ', ' '), '   ', ' '), '  ', ' ')))) STORED");
+            $pdo->exec("ALTER TABLE patients ADD INDEX idx_identity (name_key, date_of_birth)");
+        }
+        if (!$pdo->query("SHOW INDEX FROM appointments WHERE Key_name = 'idx_patient_status'")->rowCount()) {
+            $pdo->exec("ALTER TABLE appointments ADD INDEX idx_patient_status (patient_id, status)");
+            $pdo->exec("ALTER TABLE appointments ADD INDEX idx_date_status (appointment_date, status)");
+        }
+        $pdo->exec("CREATE TABLE IF NOT EXISTS rate_limits (
+                        id         INT AUTO_INCREMENT PRIMARY KEY,
+                        action     VARCHAR(30) NOT NULL,
+                        ip         VARCHAR(45) NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_rate (action, ip, created_at)
+                    )");
+        } catch (Throwable $e) { /* e.g. an older database without generated columns */ }
         if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'health_form'")->rowCount()) {
             $pdo->exec("ALTER TABLE patients ADD COLUMN health_form TEXT DEFAULT NULL");
             $pdo->exec("ALTER TABLE patients ADD COLUMN health_form_at DATETIME DEFAULT NULL");
@@ -545,6 +565,56 @@ function complete_arrived_visit($pdo, $patientId, $date = null) {
         $pdo->prepare("UPDATE appointments SET status = 'Completed'
                         WHERE patient_id = ? AND status = 'Arrived' AND appointment_date = ?")
             ->execute([(int)$patientId, $date ?: date('Y-m-d')]);
+    } catch (Throwable $e) {}
+}
+
+// ============================================================
+//  ANTI-SPAM (no SMS needed)
+// ============================================================
+//  1. SAME PERSON, ANY ACCOUNT — one active booking per real person:
+//     a patient is identified by name + date of birth, whichever account
+//     books them. same_person_active_booking() finds an active booking for
+//     that identity outside the given patient records (the booking
+//     account's own family), using the indexed patients.name_key.
+//  2. RATE LIMITS per IP address for sign-ups, logins, reset codes and
+//     booking attempts (rate_limited() / rate_hit()).
+// ============================================================
+function same_person_active_booking($pdo, $name, $dob, $excludePatientIds = []) {
+    $key = person_name_key($name);
+    if ($key === '' || !$dob) return null;              // no birth date on file: cannot tell people apart
+    $sql = "SELECT a.id, a.appointment_date, a.appointment_time, a.patient_id
+              FROM patients p JOIN appointments a ON a.patient_id = p.id
+             WHERE p.name_key = ? AND p.date_of_birth = ?
+               AND a.status IN ('Pending','Confirmed')";
+    $prm = [$key, $dob];
+    $ex = array_values(array_filter(array_map('intval', (array)$excludePatientIds)));
+    if ($ex) { $sql .= " AND p.id NOT IN (" . implode(',', array_fill(0, count($ex), '?')) . ")"; $prm = array_merge($prm, $ex); }
+    try {
+        $st = $pdo->prepare($sql . " ORDER BY a.appointment_date LIMIT 1");
+        $st->execute($prm);
+        return $st->fetch() ?: null;
+    } catch (Throwable $e) { return null; }             // name_key not added yet
+}
+
+// The visitor's IP. Behind Railway's proxy the real one is the first
+// X-Forwarded-For entry; locally it is REMOTE_ADDR.
+function client_ip() {
+    $xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+    $ip  = $xff !== '' ? trim(explode(',', $xff)[0]) : ($_SERVER['REMOTE_ADDR'] ?? '');
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '0.0.0.0';
+}
+// Has this IP done $action $max times in the last $seconds?
+function rate_limited($pdo, $action, $max, $seconds) {
+    try {
+        $st = $pdo->prepare("SELECT COUNT(*) FROM rate_limits WHERE action = ? AND ip = ? AND created_at > (NOW() - INTERVAL ? SECOND)");
+        $st->execute([$action, client_ip(), (int)$seconds]);
+        return (int)$st->fetchColumn() >= $max;
+    } catch (Throwable $e) { return false; }
+}
+function rate_hit($pdo, $action) {
+    try {
+        $pdo->prepare("INSERT INTO rate_limits (action, ip) VALUES (?, ?)")->execute([$action, client_ip()]);
+        if (random_int(1, 50) === 1) $pdo->exec("DELETE FROM rate_limits WHERE created_at < NOW() - INTERVAL 2 DAY");
     } catch (Throwable $e) {}
 }
 

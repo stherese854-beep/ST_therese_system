@@ -175,13 +175,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
 
     [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
 
+    // Anti-spam: at most 15 booking attempts per hour from one connection.
+    $tooMany = rate_limited($pdo, 'booking', 15, 3600);
+    rate_hit($pdo, 'booking');
+
+    // Same real person (name + birth date) already booked through ANOTHER account?
+    $idOther = ($_POST['for'] ?? 'myself') === 'other';
+    $idName  = $idOther ? trim(($_POST['fname'] ?? '') . ' ' . ($_POST['lname'] ?? '')) : ($me['name'] ?? '');
+    $idDob   = $idOther ? trim($_POST['patient_dob'] ?? '') : ($me['date_of_birth'] ?? '');
+    $elsewhere = same_person_active_booking($pdo, $idName, $idDob, $familyIds);
+    if ($elsewhere) {
+        log_activity($pdo, 'Duplicate booking blocked', $idName . ' (born ' . $idDob . ') already booked for '
+                     . $elsewhere['appointment_date'] . ' under another account');
+    }
+
     [$healthForm, $healthError] = health_form_from_post($_POST);
     [$treatJoined, $treatError] = treatments_from_post($_POST);      // 1 to 3 treatments -> "A, B"
     if ($treatJoined !== '') $_POST['treatment'] = $treatJoined;
     $relationshipPosted = trim($_POST['relationship'] ?? '');
     if ($relationshipPosted === 'Other relative') $relationshipPosted = trim($_POST['relationship_other'] ?? '');
 
-    if ($pauseMessage !== '') {
+    if ($tooMany) {
+        $bookError = "Too many booking attempts from this connection. Please wait a while and try again, or contact the clinic.";
+    } elseif ($pauseMessage !== '') {
         $bookError = $pauseMessage;
     } elseif ($phoneError !== '') {
         $bookError = $phoneError;
@@ -219,6 +235,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     } elseif ($activeCount >= 3) {
         $bookError = "You already have 3 upcoming appointments, which is the most an account may hold at once. "
                    . "Once one of them is completed or cancelled, you can book another.";
+    } elseif ($elsewhere) {
+        // One active booking per real person, whichever account made it.
+        $bookError = "<strong>" . e($idName) . " already has an appointment</strong> on "
+                   . date('M j, Y', strtotime($elsewhere['appointment_date'])) . " (booked from another account).<br><br>"
+                   . "Each person can only have one booking at a time. If this is a <strong>different person</strong> "
+                   . "who happens to share the same name and birthday, please call or visit the clinic and our staff will book for you.";
     } elseif ($isDuplicate) {
         $isOwner   = (person_key($patientName) === person_key($me['name']));
         $bookError = "<strong>" . e($patientName) . " already has an appointment</strong> on "
