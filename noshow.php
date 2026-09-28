@@ -101,6 +101,39 @@ $tab = $_GET['tab'] ?? 'review';
 $role = current_role();
 $isDentistUser = ($role === 'dentist');
 
+// ---------- Report period ----------
+// Week (?period=week&w=2026-W39), month (&m=2026-09), day (&d=2026-09-28)
+// or all time. Default: this month. Items that still NEED REVIEW are always
+// listed, whatever the period, because they are open work for staff.
+$period = in_array($_GET['period'] ?? '', ['week','month','day','all'], true) ? $_GET['period'] : 'month';
+$validDate = function ($v, $fmt) { $d = DateTimeImmutable::createFromFormat('!' . $fmt, (string)$v); return $d && $d->format($fmt) === $v ? $d : null; };
+$today = new DateTimeImmutable('today');
+$pickW = preg_match('/^(\d{4})-W(\d{2})$/', $_GET['w'] ?? '', $wm) && (int)$wm[2] >= 1 && (int)$wm[2] <= 53
+         ? $_GET['w'] : $today->format('o-\WW');
+$pickM = $validDate($_GET['m'] ?? '', 'Y-m') ? $_GET['m'] : $today->format('Y-m');
+$pickD = $validDate($_GET['d'] ?? '', 'Y-m-d') ? $_GET['d'] : $today->format('Y-m-d');
+$pStart = $pEnd = null;
+if ($period === 'week') {
+    [$wy, $wn] = array_map('intval', explode('-W', $pickW));
+    $pStart = $today->setISODate($wy, $wn);          // Monday
+    $pEnd   = $pStart->modify('+6 days');            // Sunday
+    $periodLabel = 'Week ' . $wn . ', ' . $wy . ' (' . $pStart->format('M j') . ' – ' . $pEnd->format('M j, Y') . ')';
+} elseif ($period === 'month') {
+    $pStart = new DateTimeImmutable("$pickM-01");
+    $pEnd   = $pStart->modify('last day of this month');
+    $periodLabel = $pStart->format('F Y');
+} elseif ($period === 'day') {
+    $pStart = $pEnd = new DateTimeImmutable($pickD);
+    $periodLabel = $pStart->format('l, F j, Y');
+} else {
+    $periodLabel = 'All time';
+}
+$pS = $pStart ? $pStart->format('Y-m-d') : null;
+$pE = $pEnd ? $pEnd->format('Y-m-d') : null;
+// Query-string bits that keep the chosen period when switching tabs / filters.
+$periodQS = 'period=' . $period . ($period === 'week' ? '&w=' . urlencode($pickW) : '')
+          . ($period === 'month' ? '&m=' . urlencode($pickM) : '') . ($period === 'day' ? '&d=' . urlencode($pickD) : '');
+
 $filterDentist = $isDentistUser ? ($_SESSION['name'] ?? '') : trim($_GET['dentist'] ?? '');
 $filterStatus  = trim($_GET['status'] ?? '');
 $searchName    = trim($_GET['q'] ?? '');
@@ -112,8 +145,12 @@ $dentistOptions = $pdo->query(
 
 // ---------- Pull the missed appointments from the database ----------
 // These statuses count as "missed" or "needs attention".
-$conds  = ["status IN ('Needs Review','No-show','Cancelled','Rescheduled')"];
+$conds  = ["status IN ('Needs Review','No-show','Cancelled','Rescheduled','Expired')"];
 $params = [];
+if ($pS) {                                   // the period (open reviews always stay listed)
+    $conds[] = "(status = 'Needs Review' OR appointment_date BETWEEN ? AND ?)";
+    $params[] = $pS; $params[] = $pE;
+}
 
 if ($filterDentist !== '') {
     // Match the dentist in either shape the data uses (full or short name).
@@ -121,7 +158,7 @@ if ($filterDentist !== '') {
     $conds[] = dentist_match_sql('dentist', $filterDentist, $dp);
     foreach ($dp as $v) $params[] = $v;
 }
-if (in_array($filterStatus, ['Needs Review','No-show','Cancelled','Rescheduled'])) {
+if (in_array($filterStatus, ['Needs Review','No-show','Cancelled','Rescheduled','Expired'])) {
     $conds[] = "status = ?";
     $params[] = $filterStatus;
 }
@@ -136,15 +173,20 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $missed = $stmt->fetchAll();
 
-// Total appointments, used for the no-show rate. Scoped the same way.
-if ($filterDentist !== '') {
-    $tp = [];
-    $totSql = "SELECT COUNT(*) FROM appointments WHERE " . dentist_match_sql('dentist', $filterDentist, $tp);
-    $tot = $pdo->prepare($totSql); $tot->execute($tp);
-    $totalAppts = (int)$tot->fetchColumn();
-} else {
-    $totalAppts = (int)$pdo->query("SELECT COUNT(*) FROM appointments")->fetchColumn();
-}
+// Totals for the period (same dentist scope): every appointment, and the
+// ones that were due and resolved (Completed / No-show) for the rate.
+$tw = ["1=1"]; $tp = [];
+if ($filterDentist !== '') $tw[] = dentist_match_sql('dentist', $filterDentist, $tp);
+if ($pS) { $tw[] = "appointment_date BETWEEN ? AND ?"; $tp[] = $pS; $tp[] = $pE; }
+$tot = $pdo->prepare("SELECT COUNT(*) AS total,
+                             SUM(status = 'Completed') AS completed,
+                             SUM(status = 'No-show')   AS noshows
+                        FROM appointments WHERE " . implode(' AND ', $tw));
+$tot->execute($tp);
+$tr = $tot->fetch();
+$totalAppts     = (int)$tr['total'];
+$completedDue   = (int)$tr['completed'];
+$noShowsDue     = (int)$tr['noshows'];
 
 // ---------- Count each type (for the stat cards) ----------
 $countNoshow      = 0;
@@ -157,28 +199,44 @@ foreach ($missed as $m) {
     if ($m['status'] === 'Rescheduled')  $countRescheduled++;
     if ($m['status'] === 'Needs Review') $countReview++;
 }
-$noShowRate = $totalAppts > 0 ? round(($countNoshow / $totalAppts) * 100, 1) : 0;
+// Of the visits that were due and resolved, how many were missed?
+// (Future, pending, cancelled and expired bookings were never "due", so
+// counting them would make the rate look smaller than it is.)
+$noShowRate = ($completedDue + $noShowsDue) > 0 ? round($noShowsDue * 100 / ($completedDue + $noShowsDue), 1) : 0;
+$countExpired = count(array_filter($missed, fn($m) => $m['status'] === 'Expired'));
 
 // ---------- Apply the tab filter to the table ----------
 $rows = $missed;
 if ($tab === 'review')    $rows = array_filter($missed, fn($m) => $m['status'] === 'Needs Review');
 if ($tab === 'noshow')    $rows = array_filter($missed, fn($m) => $m['status'] === 'No-show');
 if ($tab === 'cancelled') $rows = array_filter($missed, fn($m) => $m['status'] === 'Cancelled');
-// "repeat" = patients appearing more than once (repeat offenders)
+// "repeat" = the same PATIENT (by record, not by name) missed or cancelled
+// more than once themselves. Clinic cancellations are not the patient's fault.
+$patientCaused = fn($m) => $m['status'] === 'No-show' || ($m['status'] === 'Cancelled' && ($m['cancelled_by'] ?? '') === 'patient');
+$perPatient = [];
+foreach ($missed as $m) if ($patientCaused($m) && (int)$m['patient_id'] > 0) $perPatient[(int)$m['patient_id']] = ($perPatient[(int)$m['patient_id']] ?? 0) + 1;
+$repeatIds = array_keys(array_filter($perPatient, fn($n) => $n > 1));
 if ($tab === 'repeat') {
-    $names = array_count_values(array_map(fn($m) => $m['patient_name'], $missed));
-    $rows  = array_filter($missed, fn($m) => $names[$m['patient_name']] > 1);
+    $rows = array_filter($missed, fn($m) => $patientCaused($m) && in_array((int)$m['patient_id'], $repeatIds, true));
 }
+if ($tab === 'expired') $rows = array_filter($missed, fn($m) => $m['status'] === 'Expired');
 
-$page_title = "Weekly No-Show Report";
+$page_title = "No-Show Report";
 include 'includes/head.php';
 $active = 'noshow';
 
 // helper for the status badge colour
 function statusBadge($status) {
-    $map = ['No-show'=>'b-noshow','Cancelled'=>'b-cancelled','Rescheduled'=>'b-confirmed','Needs Review'=>'b-pending'];
+    $map = ['No-show'=>'b-noshow','Cancelled'=>'b-cancelled','Rescheduled'=>'b-confirmed','Needs Review'=>'b-pending','Expired'=>'b-expired'];
     return $map[$status] ?? 'b-pending';
 }
+// ---------- Patients paused for missed visits (for the warning banner) ----------
+$pausedPatients = [];
+$pp = "SELECT id, name FROM patients WHERE status <> 'Archived'"; $ppp = [];
+if ($isDentistUser) { $pp .= " AND " . dentist_match_sql('primary_dentist', $filterDentist, $ppp); }
+$pps = $pdo->prepare($pp); $pps->execute($ppp);
+foreach ($pps->fetchAll() as $pr) if (patient_noshow_count($pdo, $pr['id']) >= 3) $pausedPatients[] = $pr['name'];
+
 // ---------- Frequent cancellations waiting for review ----------
 // Patients who cancelled CANCEL_LIMIT+ times themselves (same rolling window,
 // counted since their last review). Their online booking is paused until
@@ -204,7 +262,8 @@ foreach ($cqs->fetchAll() as $cp) {
 function tabLink($key, $label, $count, $current) {
     $cls = ($current === $key) ? 'btn-dark-navy' : 'btn-light';
     // Carry the current filters across so switching tabs does not reset them.
-    $keep = '';
+    global $periodQS;
+    $keep = '&' . $periodQS;
     foreach (['dentist','status','q'] as $p) {
         if (!empty($_GET[$p])) $keep .= '&' . $p . '=' . urlencode($_GET[$p]);
     }
@@ -216,7 +275,7 @@ function tabLink($key, $label, $count, $current) {
     <main class="main">
         <div class="page-head">
             <div>
-                <h1 style="color:var(--teal-light)">Weekly No-Show Report</h1>
+                <h1 style="color:var(--teal-light)">No-Show Report</h1>
                 <!-- Only shown on paper, so a printed copy explains itself -->
                 <div class="print-only" style="display:none;font-size:.85rem;color:#444;margin-top:4px;">
                     <?= e($clinicNameForPrint) ?> ·
@@ -235,28 +294,54 @@ function tabLink($key, $label, $count, $current) {
             </div>
         </div>
 
-        <!-- ===== Warning banner ===== -->
+        <!-- ===== Warning banner (calculated) ===== -->
+        <?php if ($pausedPatients): ?>
         <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;">
-            ⚠️ <strong>3 patients</strong> have missed appointments 3 or more times this month. Consider sending a follow-up email reminder.
+            ⚠️ <strong><?= count($pausedPatients) ?> patient<?= count($pausedPatients) === 1 ? ' has' : 's have' ?></strong>
+            missed <?= 3 ?> or more visits in the last <?= NOSHOW_WINDOW_MONTHS ?> months — their online booking is paused:
+            <strong><?= e(implode(', ', $pausedPatients)) ?></strong>.
+            Consider calling them before restoring booking from the Patients page.
         </div>
+        <?php endif; ?>
 
-        <!-- ===== Report period bar ===== -->
-        <div class="card-box flex-between mb-3" style="background:#f7f4ee;">
-            <div style="font-size:.9rem;">
-                <strong>Report period:</strong> April 14 – 20, 2025 ·
-                <strong>Generated:</strong> <?= date('F j, Y g:i A') ?> ·
-                <strong>By:</strong> <?= e($_SESSION['name'] ?? 'Admin') ?>
+        <!-- ===== Report period ===== -->
+        <div class="card-box mb-3" style="background:#f7f4ee;">
+            <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
+                <div style="font-size:.9rem;">
+                    <strong>Report period:</strong> <?= e($periodLabel) ?> ·
+                    <strong>Generated:</strong> <?= date('F j, Y g:i A') ?> ·
+                    <strong>By:</strong> <?= e($_SESSION['name'] ?? 'Admin') ?>
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-center no-print">
+                    <form method="GET" class="d-flex gap-1 align-items-center m-0">
+                        <input type="hidden" name="tab" value="<?= e($tab) ?>"><input type="hidden" name="period" value="week">
+                        <label class="field-label mb-0 <?= $period === 'week' ? 'text-dark' : '' ?>" for="p-w">Week</label>
+                        <input type="week" id="p-w" name="w" class="form-control form-control-sm" style="width:auto;" value="<?= e($pickW) ?>" onchange="this.form.submit()">
+                    </form>
+                    <form method="GET" class="d-flex gap-1 align-items-center m-0">
+                        <input type="hidden" name="tab" value="<?= e($tab) ?>"><input type="hidden" name="period" value="month">
+                        <label class="field-label mb-0" for="p-m">Month</label>
+                        <input type="month" id="p-m" name="m" class="form-control form-control-sm" style="width:auto;" value="<?= e($pickM) ?>" onchange="this.form.submit()">
+                    </form>
+                    <form method="GET" class="d-flex gap-1 align-items-center m-0">
+                        <input type="hidden" name="tab" value="<?= e($tab) ?>"><input type="hidden" name="period" value="day">
+                        <label class="field-label mb-0" for="p-d">Day</label>
+                        <input type="date" id="p-d" name="d" class="form-control form-control-sm" style="width:auto;" value="<?= e($pickD) ?>" onchange="this.form.submit()">
+                    </form>
+                    <a href="noshow?tab=<?= e($tab) ?>&period=all" class="btn btn-sm <?= $period === 'all' ? 'btn-dark-navy' : 'btn-light' ?>">All time</a>
+                </div>
             </div>
-            <div class="d-flex align-items-center gap-2">
-                <label class="field-label mb-0">Select Week</label>
-                <input class="form-control form-control-sm" style="width:160px;" value="Week 16, 2025">
-            </div>
+            <div class="text-muted2 mt-1" style="font-size:.78rem;">Appointments that still need review are always listed, whatever the period.</div>
         </div>
 
         <!-- ===== Filters (these actually work) ===== -->
         <div class="card-box mb-3 no-print">
             <form method="GET" class="row g-2 align-items-end">
                 <input type="hidden" name="tab" value="<?= e($tab) ?>">
+                <input type="hidden" name="period" value="<?= e($period) ?>">
+                <?php if ($period === 'week'): ?><input type="hidden" name="w" value="<?= e($pickW) ?>"><?php endif; ?>
+                <?php if ($period === 'month'): ?><input type="hidden" name="m" value="<?= e($pickM) ?>"><?php endif; ?>
+                <?php if ($period === 'day'): ?><input type="hidden" name="d" value="<?= e($pickD) ?>"><?php endif; ?>
 
                 <?php if (!$isDentistUser): ?>
                     <!-- Only admin and staff choose a dentist. A dentist is always
@@ -276,7 +361,7 @@ function tabLink($key, $label, $count, $current) {
                     <label class="field-label">Status</label>
                     <select name="status" class="form-select form-select-sm">
                         <option value="">All statuses</option>
-                        <?php foreach (['Needs Review','No-show','Cancelled','Rescheduled'] as $st): ?>
+                        <?php foreach (['Needs Review','No-show','Cancelled','Rescheduled','Expired'] as $st): ?>
                             <option value="<?= $st ?>" <?= ($filterStatus === $st)?'selected':'' ?>><?= $st ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -291,7 +376,7 @@ function tabLink($key, $label, $count, $current) {
                 <div class="col-md-2 d-flex gap-1">
                     <button class="btn btn-teal btn-sm w-100">Apply</button>
                     <?php if ($filterDentist !== '' && !$isDentistUser || $filterStatus !== '' || $searchName !== ''): ?>
-                        <a href="noshow?tab=<?= e($tab) ?>" class="btn btn-light btn-sm">Clear</a>
+                        <a href="noshow?tab=<?= e($tab) ?>&<?= e($periodQS) ?>" class="btn btn-light btn-sm">Clear</a>
                     <?php endif; ?>
                 </div>
             </form>
@@ -303,7 +388,8 @@ function tabLink($key, $label, $count, $current) {
             <div class="stat-card"><div class="value" style="color:#c0392b;">🚫 <?= $countNoshow ?></div><div class="label">No-Shows</div></div>
             <div class="stat-card"><div class="value">❌ <?= $countCancelled ?></div><div class="label">Cancelled</div></div>
             <div class="stat-card"><div class="value">🔁 <?= $countRescheduled ?></div><div class="label">Rescheduled</div></div>
-            <div class="stat-card"><div class="value" style="color:#c0392b;"><?= $noShowRate ?>%</div><div class="label">No-Show Rate</div></div>
+            <div class="stat-card" title="No-shows ÷ (completed + no-shows) in this period"><div class="value" style="color:#c0392b;"><?= $noShowRate ?>%</div><div class="label">No-Show Rate</div>
+                <div class="change"><?= $noShowsDue ?> of <?= $completedDue + $noShowsDue ?> due visits</div></div>
         </div>
 
         <div class="row g-3">
@@ -315,8 +401,8 @@ function tabLink($key, $label, $count, $current) {
                         tabLink('all',       'All Missed',      count($missed),         $tab);
                         tabLink('noshow',    'No-Shows',        $countNoshow,           $tab);
                         tabLink('cancelled', 'Cancelled',       $countCancelled,        $tab);
-                        $repeatCount = count(array_filter(array_count_values(array_map(fn($m)=>$m['patient_name'],$missed)), fn($c)=>$c>1));
-                        tabLink('repeat',    'Repeat Offenders', $repeatCount,          $tab);
+                        tabLink('repeat',    'Repeat Offenders', count($repeatIds),     $tab);
+                        tabLink('expired',   'Expired (never confirmed)', $countExpired, $tab);
                         tabLink('cancels',   'Frequent Cancellations', count($cancelReview), $tab);
                     ?>
                 </div>

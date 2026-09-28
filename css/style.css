@@ -145,6 +145,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .b-active, .b-confirmed, .b-completed { background: #d7f5e3; color: #138a4e; }
 .b-pending  { background: #fdeccd; color: #b9802a; }
 .b-inactive, .b-cancelled, .b-noshow { background: #fbdcdc; color: #c0392b; }
+.b-expired { background: #eceff1; color: #5f6f7a; }   /* never confirmed before its date */
 .b-archived { background: #e6e6e6; color: #6b6b6b; }
 .b-progress { background: #dbeafe; color: #2563eb; }
 

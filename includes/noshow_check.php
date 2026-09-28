@@ -27,6 +27,17 @@
 //                     NO penalty is applied. A staff member decides.
 // ============================================================
 
+// A booking the clinic never confirmed, whose date has now passed, can't
+// have been a no-show (it was never a confirmed visit). Mark it Expired so
+// it stops looking like an upcoming "Pending" booking and never counts
+// against the patient. Cheap single UPDATE, safe to run on every page.
+function expire_stale_pending($pdo) {
+    try {
+        $pdo->exec("UPDATE appointments SET status = 'Expired'
+                     WHERE status = 'Pending' AND appointment_date < CURDATE()");
+    } catch (Throwable $e) { /* status column not updated yet — try next time */ }
+}
+
 function run_noshow_scan($pdo, $graceDays = 1) {
     // ---- Only scan once a day ----
     // We remember the last scan date in settings so that opening ten

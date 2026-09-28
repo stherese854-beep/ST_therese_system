@@ -229,6 +229,12 @@ if ($__flash):
 // task would never fire here, because the clinic's computer is switched
 // off at night — so we scan on page load instead and catch up on any days
 // that were missed. It only actually does work once per day.
+// Bookings nobody confirmed before their date -> Expired (any signed-in user,
+// so a patient is never held up by an old "Pending" booking).
+if (isset($pdo) && function_exists('is_logged_in') && is_logged_in()) {
+    require_once __DIR__ . '/noshow_check.php';
+    expire_stale_pending($pdo);
+}
 if (function_exists('is_logged_in') && is_logged_in()
     && in_array(current_role(), ['admin','dentist','staff'])) {
     require_once __DIR__ . '/noshow_check.php';

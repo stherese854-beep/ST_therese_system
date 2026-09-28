@@ -486,6 +486,11 @@ function ensure_booking_review_schema($pdo) {
         if (!$pdo->query("SHOW COLUMNS FROM appointments LIKE 'health_form'")->rowCount()) {
             $pdo->exec("ALTER TABLE appointments ADD COLUMN health_form TEXT DEFAULT NULL");
         }
+        $st = $pdo->query("SHOW COLUMNS FROM appointments LIKE 'status'")->fetch();
+        if ($st && strpos($st['Type'], "'Expired'") === false) {
+            $pdo->exec("ALTER TABLE appointments MODIFY status ENUM('Pending','Confirmed','Cancelled','Completed',
+                        'No-show','Rescheduled','Needs Review','Expired') DEFAULT 'Pending'");
+        }
         if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'cancel_reset_at'")->rowCount()) {
             $pdo->exec("ALTER TABLE patients ADD COLUMN cancel_reset_at DATETIME DEFAULT NULL");
             $pdo->exec("ALTER TABLE patients ADD COLUMN cancel_reset_by VARCHAR(100) DEFAULT NULL");
