@@ -229,6 +229,13 @@ if ($__flash):
 // task would never fire here, because the clinic's computer is switched
 // off at night — so we scan on page load instead and catch up on any days
 // that were missed. It only actually does work once per day.
+// Day-before reminder emails: sent by the first page load of each day
+// (there is no scheduler). Runs for any visitor, signed in or not.
+if (isset($pdo)) {
+    require_once __DIR__ . '/reminders.php';
+    run_daily_reminders($pdo);
+}
+
 // Bookings nobody confirmed before their date -> Expired (any signed-in user,
 // so a patient is never held up by an old "Pending" booking).
 if (isset($pdo) && function_exists('is_logged_in') && is_logged_in()) {

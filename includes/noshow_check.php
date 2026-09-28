@@ -54,7 +54,7 @@ function run_noshow_scan($pdo, $graceDays = 1) {
     // so the dentist has time to encode yesterday's visits).
     try {
         $stmt = $pdo->prepare(
-            "SELECT id, patient_id, appointment_date
+            "SELECT id, patient_id, appointment_date, arrived_at
                FROM appointments
               WHERE status = 'Confirmed'
                 AND appointment_date < DATE_SUB(CURDATE(), INTERVAL ? DAY)"
@@ -68,7 +68,8 @@ function run_noshow_scan($pdo, $graceDays = 1) {
         $pid  = (int)$a['patient_id'];
         $date = $a['appointment_date'];
 
-        $attended = ($pid > 0) ? noshow_has_evidence($pdo, $pid, $date) : false;
+        // Staff pressed "Arrived" on the day -> certain. Otherwise look for records.
+        $attended = !empty($a['arrived_at']) || (($pid > 0) ? noshow_has_evidence($pdo, $pid, $date) : false);
 
         if ($attended) {
             // The visit was clearly recorded — close it quietly.

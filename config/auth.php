@@ -491,6 +491,11 @@ function ensure_booking_review_schema($pdo) {
             $pdo->exec("ALTER TABLE appointments MODIFY status ENUM('Pending','Confirmed','Cancelled','Completed',
                         'No-show','Rescheduled','Needs Review','Expired') DEFAULT 'Pending'");
         }
+        if (!$pdo->query("SHOW COLUMNS FROM appointments LIKE 'arrived_at'")->rowCount()) {
+            $pdo->exec("ALTER TABLE appointments ADD COLUMN patient_confirmed_at DATETIME DEFAULT NULL");
+            $pdo->exec("ALTER TABLE appointments ADD COLUMN arrived_at DATETIME DEFAULT NULL");
+            $pdo->exec("ALTER TABLE appointments ADD COLUMN arrived_by VARCHAR(100) DEFAULT NULL");
+        }
         if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'cancel_reset_at'")->rowCount()) {
             $pdo->exec("ALTER TABLE patients ADD COLUMN cancel_reset_at DATETIME DEFAULT NULL");
             $pdo->exec("ALTER TABLE patients ADD COLUMN cancel_reset_by VARCHAR(100) DEFAULT NULL");

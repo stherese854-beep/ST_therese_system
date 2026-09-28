@@ -7,6 +7,11 @@
 //  depending on how the service was linked.
 // ============================================================
 
+// The clinic is in the Philippines. Without this, "today" / "tomorrow"
+// follow the server's clock (UTC on Railway, Berlin on XAMPP) and are
+// wrong for part of every day.
+date_default_timezone_set('Asia/Manila');
+
 $db_host = getenv('MYSQLHOST')     ?: getenv('MYSQL_HOST')     ?: '127.0.0.1';
 $db_user = getenv('MYSQLUSER')     ?: getenv('MYSQL_USER')     ?: 'root';
 $db_pass = getenv('MYSQLPASSWORD') ?: getenv('MYSQL_PASSWORD') ?: getenv('MYSQL_ROOT_PASSWORD') ?: '';
@@ -18,7 +23,7 @@ try {
     $pdo = new PDO($dsn, $db_user, $db_pass, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4",
+        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4, time_zone = '+08:00'",   // NOW()/CURDATE() in clinic time
     ]);
 } catch (PDOException $e) {
     // Details go to the server error log only — never show hosts/usernames to visitors.

@@ -135,6 +135,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
     header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
 }
 
+// ---------- Arrived / undo (today's confirmed appointments) ----------
+// Marks that the patient is physically here. The no-show scan then treats
+// the visit as attended for certain, instead of guessing from records.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['arrived','undo_arrived'], true)) {
+    $aid = (int)($_POST['id'] ?? 0);
+    $q = $pdo->prepare("SELECT a.*, p.primary_dentist FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id WHERE a.id = ?");
+    $q->execute([$aid]); $ap = $q->fetch();
+    $mine = true;
+    if ($ap && current_role() === 'dentist') {
+        $mine = in_array($_SESSION['name'] ?? '', array_merge(dentist_name_variants($ap['dentist'] ?? ''), dentist_name_variants($ap['primary_dentist'] ?? '')), true)
+             || ($ap['dentist'] ?? '') === ($_SESSION['name'] ?? '') || ($ap['primary_dentist'] ?? '') === ($_SESSION['name'] ?? '');
+    }
+    if (!$ap || !$mine) {
+        set_flash('That appointment could not be found.', 'error');
+    } elseif ($_POST['action'] === 'arrived') {
+        if ($ap['status'] !== 'Confirmed' || $ap['appointment_date'] !== date('Y-m-d')) {
+            set_flash('Only today\'s confirmed appointments can be marked as arrived.', 'error');
+        } else {
+            $pdo->prepare("UPDATE appointments SET arrived_at = NOW(), arrived_by = ? WHERE id = ?")->execute([$_SESSION['name'] ?? '', $aid]);
+            log_activity($pdo, 'Marked arrived', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
+            set_flash($ap['patient_name'] . ' marked as arrived.');
+        }
+    } else {
+        $pdo->prepare("UPDATE appointments SET arrived_at = NULL, arrived_by = NULL WHERE id = ?")->execute([$aid]);
+        log_activity($pdo, 'Undid arrival', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
+        set_flash('Arrival undone for ' . $ap['patient_name'] . '.', 'info');
+    }
+    header("Location: appointments" . (isset($_POST['filter']) ? "?filter=" . urlencode($_POST['filter']) : "")); exit;
+}
+
 // ---------- Handle status changes (Approve / Cancel / Complete) ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = $_POST['id'] ?? '';
@@ -343,9 +373,26 @@ $active = 'appointments';
                                     </small>
                                 <?php endif; ?>
                             </td>
-                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span></td>
+                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span>
+                                <?php if (!empty($a['arrived_at'])): ?>
+                                    <br><small style="color:#138a4e;font-weight:600;" title="Marked by <?= e($a['arrived_by']) ?>">🟢 Arrived <?= date('g:i A', strtotime($a['arrived_at'])) ?></small>
+                                <?php elseif (!empty($a['patient_confirmed_at']) && in_array($a['status'], ['Pending','Confirmed'], true)): ?>
+                                    <br><small style="color:#0f766e;" title="Confirmed from the reminder email on <?= date('M j, g:i A', strtotime($a['patient_confirmed_at'])) ?>">✓ Patient confirmed</small>
+                                <?php endif; ?></td>
                             <td>
                                 <div class="d-flex gap-1 align-items-center">
+                                <?php if ($a['status'] === 'Confirmed' && $a['appointment_date'] === date('Y-m-d')): ?>
+                                    <form method="POST" class="d-inline m-0">
+                                        <input type="hidden" name="action" value="<?= empty($a['arrived_at']) ? 'arrived' : 'undo_arrived' ?>">
+                                        <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
+                                        <input type="hidden" name="filter" value="<?= e($filter) ?>">
+                                        <?php if (empty($a['arrived_at'])): ?>
+                                            <button class="btn btn-sm" style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here">✓ Arrived</button>
+                                        <?php else: ?>
+                                            <button class="btn btn-sm btn-light" style="font-size:.72rem;white-space:nowrap;" title="Undo the arrival mark">Undo</button>
+                                        <?php endif; ?>
+                                    </form>
+                                <?php endif; ?>
                                 <?php if ($a['status'] === 'Pending'): ?>
                                     <form method="POST" class="d-inline">
                                         <input type="hidden" name="id" value="<?= $a['id'] ?>">

@@ -31,83 +31,13 @@ if (php_sapi_name() !== 'cli') {
     require_login(['admin']);
 }
 require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/includes/mailer.php';
-require_once __DIR__ . '/includes/message_templates.php';
+if (php_sapi_name() === 'cli') { require_once __DIR__ . '/config/auth.php'; }   // schema + helpers
+require_once __DIR__ . '/includes/reminders.php';
 
 $isCli = (php_sapi_name() === 'cli');
-$log   = [];
-function out($msg) { global $log, $isCli; $log[] = $msg; if ($isCli) echo $msg . PHP_EOL; }
-
-// Tomorrow's date, e.g. 2026-07-13
-$tomorrow = date('Y-m-d', strtotime('+1 day'));
-out("Looking for appointments on $tomorrow ...");
-
-if (!mail_is_ready($pdo)) {
-    out("STOPPED: email is not set up. An admin must fill in Messaging Config first.");
-    if (!$isCli) { echo "<pre>" . implode("\n", $log) . "</pre>"; }
-    exit;
-}
-
-// Appointments tomorrow that are still active and have NOT been reminded yet.
-$stmt = $pdo->prepare(
-    "SELECT a.*, COALESCE(NULLIF(p.email,''), g.email) AS patient_email, COALESCE(g.name, p.name) AS account_name
-     FROM appointments a
-     LEFT JOIN patients p ON a.patient_id = p.id
-     LEFT JOIN patients g ON g.id = p.guardian_patient_id
-     WHERE a.appointment_date = ?
-       AND a.status IN ('Pending','Confirmed')
-       AND (a.reminder_sent = 0 OR a.reminder_sent IS NULL)"
-);
-$stmt->execute([$tomorrow]);
-$rows = $stmt->fetchAll();
-
-out("Found " . count($rows) . " appointment(s) needing a reminder.");
-
-$sent = 0; $failed = 0; $skipped = 0;
-
-foreach ($rows as $a) {
-    $to = $a['patient_email'] ?? '';
-    if (!$to) {
-        out("  - SKIP {$a['patient_name']}: no email address on file.");
-        $skipped++;
-        continue;
-    }
-
-    // If the booking was made for someone else, say so in the email.
-    $forLine = '';
-    if (($a['booked_for'] ?? '') === 'Someone else') {
-        $forLine = "<strong>Patient:</strong> " . htmlspecialchars($a['patient_name'])
-                 . ($a['relationship'] ? " (your " . htmlspecialchars(strtolower($a['relationship'])) . ")" : '')
-                 . "<br>";
-    }
-
-    $statusNote = ($a['status'] === 'Pending')
-        ? '<span style="color:#c08a2e;font-weight:700;">PENDING</span> — the clinic will confirm this shortly.'
-        : '<span style="color:#138a4e;font-weight:700;">CONFIRMED</span>';
-
-    $cat = message_catalogue()['reminder'];
-    [$remSubj, $body] = tpl_message($pdo, 'reminder', $cat['subject'], $cat['body'], [
-        'patient'   => $a['account_name'] ?: $a['patient_name'],
-        'date'      => date('l, F j, Y', strtotime($a['appointment_date'])),
-        'time'      => $a['appointment_time'],
-        'treatment' => $a['treatment'] ?: 'Consultation',
-        'dentist'   => $a['dentist'] ?: 'To be assigned',
-        'clinic'    => clinic_name($pdo),
-    ]);
-
-    $err = '';
-    if (send_mail($pdo, $to, $remSubj, $body, $err, 'reminder')) {
-        $pdo->prepare("UPDATE appointments SET reminder_sent = 1 WHERE id = ?")->execute([$a['id']]);
-        out("  ✓ Reminder sent to $to ({$a['patient_name']})");
-        $sent++;
-    } else {
-        out("  ✗ FAILED for $to: $err");
-        $failed++;
-    }
-}
-
-out("");
-out("Done. Sent: $sent | Failed: $failed | Skipped (no email): $skipped");
+// Same sender the site uses once a day on page load (includes/reminders.php).
+[$sent, $failed, $skipped, $log] = send_due_reminders($pdo);
+if ($isCli) echo implode(PHP_EOL, $log) . PHP_EOL;
 
 // When opened in a browser, print a small readable report.
 if (!$isCli) {

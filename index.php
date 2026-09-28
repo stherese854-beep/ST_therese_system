@@ -27,6 +27,8 @@ if (preg_match('~/index\.php$~i', parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_U
 $dentists = [];
 try {
     require_once __DIR__ . '/config/db.php';
+    try { require_once __DIR__ . '/config/auth.php'; require_once __DIR__ . '/includes/reminders.php'; run_daily_reminders($pdo); }
+    catch (Throwable $e) { /* reminders must never break the homepage */ }
     $dentists = $pdo->query("SELECT name, specialty, photo FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll();
 } catch (Throwable $e) {
     $dentists = [];
