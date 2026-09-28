@@ -76,7 +76,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
 
     $newDate = trim($_POST['appointment_date'] ?? '');
     $newTime = trim($_POST['appointment_time'] ?? '');
-    $treat   = trim($_POST['treatment'] ?? '');
     $dent    = trim($_POST['dentist'] ?? '');
     $note    = trim($_POST['edit_note'] ?? '');
 
@@ -89,8 +88,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
     $cur->execute([$id]);
     $ap = $cur->fetch();
 
+    // Treatments: 1 to 3 ticked; none ticked keeps what the appointment already has
+    // (older bookings may use names that are not on the list, e.g. "Check-up").
+    $treatErr = '';
+    if ($ap) {
+        if (empty($_POST['treatments'])) { $treat = $ap['treatment']; }
+        else { [$treat, $treatErr] = treatments_from_post($_POST); }
+    }
+
     if (!$ap) {
         set_flash('That appointment could not be found.', 'error');
+    } elseif ($treatErr !== '') {
+        set_flash($treatErr, 'error');
     } elseif ($newDate === '' || $newTime === '') {
         set_flash('Please give a date and a time.', 'error');
     } elseif (!appt_slot_is_open($pdo, $newDate, $newTime, $dent, $id)) {
@@ -684,8 +693,9 @@ $active = 'appointments';
           </div>
         </div>
 
-        <label class="field-label">Treatment</label>
-        <input name="treatment" id="ea-treatment" class="form-control mb-3">
+        <div class="field-label">Treatment <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— choose 1 to <?= MAX_TREATMENTS ?></span></div>
+        <div class="text-muted2 mb-1" style="font-size:.78rem;">Currently: <b id="ea-treatment-now"></b> · leave all unticked to keep it</div>
+        <div class="mb-3"><?= treatment_picker([], 'ea') ?></div>
 
         <label class="field-label">Dentist</label>
         <select name="dentist" id="ea-dentist" class="form-select mb-3">
@@ -879,7 +889,11 @@ function openEditAppt(a){
     document.getElementById('ea-name').textContent= a.name || '';
     document.getElementById('ea-date').value      = a.date || '';
     document.getElementById('ea-time').value      = a.time || '';
-    document.getElementById('ea-treatment').value = a.treatment || '';
+    // Tick the appointment's current treatments (up to 3), then apply the limit.
+    var now = (a.treatment || '').split(',').map(function (t) { return t.trim(); });
+    document.getElementById('ea-treatment-now').textContent = a.treatment || '—';
+    document.querySelectorAll('#ea-list input').forEach(function (b) { b.checked = now.indexOf(b.value) !== -1; b.disabled = false; });
+    var first = document.querySelector('#ea-list input'); if (first) tpLimit(first);
     document.getElementById('ea-dentist').value   = a.dentist || '';
     new bootstrap.Modal(document.getElementById('editApptModal')).show();
 }
