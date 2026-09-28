@@ -32,31 +32,46 @@ $tbInitial = strtoupper(substr(trim($tbName), 0, 1)) ?: 'U';
 $tbHasPhoto = $tbPhoto && is_file(__DIR__ . '/../' . $tbPhoto);
 
 // ---- Notifications (shown in the bell) ----
-// Admin/staff: pending appointment requests + pending reviews awaiting moderation.
+// Admin/staff: pending appointment requests, patient cancellations, missed
+//   visits and reviews waiting for them.
 // Dentist: pending appointments for their own patients.
-// Patient: their appointments that were recently confirmed or cancelled.
+// Patient: their confirmed appointments.
+// Everyone: new clinic announcements.
+//
+// Each item has a KIND and a MARK (the newest thing behind it: an id or a
+// time). Opening the bell stores the marks it showed (users.notif_seen_map),
+// so the red badge only counts what is NEW since then — once read, it stays
+// cleared until something newer arrives.
 $notifs = [];
-$unreadCount = null;   // patients use this for the red badge; null = use list count
+$tbSeen = [];
+try {
+    $sm = $pdo->prepare("SELECT notif_seen_map FROM users WHERE id=?");
+    $sm->execute([$_SESSION['user_id'] ?? 0]);
+    $tbSeen = json_decode((string)$sm->fetchColumn(), true) ?: [];
+} catch (Throwable $e) {}
+$tbAdd = function ($kind, $mark, $icon, $text, $link) use (&$notifs, $tbSeen) {
+    if ($mark === null || $mark === false || $mark === '') return;
+    $seen = $tbSeen[$kind] ?? null;
+    $new  = $seen === null
+         || ((is_numeric($mark) && is_numeric($seen)) ? $mark + 0 > $seen + 0 : strcmp((string)$mark, (string)$seen) > 0);
+    $notifs[] = ['kind' => $kind, 'mark' => (string)$mark, 'icon' => $icon, 'text' => $text, 'link' => $link, 'new' => $new];
+};
 try {
     if (in_array($tbRole, ['admin','staff'])) {
-        $pc = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE status='Pending'")->fetchColumn();
-        if ($pc > 0) $notifs[] = ['icon'=>'⏳','text'=>"$pc pending appointment".($pc>1?'s':'')." to review",'link'=>'appointments?filter=Pending'];
+        $r = $pdo->query("SELECT COUNT(*) c, MAX(id) m FROM appointments WHERE status='Pending'")->fetch();
+        if ($r['c'] > 0) $tbAdd('pending', $r['m'], '⏳', "{$r['c']} pending appointment" . ($r['c'] > 1 ? 's' : '') . " to review", 'appointments?filter=Pending');
 
-        // Appointments the PATIENT cancelled online — the clinic needs to know
-        // so the freed-up slot can be reused. Only recent ones are shown.
+        // Appointments the PATIENT cancelled online (last 7 days) — the slot can be reused.
         try {
-            $cc = (int)$pdo->query(
-                "SELECT COUNT(*) FROM appointments
-                  WHERE cancelled_by='patient'
-                    AND cancelled_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
-            )->fetchColumn();
-            if ($cc > 0) $notifs[] = ['icon'=>'🚫','text'=>"$cc appointment".($cc>1?'s':'')." cancelled by patients",'link'=>'appointments?filter=Cancelled'];
+            $r = $pdo->query("SELECT COUNT(*) c, MAX(cancelled_at) m FROM appointments
+                               WHERE cancelled_by='patient' AND cancelled_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetch();
+            if ($r['c'] > 0) $tbAdd('pcancel', $r['m'], '🚫', "{$r['c']} appointment" . ($r['c'] > 1 ? 's' : '') . " cancelled by patients", 'appointments?filter=Cancelled');
         } catch (Throwable $e) {}
 
         // Appointments the system thinks were missed, waiting for a decision.
         try {
-            $nr = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE status='Needs Review'")->fetchColumn();
-            if ($nr > 0) $notifs[] = ['icon'=>'📋','text'=>"$nr missed appointment".($nr>1?'s':'')." to review",'link'=>'noshow?tab=review'];
+            $r = $pdo->query("SELECT COUNT(*) c, MAX(id) m FROM appointments WHERE status='Needs Review'")->fetch();
+            if ($r['c'] > 0) $tbAdd('missed', $r['m'], '📋', "{$r['c']} missed appointment" . ($r['c'] > 1 ? 's' : '') . " to review", 'noshow?tab=review');
         } catch (Throwable $e) {}
 
         // Patients paused for frequent cancellations, waiting for a review.
@@ -67,65 +82,50 @@ try {
                          ->fetchAll(PDO::FETCH_COLUMN) as $cpid) {
                 if (patient_cancel_count($pdo, $cpid) >= CANCEL_LIMIT) $cr++;
             }
-            if ($cr > 0) $notifs[] = ['icon'=>'🔁','text'=>"$cr patient".($cr>1?'s':'')." with frequent cancellations to review",'link'=>'noshow?tab=cancels'];
+            if ($cr > 0) $tbAdd('freqcancel', $cr, '🔁', "$cr patient" . ($cr > 1 ? 's' : '') . " with frequent cancellations to review", 'noshow?tab=cancels');
         } catch (Throwable $e) {}
 
         // reviews table may not exist on older DBs — guard it
         try {
-            $rc = (int)$pdo->query("SELECT COUNT(*) FROM reviews WHERE status='Pending'")->fetchColumn();
-            if ($rc > 0) $notifs[] = ['icon'=>'⭐','text'=>"$rc new review".($rc>1?'s':'')." to moderate",'link'=>'reviews'];
+            $r = $pdo->query("SELECT COUNT(*) c, MAX(id) m FROM reviews WHERE status='Pending'")->fetch();
+            if ($r['c'] > 0) $tbAdd('reviews', $r['m'], '⭐', "{$r['c']} new review" . ($r['c'] > 1 ? 's' : '') . " to moderate", 'reviews');
         } catch (Throwable $e) {}
     } elseif ($tbRole === 'dentist') {
-        // A dentist should only be notified about pending appointments belonging to
-        // THEIR OWN assigned patients. We match through the patient's primary_dentist
-        // (their assigned doctor) and also accept appointments whose dentist field
-        // already names this dentist, so nothing is missed either way.
-        $pc = (int)$pdo->query(
-            "SELECT COUNT(*) FROM appointments a
+        // Only pending appointments for THIS dentist's patients (matched by the
+        // patient's primary dentist or the appointment's dentist).
+        $r = $pdo->query(
+            "SELECT COUNT(*) c, MAX(a.id) m FROM appointments a
              LEFT JOIN patients p ON a.patient_id = p.id
              WHERE a.status='Pending'
                AND (p.primary_dentist = " . $pdo->quote($tbName) . "
                     OR a.dentist = " . $pdo->quote($tbName) . ")"
-        )->fetchColumn();
-        if ($pc > 0) $notifs[] = ['icon'=>'⏳','text'=>"$pc pending appointment".($pc>1?'s':'')." for your patients",'link'=>'appointments?filter=Pending'];
+        )->fetch();
+        if ($r['c'] > 0) $tbAdd('pending', $r['m'], '⏳', "{$r['c']} pending appointment" . ($r['c'] > 1 ? 's' : '') . " for your patients", 'appointments?filter=Pending');
     } elseif ($tbRole === 'patient') {
-        // The patient is notified when the clinic CONFIRMS an appointment.
-        // Anything confirmed before they last opened the bell counts as already
-        // seen, so the red badge clears itself once they have looked.
+        // Their own + family members' confirmed appointments.
         $pst = $pdo->prepare("SELECT id FROM patients WHERE user_id=?");
         $pst->execute([$_SESSION['user_id'] ?? 0]);
         $mypid = $pst->fetchColumn();
         if ($mypid) {
-            $seenStmt = $pdo->prepare("SELECT notif_seen_at FROM users WHERE id=?");
-            $seenStmt->execute([$_SESSION['user_id'] ?? 0]);
-            $seenAt = $seenStmt->fetchColumn();
-
-            // Unread = confirmed after the last time they opened the bell.
-            $famIds = family_patient_ids($pdo, $mypid);   // their own + family members' appointments
-            $sqlUnread = "SELECT COUNT(*) FROM appointments
-                          WHERE patient_id IN (" . in_placeholders($famIds) . ") AND status='Confirmed'";
-            $prm = $famIds;
-            if ($seenAt) { $sqlUnread .= " AND (confirmed_at IS NULL OR confirmed_at > ?)"; $prm[] = $seenAt; }
-            $uStmt = $pdo->prepare($sqlUnread);
-            $uStmt->execute($prm);
-            $unread = (int)$uStmt->fetchColumn();
-
-            // The dropdown always lists their confirmed appointments; only the
-            // red badge depends on whether they are unread.
-            $tq = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id IN (" . in_placeholders($famIds) . ") AND status='Confirmed'");
-            $tq->execute($famIds);
-            $tot = (int)$tq->fetchColumn();
-            if ($tot > 0) {
-                $notifs[] = ['icon'=>'✅','text'=>"$tot confirmed appointment".($tot>1?'s':''),'link'=>'portal?view=appointments'];
-            }
-            $unreadCount = $unread;   // drives the red badge for patients
+            $famIds = family_patient_ids($pdo, $mypid);
+            $q = $pdo->prepare("SELECT COUNT(*) c, MAX(COALESCE(confirmed_at, '2000-01-01 00:00:00')) m FROM appointments
+                                 WHERE patient_id IN (" . in_placeholders($famIds) . ") AND status='Confirmed'");
+            $q->execute($famIds);
+            $r = $q->fetch();
+            if ($r['c'] > 0) $tbAdd('confirmed', $r['m'], '✅', "{$r['c']} confirmed appointment" . ($r['c'] > 1 ? 's' : ''), 'portal?view=appointments');
         }
+    }
+
+    // Everyone: announcements from the last 30 days (newest 3).
+    $annLink = ['admin' => 'announcements', 'patient' => 'portal?view=news'][$tbRole] ?? 'dashboard';
+    foreach ($pdo->query("SELECT id, title FROM announcements WHERE status='Published'
+                           AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                         ORDER BY created_at DESC LIMIT 3")->fetchAll() as $an) {
+        $tbAdd('ann', (int)$an['id'], '📣', 'Announcement: ' . $an['title'], $annLink);
     }
 } catch (Throwable $e) { $notifs = []; }
 $notifCount = count($notifs);
-// Patients track "read" state: the red badge shows unread items only, while the
-// dropdown still lists everything. Other roles use a live to-do count instead.
-$badgeCount = ($unreadCount === null) ? $notifCount : $unreadCount;
+$badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what is new since the bell was last opened
 ?>
 
 <!-- Bell + profile sit in ONE row, so a long name can never cover the bell -->
@@ -143,9 +143,11 @@ $badgeCount = ($unreadCount === null) ? $notifCount : $unreadCount;
             <div class="notif-empty">🔔 You're all caught up!</div>
         <?php else: ?>
             <?php foreach ($notifs as $n): ?>
-                <a href="<?= e($n['link']) ?>" class="notif-item">
+                <a href="<?= e($n['link']) ?>" class="notif-item<?= $n['new'] ? ' is-new' : '' ?>"
+                   data-kind="<?= e($n['kind']) ?>" data-mark="<?= e($n['mark']) ?>">
                     <span class="notif-ico"><?= $n['icon'] ?></span>
-                    <span><?= e($n['text']) ?></span>
+                    <span class="notif-txt"><?= e($n['text']) ?></span>
+                    <?php if ($n['new']): ?><span class="notif-new-dot" aria-label="new"></span><?php endif; ?>
                 </a>
             <?php endforeach; ?>
         <?php endif; ?>
@@ -215,6 +217,9 @@ $badgeCount = ($unreadCount === null) ? $notifCount : $unreadCount;
 .notif-item:last-child{border-bottom:none;}
 .notif-item:hover{background:#f2f7f6;}
 .notif-ico{font-size:1.1rem;flex:none;}
+.notif-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.notif-item.is-new{background:#f0faf8;font-weight:600;}
+.notif-new-dot{width:8px;height:8px;border-radius:50%;background:#e74c3c;flex:none;}
 
 #pwBtn{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e3e9ee;
        border-radius:100px;padding:5px 6px 5px 16px;cursor:pointer;box-shadow:0 4px 14px rgba(12,50,48,.10);
@@ -269,13 +274,20 @@ function toggleNotif(e){
     var pm = document.getElementById('pwMenu'); if (pm) pm.classList.remove('open');
 
     // Opening the bell counts as reading it: drop the red badge straight away
-    // and tell the server, so it stays cleared on the next page too.
+    // and tell the server which items were shown (the newest of each kind),
+    // so the badge stays cleared on every page until something newer arrives.
     var dot = document.getElementById('notifDot');
     if (dot) {
         dot.remove();
+        var marks = {};
+        document.querySelectorAll('#notifMenu .notif-item[data-kind]').forEach(function (a) {
+            var k = a.dataset.kind, m = a.dataset.mark;
+            if (!(k in marks) || (isFinite(m) && isFinite(marks[k]) ? +m > +marks[k] : m > marks[k])) marks[k] = m;
+        });
         var tk = document.querySelector('meta[name="csrf-token"]');
         fetch('notif_seen', { method: 'POST', credentials: 'same-origin',
-              headers: { 'X-CSRF-Token': tk ? tk.content : '' } }).catch(function(){});
+              headers: { 'X-CSRF-Token': tk ? tk.content : '', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ marks: marks }) }).catch(function(){});
     }
 }
 // Click anywhere else closes both menus.

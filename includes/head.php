@@ -61,6 +61,80 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         });
     })();
 
+    // ---- Action buttons: icon only, with a label on hover ----
+    // Small buttons (.btn-sm) and buttons inside table rows show just their
+    // icon; the words move into a tooltip that appears when you point at the
+    // button (and into aria-label for screen readers). "📅 Book" -> 📅 +
+    // tooltip "Book"; a plain "View" or "Edit" gets a matching icon. Buttons
+    // whose text a script changes (they have an id), buttons in pop-ups and
+    // anything marked data-keep-text are left as they are.
+    (function () {
+        var ICONS = { 'view': '👁', 'edit': '✏️', 'book': '📅', 'delete': '🗑', 'remove': '🗑', 'restore': '↩',
+                      'undo': '↩', 'approve': '✓', 'publish': '✓', 'hide': '🚫', 'email': '📧', 'sms': '📱',
+                      'message': '✉️', 'print': '🖨', 'export': '⬇', 'upload': '⬆', 'filter': '🔍', 'search': '🔍',
+                      'clear': '✕', 'arrived': '✓', 'did attend': '✓', 'confirm no-show': '✗', 'see all': '👁', 'pause': '⏸' };
+        function iconize(b) {
+            if (b.dataset.iconized || b.id || b.hasAttribute('data-keep-text')) return;
+            if (b.closest('.modal, .bulk-bar, [data-keep-text], #topbarWidgets, .wizard-step')) return;
+            if (b.querySelector('img, svg, input, select')) return;
+            var txt = b.textContent.replace(/\s+/g, ' ').trim();
+            if (!txt) return;
+            var icon = '', label = '';
+            var m = txt.match(/^([^\p{L}\p{N}\s]+)\s*(.*)$/u);            // leading icon, e.g. "📅 Book"
+            if (m) { icon = m[1]; label = m[2] || b.getAttribute('title') || b.getAttribute('aria-label') || ''; }
+            else {
+                var key = txt.toLowerCase().replace(/[→▲▼]/g, '').trim();
+                icon = ICONS[key] || ICONS[key.split(' ')[0]] || '';
+                label = txt;
+            }
+            if (!icon) return;
+            label = label.replace(/\s*[→▲▼]+\s*$/, '').trim()
+                 || ({ '🗑': 'Delete', '🗑️': 'Delete', '✓': 'Approve', '✕': 'Close', '✏️': 'Edit', '↩': 'Restore', '⬆': 'Upload' })[icon] || '';
+            b.dataset.iconized = '1';
+            if (label) { b.setAttribute('aria-label', label); b.dataset.tip = label; b.removeAttribute('title'); }
+            b.textContent = icon;
+            b.classList.add('icon-btn');
+            markActions(b);
+        }
+        // Only the row's LAST cell (its action buttons) is kept on one line.
+        function markActions(b) {
+            var td = b.closest('td');
+            if (td && td === td.parentElement.lastElementChild) td.classList.add('td-actions');
+        }
+        function run() {
+            document.querySelectorAll('.btn-sm, td .btn').forEach(iconize);
+            document.querySelectorAll('td .icon-btn').forEach(markActions);
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+
+        // One tooltip for the whole page. It lives on <body>, so it is never
+        // cut off by a scrolling table the way a CSS tooltip would be.
+        var tip = null;
+        function show(el) {
+            if (!el.dataset.tip && el.getAttribute('title')) { el.dataset.tip = el.getAttribute('title'); el.removeAttribute('title'); }
+            if (!el.dataset.tip) return;
+            if (!tip) { tip = document.createElement('div'); tip.className = 'ui-tip'; document.body.appendChild(tip); }
+            tip.textContent = el.dataset.tip;
+            tip.style.display = 'block';
+            var r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+            tip.style.left = Math.max(6, Math.min(window.innerWidth - w - 6, r.left + r.width / 2 - w / 2)) + 'px';
+            tip.style.top  = (r.top - h - 8 < 4 ? r.bottom + 8 : r.top - h - 8) + 'px';
+        }
+        function hide() { if (tip) tip.style.display = 'none'; }
+        document.addEventListener('mouseover', function (e) {
+            var el = e.target.closest && e.target.closest('[data-tip], .icon-btn[title]');
+            if (el) show(el);
+        });
+        document.addEventListener('mouseout', function (e) {
+            var el = e.target.closest && e.target.closest('[data-tip]');
+            if (el && !el.contains(e.relatedTarget)) hide();
+        });
+        document.addEventListener('focusin', function (e) { var el = e.target.closest && e.target.closest('[data-tip]'); if (el) show(el); });
+        document.addEventListener('focusout', hide);
+        window.addEventListener('scroll', hide, true);
+        document.addEventListener('click', hide);
+    })();
+
     // ---- Delete several at once: tick boxes + "Delete selected" bar ----
     function bulkPicks(id) { return Array.prototype.slice.call(document.querySelectorAll('.bulk-pick[form="' + id + '"]')); }
     function bulkSync(id) {

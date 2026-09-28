@@ -19,7 +19,7 @@ $adminTabs = [
 ];
 ?>
 <div class="card-box" style="padding:6px;">
-    <div class="d-flex gap-2 flex-wrap">
+    <div class="d-flex gap-2 flex-wrap" data-keep-text><!-- page tabs keep their names -->
         <?php foreach ($adminTabs as $key => $tab): ?>
             <?php if (in_array($_curRole, $tab[2])): ?>
                 <a href="<?= $tab[0] ?>"

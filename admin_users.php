@@ -135,7 +135,7 @@ $active = 'users';
             <div class="flex-between mb-3">
                 <h5 class="mb-0">System Users <small class="text-muted2 d-block" style="font-size:.75rem;">Showing <?= count($users) ?> users</small></h5>
                 <div class="d-flex gap-2">
-                    <a href="admin_archive" class="btn btn-sm btn-outline-secondary position-relative" title="Archive">
+                    <a href="admin_archive" class="btn btn-sm btn-outline-secondary position-relative" title="Archive" data-keep-text>
                         🗄 Archive
                         <?php if ($archivedCount > 0): ?>
                             <span class="badge-pill b-inactive" style="margin-left:4px;"><?= $archivedCount ?></span>

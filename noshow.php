@@ -267,7 +267,7 @@ function tabLink($key, $label, $count, $current) {
     foreach (['dentist','status','q'] as $p) {
         if (!empty($_GET[$p])) $keep .= '&' . $p . '=' . urlencode($_GET[$p]);
     }
-    echo "<a href='noshow?tab=$key$keep' class='btn btn-sm $cls'>$label <span class='badge bg-light text-dark'>$count</span></a> ";
+    echo "<a href='noshow?tab=$key$keep' class='btn btn-sm $cls' data-keep-text>$label <span class='badge bg-light text-dark'>$count</span></a> ";
 }
 ?>
 <div class="app-wrap">

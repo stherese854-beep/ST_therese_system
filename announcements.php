@@ -131,7 +131,7 @@ $active = 'announcements';
 // little helper to make a filter pill link
 function pill($key, $label, $current) {
     $cls = ($current === $key) ? 'btn-outline-teal' : 'btn-light';
-    echo "<a href='announcements?filter=$key' class='btn btn-sm $cls'>$label</a> ";
+    echo "<a href='announcements?filter=$key' class='btn btn-sm $cls' data-keep-text>$label</a> ";   // filter tab: keeps its name
 }
 ?>
 <div class="app-wrap">
