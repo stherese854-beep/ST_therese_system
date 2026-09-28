@@ -158,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
     $back    = "Location: appointments";
     $date    = trim($_POST['date'] ?? '');
     $time    = trim($_POST['time'] ?? '');
-    $treat   = trim($_POST['treatment'] ?? '');
+    [$treat, $treatErr] = treatments_from_post($_POST);             // 1 to 3 treatments -> "A, B"
     $notes   = mb_substr(trim($_POST['notes'] ?? ''), 0, 500);
     $mode    = ($_POST['patient_mode'] ?? '') === 'new' ? 'new' : 'existing';
     $dateObj = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
@@ -188,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
         elseif ($date < date('Y-m-d'))                                      $err = 'The date has already passed.';
         elseif (!in_array($time, clinic_time_slots($pdo), true))            $err = 'Please choose one of the clinic\'s time slots.';
         elseif ($date === date('Y-m-d') && strtotime("$date $time") <= time()) $err = 'That time has already passed today.';
-        elseif (!array_key_exists($treat, clinic_treatments()))             $err = 'Please choose a treatment.';
+        elseif ($treatErr !== '')                                           $err = $treatErr;
     }
 
     // Which dentist?
@@ -710,6 +710,7 @@ $active = 'appointments';
 </div>
 
 <?= health_form_styles() ?>
+<?= treatment_picker_assets() ?>
 <!-- ===== The clinic books for a patient ===== -->
 <div class="modal fade" id="staffBookModal" tabindex="-1" aria-labelledby="sbTitle">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -755,11 +756,9 @@ $active = 'appointments';
             <div id="sb-hf-note" class="text-muted2 mb-1" style="font-size:.8rem;"></div>
             <div id="sb-hf"><?= health_form_fields([], true) ?></div>
           </div>
-          <div class="col-md-6">
-            <label class="field-label">Treatment *</label>
-            <select name="treatment" class="form-select" required>
-              <?php foreach (clinic_treatments() as $t => $plain): ?><option value="<?= e($t) ?>"><?= e($t) ?> (<?= e($plain) ?>)</option><?php endforeach; ?>
-            </select>
+          <div class="col-12">
+            <div class="field-label">Treatment * <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— choose 1 to <?= MAX_TREATMENTS ?></span></div>
+            <?= treatment_picker([], 'sb') ?>
           </div>
           <div class="col-md-3">
             <label class="field-label">Date *</label>
@@ -855,6 +854,7 @@ function sbValidate() {
         if (!f || !l) msg = "Please enter the walk-in patient's first and last name.";
         else if (typeof phoneProblem === 'function' && phoneProblem(p, true)) msg = phoneProblem(p, true);
     }
+    if (!msg && tpPicked('sb-list').length === 0) msg = 'Please choose at least one treatment.';
     if (!msg) {
         var bad = [].slice.call(document.querySelectorAll('#sb-hf input[required]')).find(function (el) { return !el.checkValidity(); });
         if (bad) { msg = 'Please answer every question marked * in the health questionnaire.'; bad.scrollIntoView({ block: 'center' }); }

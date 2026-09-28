@@ -8,6 +8,7 @@
 //  (The old "Overview" section was removed.)
 // ============================================================
 require_once 'config/auth.php';
+require_once 'includes/health_form.php';   // My Health Questionnaire
 require_login(['patient']);
 require_once 'includes/teeth.php';
 require_once 'includes/mailer.php';   // clinic notifications
@@ -44,6 +45,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     // Patient edits their own personal information.
+    // Patient updates their own health questionnaire.
+    if ($action === 'save_health' && $pid) {
+        [$hfNew, $hfErr] = health_form_from_post($_POST);
+        if ($hfErr !== '') {
+            set_flash($hfErr, 'error');
+        } else {
+            save_patient_health($pdo, $pid, $hfNew);
+            log_activity($pdo, 'Updated health questionnaire', 'Own record');
+            set_flash('Your health questionnaire was updated.');
+        }
+        header("Location: portal?view=profile#my-health"); exit;
+    }
+
     if ($action === 'save_profile' && $pid) {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
         if ($phoneError !== '') {
@@ -748,6 +762,24 @@ include 'includes/head.php';
                         <?php endif; ?>
                     </div>
                 </div>
+            </div>
+
+            <!-- My health questionnaire (editable) -->
+            <?php [$myHf, $myHfAt] = $pid ? patient_health($pdo, $pid) : [[], null]; ?>
+            <?= health_form_styles() ?>
+            <div class="card-box mb-3" id="my-health">
+                <div class="flex-between mb-1">
+                    <h5 class="mb-0">🩺 My Health Questionnaire</h5>
+                    <?php if ($myHfAt): ?><small class="text-muted2">Last updated <?= date('M j, Y', strtotime($myHfAt)) ?></small><?php endif; ?>
+                </div>
+                <div class="text-muted2 mb-2" style="font-size:.85rem;">
+                    Keep this up to date so the dentist can treat you safely. It is also filled in for you when you book.
+                </div>
+                <form method="POST">
+                    <input type="hidden" name="action" value="save_health">
+                    <?= health_form_fields($myHf) ?>
+                    <button class="btn btn-teal">💾 Save my health information</button>
+                </form>
             </div>
 
             <!-- Leave a review -->

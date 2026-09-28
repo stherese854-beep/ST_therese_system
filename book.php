@@ -176,6 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
 
     [$healthForm, $healthError] = health_form_from_post($_POST);
+    [$treatJoined, $treatError] = treatments_from_post($_POST);      // 1 to 3 treatments -> "A, B"
+    if ($treatJoined !== '') $_POST['treatment'] = $treatJoined;
     $relationshipPosted = trim($_POST['relationship'] ?? '');
     if ($relationshipPosted === 'Other relative') $relationshipPosted = trim($_POST['relationship_other'] ?? '');
 
@@ -185,6 +187,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = $phoneError;
     } elseif (($_POST['for'] ?? 'myself') === 'other' && $relationshipPosted === '') {
         $bookError = 'Please tell us your relationship to the patient.';
+    } elseif ($treatError !== '') {
+        $bookError = $treatError;
     } elseif ($healthError !== '') {
         $bookError = $healthError;
     } elseif ($_POST['date'] < $minBookDate) {
@@ -497,12 +501,10 @@ include 'includes/head.php';
                 <h3>Service</h3>
                 <p class="text-muted2">Choose the treatment you would like, then tell us about your health.</p>
 
-                <label class="field-label" for="sel-treatment">Preferred treatment *</label>
-                <select name="treatment" id="sel-treatment" class="form-select mb-1" required>
-                    <?php foreach ($treatments as $t => $plain): ?>
-                        <option value="<?= e($t) ?>"><?= e($t) ?> (<?= e($plain) ?>)</option>
-                    <?php endforeach; ?>
-                </select>
+                <?= treatment_picker_assets() ?>
+                <div class="field-label">Preferred treatment * <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— choose 1 to <?= MAX_TREATMENTS ?></span></div>
+                <?= treatment_picker(array_filter(explode(', ', (string)($_POST['treatment'] ?? ''))), 'bk') ?>
+                <div id="tp-warn" class="text-danger small mb-1" style="display:none;">Please choose at least one treatment.</div>
                 <div class="text-muted2 mb-3" style="font-size:.8rem;">
                     Not sure what you need? Choose <b>Consultation</b> — the dentist will check and confirm the right treatment.
                     Our clinic will assign an available dentist for your visit.
@@ -866,6 +868,12 @@ function relOther() {
 
 // Step 2: every required health question answered (the browser marks the first one missing).
 function validateStep2() {
+    if (tpPicked('bk-list').length === 0) {
+        document.getElementById('tp-warn').style.display = 'block';
+        document.getElementById('bk-list').scrollIntoView({ block: 'center' });
+        return;
+    }
+    document.getElementById('tp-warn').style.display = 'none';
     var wrap = document.getElementById('hf-wrap');
     var bad = [].slice.call(wrap.querySelectorAll('input[required]')).find(function (el) { return !el.checkValidity(); });
     var warn = document.getElementById('hf-warn');
@@ -1073,7 +1081,7 @@ function validateSchedule() {
 
 // Copy chosen values into the confirmation screen.
 function fillReview() {
-    document.getElementById('rev-treat').textContent = document.getElementById('sel-treatment').value;
+    document.getElementById('rev-treat').textContent = tpPicked('bk-list').join(', ');
     document.getElementById('rev-date').textContent  = document.getElementById('sel-date').value;
     document.getElementById('rev-time').textContent  = document.getElementById('sel-time').value;
     document.getElementById('rev-name').textContent  =

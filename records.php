@@ -55,6 +55,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         deny_access("Changed records of patient #$pid");
     }
 
+    // ----- Overview: edit the health questionnaire -----
+    if ($action === 'update_health') {
+        [$hfNew, $hfErr] = health_form_from_post($_POST);
+        if ($hfErr !== '') {
+            set_flash($hfErr, 'error');
+        } else {
+            save_patient_health($pdo, $pid, $hfNew);
+            log_activity($pdo, 'Updated health questionnaire', patient_name_of($pdo, $pid));
+            set_flash('Health questionnaire updated.');
+        }
+        header("Location: records?patient=$pid&tab=overview"); exit;
+    }
+
     // ----- Overview: save edited patient info -----
     if ($action === 'update_patient_info') {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '', false);
@@ -233,10 +246,25 @@ $active = 'records';
         <?php elseif ($tab === 'overview'): ?>
             <!-- ===== OVERVIEW: editable patient info + dental chart + remarks ===== -->
             <?php [$hfAns, $hfAt] = patient_health($pdo, $pid); ?>
+            <?= health_form_styles() ?>
             <div class="card-box mb-3">
-                <h6 class="mb-2">🩺 Health Questionnaire
-                    <small class="text-muted2"><?= $hfAt ? '(latest, updated ' . date('M j, Y', strtotime($hfAt)) . ')' : '' ?></small></h6>
-                <?= health_form_view($hfAns) ?>
+                <div class="flex-between mb-2">
+                    <h6 class="mb-0">🩺 Health Questionnaire
+                        <small class="text-muted2"><?= $hfAt ? '(latest, updated ' . date('M j, Y', strtotime($hfAt)) . ')' : '' ?></small></h6>
+                    <button type="button" class="btn btn-sm btn-outline-teal" id="hf-edit-btn"
+                            onclick="document.getElementById('hf-view').hidden = true; document.getElementById('hf-edit').hidden = false; this.hidden = true; hfToggle();">✏️ Edit</button>
+                </div>
+                <div id="hf-view"><?= health_form_view($hfAns) ?></div>
+                <form method="POST" id="hf-edit" hidden>
+                    <input type="hidden" name="action" value="update_health">
+                    <input type="hidden" name="patient_id" value="<?= (int)$pid ?>">
+                    <?= health_form_fields($hfAns, true) ?>
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-light btn-sm"
+                                onclick="document.getElementById('hf-edit').hidden = true; document.getElementById('hf-view').hidden = false; document.getElementById('hf-edit-btn').hidden = false;">Cancel</button>
+                        <button class="btn btn-teal btn-sm">💾 Save questionnaire</button>
+                    </div>
+                </form>
             </div>
             <form method="POST">
                 <input type="hidden" name="action" value="update_patient_info">

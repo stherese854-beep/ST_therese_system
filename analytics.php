@@ -135,7 +135,10 @@ if ($other) { $st['Other'] = array_sum(array_map(fn($x) => (int)preg_replace('/.
 $charts['status'] = ['Appointments by status', 'Share of booked appointments' . ($other ? ' · Other = ' . implode(', ', $other) : ''),
     array_keys($st), array_values($st), 'appointment', 'donut', $stColors];
 
-$tr = $countBy($appts, fn($a) => $a['treatment']);
+// A booking can list up to 3 treatments ("Cleaning, Dental Filling"): count each.
+$tr = [];
+foreach ($appts as $a) foreach (array_filter(array_map('trim', explode(',', (string)$a['treatment']))) as $t) $tr[$t] = ($tr[$t] ?? 0) + 1;
+arsort($tr);
 $charts['treatments'] = ['Top treatments', 'Most-booked services', array_keys($tr), array_values($tr), 'appointment', 'h'];
 
 $dn = $countBy($appts, fn($a) => $a['dentist'] ?: 'To be assigned');
