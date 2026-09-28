@@ -130,6 +130,7 @@ function badge_for($status) {
         'Pending'     => 'b-pending',
         'Confirmed'   => 'b-confirmed',
         'Cancelled'   => 'b-cancelled',
+        'Disapproved' => 'b-disapproved',
         'No-show'     => 'b-noshow',
         'Rescheduled' => 'b-progress',
         'Active'      => 'b-active',

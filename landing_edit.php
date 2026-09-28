@@ -474,6 +474,21 @@ $active = 'landing_edit';
                 </div>
             </div>
 
+            <!-- ===== TERMS & PRIVACY (admin only — this whole page is admin only) ===== -->
+            <?php require_once 'includes/policies.php'; $polDef = policy_defaults(); ?>
+            <div class="card-box mb-3">
+                <h5 class="mb-1">📜 Terms &amp; Conditions and Privacy Policy</h5>
+                <div class="text-muted2 mb-3" style="font-size:.85rem;">
+                    Shown in the home page footer and when patients book. Separate sections with an
+                    <strong>empty line</strong>; the first line of each section is its heading.
+                    Put <code>**</code> around words to make them <strong>bold</strong>.
+                </div>
+                <label class="field-label">Terms &amp; Conditions (Appointment Policy)</label>
+                <textarea name="land_terms" class="form-control mb-3" rows="14" style="font-size:.85rem;"><?= e(v('land_terms', $polDef['terms'])) ?></textarea>
+                <label class="field-label">Privacy Policy</label>
+                <textarea name="land_privacy" class="form-control" rows="14" style="font-size:.85rem;"><?= e(v('land_privacy', $polDef['privacy'])) ?></textarea>
+            </div>
+
             <!-- ===== CTA + FOOTER ===== -->
             <div class="card-box mb-3">
                 <h5 class="mb-3">📣 Call-to-Action &amp; Footer</h5>

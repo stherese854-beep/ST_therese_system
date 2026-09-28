@@ -23,6 +23,8 @@ if (preg_match('~/index\.php$~i', parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_U
     exit;
 }
 
+require_once __DIR__ . '/includes/policies.php';   // Terms & Privacy text (edited by the admin)
+
 // Try to load the clinic's dentists from the database (optional).
 $dentists = [];
 try {
@@ -974,55 +976,11 @@ section{scroll-margin-top:88px}
     <div style="padding:22px 26px;overflow-y:auto;font-size:.93rem;line-height:1.7;color:#3f5350;">
 
       <div id="lp-policy">
-        <h4>1. Booking and approval</h4>
-        <p>All online bookings are submitted as <strong>Pending</strong>. An appointment is only final once
-           the clinic or the assigned dentist approves it. You are notified when the status changes.</p>
-        <h4>2. Arrival time</h4>
-        <p>Please arrive at least <strong>10 minutes before</strong> your scheduled time. Arriving more than
-           15 minutes late may mean your slot is given to the next patient and your visit is rescheduled.</p>
-        <h4>3. Cancelling or rescheduling</h4>
-        <p>You may cancel or reschedule from your patient dashboard, ideally at least <strong>24 hours
-           before</strong> your appointment so the slot can be offered to someone else.</p>
-        <h4>4. Missed appointments (no-shows)</h4>
-        <p>Not arriving without cancelling is recorded as a <strong>no-show</strong>. Repeated no-shows
-           (3 or more) may mean you are asked to book by phone instead of online.</p>
-        <h4>5. Booking for another person</h4>
-        <p>You may book on behalf of a family member or dependent. You must state your relationship to that
-           patient, and you are responsible for the accuracy of the information you give.</p>
-        <h4>6. Limits</h4>
-        <p>To keep slots fair, each account may hold a maximum of <strong>3 upcoming appointments</strong>
-           at any one time, and the same patient may not be booked twice on the same day.</p>
-        <h4>7. Dentist assignment</h4>
-        <p>The clinic assigns an available dentist for your visit. If you have been seen before, we try to
-           keep you with your usual dentist for continuity of care.</p>
+        <?= policy_html(lc('land_terms', policy_defaults()['terms']), 'h4') ?>
       </div>
 
       <div id="lp-privacy" style="display:none;">
-        <h4>1. What we collect</h4>
-        <p>We collect the information you give us: your name, email address, contact number, date of birth,
-           and the details of your dental visits — treatments, dental charts, X-ray images, and clinical
-           notes recorded by your dentist.</p>
-        <h4>2. Why we collect it</h4>
-        <p>Your information is used only to provide dental care: to schedule appointments, keep your dental
-           records, send confirmations and reminders, and issue reports your dentist needs for treatment.</p>
-        <h4>3. Who can see it</h4>
-        <p>Your records can be seen by the clinic's administrators and by the dentist assigned to you.
-           Dentists can only view the records of their own assigned patients. We do <strong>not</strong> sell
-           or share your information with advertisers or other third parties.</p>
-        <h4>4. How it is protected</h4>
-        <p>Access requires a login. Passwords are stored in encrypted (hashed) form and are never visible to
-           staff. Only authorised staff accounts can open patient records.</p>
-        <h4>5. Messages you will receive</h4>
-        <p>By registering or booking, you agree to receive appointment-related messages by email — a
-           verification code, a booking confirmation, and a reminder one day before your visit. These are
-           service messages, not marketing.</p>
-        <h4>6. Keeping and deleting records</h4>
-        <p>Dental records are kept for as long as needed for your care. You may ask the clinic to correct your
-           personal details at any time, or request that your account be deleted.</p>
-        <h4>7. Your rights</h4>
-        <p>Under the Philippine <strong>Data Privacy Act of 2012 (RA 10173)</strong>, you have the right to be
-           informed, to access, to correct, and to object to the processing of your personal data. To exercise
-           these rights, contact the clinic directly.</p>
+        <?= policy_html(lc('land_privacy', policy_defaults()['privacy']), 'h4') ?>
       </div>
 
     </div>

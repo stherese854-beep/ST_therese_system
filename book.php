@@ -3,6 +3,7 @@
 //  BOOK APPOINTMENT  (book.php) -- 4-step wizard for patients
 // ============================================================
 require_once 'config/auth.php';
+require_once 'includes/policies.php';   // Terms & Privacy text (edited by the admin)
 require_once 'includes/mailer.php';
 require_once 'includes/message_templates.php';   // editable message wording   // to email a booking confirmation
 require_once 'includes/noshow_check.php';   // patient_noshow_count(), patient_cancel_count()
@@ -707,68 +708,11 @@ include 'includes/head.php';
       <div class="modal-body" style="font-size:.92rem;line-height:1.7;">
 
         <div id="policy-body-policy">
-          <h6>1. Booking and approval</h6>
-          <p>All online bookings are submitted as <strong>Pending</strong>. An appointment is only final
-             once the clinic or the assigned dentist approves it. You will be notified when the status changes.</p>
-
-          <h6>2. Arrival time</h6>
-          <p>Please arrive at least <strong>10 minutes before</strong> your scheduled time. Arriving more than
-             15 minutes late may mean your slot is given to the next patient and your visit is rescheduled.</p>
-
-          <h6>3. Cancelling or rescheduling</h6>
-          <p>You may cancel or reschedule from your patient dashboard. We ask that you do so at least
-             <strong>24 hours before</strong> your appointment so the slot can be offered to someone else.</p>
-
-          <h6>4. Missed appointments (no-shows)</h6>
-          <p>Not arriving without cancelling is recorded as a <strong>no-show</strong>. Repeated no-shows
-             (3 or more) may mean you are asked to book by phone instead of online.</p>
-
-          <h6>5. Booking for another person</h6>
-          <p>You may book on behalf of a family member or dependent. You must state your relationship to
-             that patient, and you are responsible for the accuracy of the information you give.</p>
-
-          <h6>6. Limits</h6>
-          <p>To keep slots fair for everyone, each account may hold a maximum of <strong>3 upcoming
-             appointments</strong> at any one time, and the same patient may not be booked twice on the
-             same day. Once a visit is completed or cancelled, a place frees up.</p>
-
-          <h6>7. Dentist assignment</h6>
-          <p>The clinic assigns an available dentist for your visit. If you have been seen before,
-             we try to keep you with your usual dentist for continuity of care.</p>
+          <?= policy_html(policy_text($pdo, 'terms'), 'h6') ?>
         </div>
 
         <div id="policy-body-privacy" style="display:none;">
-          <h6>1. What we collect</h6>
-          <p>We collect the information you give us: your name, email address, contact number, date of birth,
-             and the details of your dental visits — including treatments, dental charts, X-ray images, and
-             clinical notes recorded by your dentist.</p>
-
-          <h6>2. Why we collect it</h6>
-          <p>Your information is used only to provide dental care: to schedule appointments, keep your dental
-             records, send confirmations and reminders, and issue reports your dentist needs for treatment.</p>
-
-          <h6>3. Who can see it</h6>
-          <p>Your records can be seen by the clinic's administrators and by the dentist assigned to you.
-             Dentists can only view the records of their own assigned patients. We do <strong>not</strong> sell
-             or share your information with advertisers or other third parties.</p>
-
-          <h6>4. How it is protected</h6>
-          <p>Access requires a login. Passwords are stored in encrypted (hashed) form and are never visible to
-             staff. Only authorised staff accounts can open patient records.</p>
-
-          <h6>5. Messages you will receive</h6>
-          <p>By booking, you agree to receive appointment-related messages by email or SMS — a verification
-             code, a booking confirmation, and a reminder one day before your visit. These are service
-             messages, not marketing.</p>
-
-          <h6>6. Keeping and deleting records</h6>
-          <p>Dental records are kept for as long as needed for your care. You may ask the clinic to correct
-             your personal details at any time from your dashboard, or request that your account be deleted.</p>
-
-          <h6>7. Your rights</h6>
-          <p>Under the Philippine <strong>Data Privacy Act of 2012 (RA 10173)</strong>, you have the right to be
-             informed, to access, to correct, and to object to the processing of your personal data. To exercise
-             these rights, contact the clinic directly.</p>
+          <?= policy_html(policy_text($pdo, 'privacy'), 'h6') ?>
         </div>
 
       </div>

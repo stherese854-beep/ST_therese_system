@@ -61,6 +61,31 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         });
     })();
 
+    // ---- Email fields: a real address (name@domain.tld) ----
+    // The browser alone accepts "jomar@123"; this refuses it before sending.
+    document.addEventListener('input', function (e) {
+        var t = e.target;
+        if (!t || t.tagName !== 'INPUT' || t.type !== 'email') return;
+        var v = t.value.trim();
+        t.setCustomValidity(v === '' || /^[^\s@]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}$/.test(v)
+            ? '' : 'Please enter a real email address, for example name@gmail.com.');
+    });
+
+    // ---- "Confirm password" fields: <input data-pw-match="idOfTheFirstField"> ----
+    function pwMatchCheck(c) {
+        var p = document.getElementById(c.getAttribute('data-pw-match'));
+        var bad = p && (p.value !== '' || c.value !== '') && p.value !== c.value;
+        c.setCustomValidity(bad ? 'The passwords do not match.' : '');
+        var w = document.getElementById(c.id + '-warn');
+        if (w) w.style.display = (bad && c.value !== '') ? 'block' : 'none';
+    }
+    document.addEventListener('input', function (e) {
+        var t = e.target;
+        if (!t || !t.getAttribute) return;
+        if (t.hasAttribute('data-pw-match')) pwMatchCheck(t);
+        if (t.id) document.querySelectorAll('[data-pw-match="' + t.id + '"]').forEach(pwMatchCheck);
+    });
+
     // ---- Password strength (same scoring as password_strength() in config/auth.php) ----
     // Any <input data-pw-meter> gets a live "Weak / Medium / Strong" line; only Strong is accepted.
     function pwLevel(p) {

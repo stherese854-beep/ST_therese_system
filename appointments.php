@@ -34,8 +34,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         set_flash('That appointment could not be found.', 'error');
     } elseif ((int)$row['days_old'] < 7) {
         set_flash('Only appointments more than a week old can be removed.', 'error');
-    } elseif (!in_array($row['status'], ['Cancelled','Completed','No-show'])) {
-        set_flash('Only cancelled, completed or missed appointments can be removed.', 'error');
+    } elseif (!in_array($row['status'], ['Cancelled','Completed','No-show','Disapproved'])) {
+        set_flash('Only cancelled, disapproved, completed or missed appointments can be removed.', 'error');
     } else {
         $pdo->prepare("DELETE FROM appointments WHERE id = ?")->execute([$id]);
         log_activity($pdo, 'Deleted appointment', $row['patient_name'] . ' — '
@@ -185,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
         $wDob   = trim($_POST['dob'] ?? '');
         if ($first === '' || $last === '')                                  $err = 'Please enter the walk-in patient\'s first and last name.';
         elseif ($phoneErr !== '')                                           $err = $phoneErr;
-        elseif ($wEmail !== '' && !filter_var($wEmail, FILTER_VALIDATE_EMAIL)) $err = 'That email address is not valid.';
+        elseif ($wEmail !== '' && ($emErr = email_problem($wEmail)) !== '') $err = $emErr;
         elseif (($dobErr = birth_date_error($wDob)) !== '')                   $err = $dobErr;
     }
 
@@ -312,7 +312,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $id = $_POST['id'] ?? '';
     $newStatus = $_POST['status'] ?? '';
-    $allowed = ['Confirmed','Cancelled','Completed','Pending'];
+    $allowed = ['Confirmed','Cancelled','Completed','Pending','Disapproved'];
 
     // A dentist may only change appointments that belong to their own patients.
     $canEdit = true;
@@ -370,12 +370,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                           : " (The email could not be sent — $err)";
             }
 
-        } elseif ($newStatus === 'Cancelled') {
+        } elseif ($newStatus === 'Cancelled' || $newStatus === 'Disapproved') {
             // The clinic must say WHY. The patient sees this in their portal and
             // receives it by email, so an appointment never just disappears.
+            // A booking request that was never approved (Pending) is DISAPPROVED
+            // rather than cancelled; an approved one is cancelled.
+            $newStatus = ($ap && $ap['status'] === 'Pending') ? 'Disapproved' : 'Cancelled';
             $reason = trim($_POST['cancel_reason'] ?? '');
             if ($reason === '') {
-                set_flash('Please give a reason for cancelling — the patient will be told.', 'error');
+                set_flash('Please give a reason — the patient will be told.', 'error');
                 header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".$_POST['filter'] : "")); exit;
             }
 
@@ -386,8 +389,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )->execute([$newStatus, ($_SESSION['name'] ?? 'clinic'), $reason, $id]);
 
             if ($ap && !empty($ap['patient_email']) && mail_is_ready($pdo)) {
-                $cat = message_catalogue()['appointment_cancelled'];
-                [$subj, $body] = tpl_message($pdo, 'appointment_cancelled', $cat['subject'], $cat['body'], [
+                $tplKey = $newStatus === 'Disapproved' ? 'appointment_disapproved' : 'appointment_cancelled';
+                $cat = message_catalogue()[$tplKey];
+                [$subj, $body] = tpl_message($pdo, $tplKey, $cat['subject'], $cat['body'], [
                     'patient'   => $ap['patient_name'],
                     'date'      => date('l, F j, Y', strtotime($ap['appointment_date'])),
                     'time'      => $ap['appointment_time'],
@@ -396,7 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'clinic'    => clinic_name($pdo),
                 ]);
                 $err = '';
-                $mailNote = send_mail($pdo, $ap['patient_email'], $subj, $body, $err, 'appointment_cancelled')
+                $mailNote = send_mail($pdo, $ap['patient_email'], $subj, $body, $err, $tplKey)
                           ? ' The patient was emailed the reason.'
                           : " (The email could not be sent — $err)";
             }
@@ -425,7 +429,7 @@ $myName    = $_SESSION['name'] ?? '';
 
 $conds = [];
 $params = [];
-if (in_array($filter, ['Confirmed','Pending','Cancelled','Completed','Arrived'])) {
+if (in_array($filter, ['Confirmed','Pending','Cancelled','Completed','Arrived','Disapproved'])) {
     $conds[] = "a.status = ?"; $params[] = $filter;
 }
 if ($search !== '') {
@@ -450,7 +454,7 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $appts = $stmt->fetchAll();
 
-$tabs = ['All','Confirmed','Pending','Arrived','Cancelled'];
+$tabs = ['All','Confirmed','Pending','Arrived','Cancelled','Disapproved'];
 
 // For the "+ Book" form.
 $bookPatients = staff_bookable_patients($pdo);
@@ -522,6 +526,9 @@ $active = 'appointments';
                                         <?php endif; ?>
                                         <em><?= e($a['cancel_reason']) ?></em>
                                     </small>
+                                <?php elseif ($a['status'] === 'Disapproved' && !empty($a['cancel_reason'])): ?>
+                                    <br><small style="color:#8aa0a0;"><span style="color:#b4531a;">Disapproved by <?= e($a['cancelled_by'] ?: 'clinic') ?>:</span>
+                                        <em><?= e($a['cancel_reason']) ?></em></small>
                                 <?php endif; ?>
                             </td>
                             <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span>
@@ -562,7 +569,7 @@ $active = 'appointments';
                                     <template id="hf-<?= (int)$a['id'] ?>"><?= '<h6 class="mb-2">' . e($a['patient_name']) . '</h6>' . health_form_view($hfA) ?></template>
                                 <?php endif; ?>
 
-                                <?php if ($a['status'] !== 'Cancelled'): ?>
+                                <?php if (!in_array($a['status'], ['Cancelled','Disapproved'], true)): ?>
                                     <button class="btn btn-sm icon-btn" style="background:#e8f0fe;color:#185FA5;"
                                             title="Edit"
                                             onclick='openEditAppt(<?= json_encode([
@@ -575,10 +582,11 @@ $active = 'appointments';
                                             ], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>✎</button>
                                 <?php endif; ?>
 
-                                <?php if (!in_array($a['status'], ['Cancelled','Arrived'], true)): ?>
+                                <?php if (!in_array($a['status'], ['Cancelled','Arrived','Disapproved'], true)): ?>
                                     <button type="button" class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;"
-                                            title="Cancel"
+                                            title="<?= $a['status'] === 'Pending' ? 'Disapprove' : 'Cancel' ?>"
                                             onclick='openCancelAppt(<?= json_encode([
+                                                "pending" => $a["status"] === "Pending",
                                                 "id"    => $a["id"],
                                                 "name"  => $a["patient_name"],
                                                 "date"  => $a["appointment_date"],
@@ -591,7 +599,7 @@ $active = 'appointments';
                                     $daysOld = (strtotime('today') - strtotime($a['appointment_date'])) / 86400;
                                     $canRemove = in_array(current_role(), ['admin','staff'])
                                               && $daysOld >= 7
-                                              && in_array($a['status'], ['Cancelled','Completed','No-show']);
+                                              && in_array($a['status'], ['Cancelled','Completed','No-show','Disapproved']);
                                 ?>
                                 <?php if ($canRemove): ?>
                                     <form method="POST" class="d-inline"
@@ -621,17 +629,17 @@ $active = 'appointments';
   <div class="modal-dialog modal-dialog-centered">
     <form method="POST" class="modal-content" onsubmit="return validateCancelAppt()">
       <input type="hidden" name="id" id="ca-id">
-      <input type="hidden" name="status" value="Cancelled">
+      <input type="hidden" name="status" id="ca-status" value="Cancelled">
       <input type="hidden" name="filter" value="<?= e($filter) ?>">
 
       <div class="modal-header">
-        <h5 class="modal-title">Cancel this appointment</h5>
+        <h5 class="modal-title" id="ca-title">Cancel this appointment</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
 
       <div class="modal-body">
         <div class="card-box mb-3" style="background:#f7fafa;padding:12px 14px;">
-          <div class="text-muted2" style="font-size:.8rem;">You are cancelling</div>
+          <div class="text-muted2" style="font-size:.8rem;" id="ca-you">You are cancelling</div>
           <div style="font-weight:600;" id="ca-name"></div>
           <div class="text-muted2" style="font-size:.82rem;" id="ca-when"></div>
         </div>
@@ -641,7 +649,7 @@ $active = 'appointments';
           appointment history. Please write something they will understand.
         </div>
 
-        <label class="field-label">Reason for cancelling</label>
+        <label class="field-label" id="ca-label">Reason for cancelling</label>
         <textarea name="cancel_reason" id="ca-reason" class="form-control mb-1" rows="3"
                   placeholder="e.g. The dentist is unwell that day, so we cannot see you as planned."></textarea>
         <div id="ca-warn" class="text-danger small" style="display:none;">Please give a reason — the patient is told why.</div>
@@ -666,7 +674,7 @@ $active = 'appointments';
 
       <div class="modal-footer">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Keep appointment</button>
-        <button class="btn" style="background:#c0392b;color:#fff;">Cancel and notify patient</button>
+        <button class="btn" style="background:#c0392b;color:#fff;" id="ca-submit">Cancel and notify patient</button>
       </div>
     </form>
   </div>
@@ -910,6 +918,13 @@ function openEditAppt(a){
 // Cancelling must always come with a reason — the patient is told why,
 // so an appointment never simply disappears from their portal.
 function openCancelAppt(a){
+    // A Pending request is DISAPPROVED (it was never approved); others are cancelled.
+    var dis = !!a.pending;
+    document.getElementById('ca-status').value = dis ? 'Disapproved' : 'Cancelled';
+    document.getElementById('ca-title').textContent = dis ? 'Disapprove this booking request' : 'Cancel this appointment';
+    document.getElementById('ca-you').textContent = dis ? 'You are disapproving' : 'You are cancelling';
+    document.getElementById('ca-label').textContent = dis ? 'Reason for disapproving' : 'Reason for cancelling';
+    document.getElementById('ca-submit').textContent = dis ? 'Disapprove and notify patient' : 'Cancel and notify patient';
     document.getElementById('ca-id').value = a.id;
     document.getElementById('ca-name').textContent = a.name || '';
     var d = new Date(a.date + 'T00:00:00');

@@ -335,22 +335,31 @@ function generate_temp_password() {
 //    3. not already taken by another account
 //  Returns an error message, or '' when the address is fine.
 // ============================================================
-function validate_account_email($pdo, $email, $ignoreUserId = null) {
-    $email = trim($email);
-
-    if ($email === '') {
-        return 'Please enter an email address.';
+// Is this a REAL email address? name@domain.tld (so "jomar@123" or
+// "jomar@gmail" are refused), and the domain must actually receive mail.
+// Returns an error message, or '' when it is fine.
+function email_problem($email) {
+    $email = trim((string)$email);
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)
+        || !preg_match('/^[^@\s]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}$/', $email)) {
+        return 'Please enter a real email address, for example name@gmail.com.';
     }
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        return 'That email address is not valid. Please check the spelling.';
-    }
-
     // Does the domain accept mail at all? This catches believable typos.
     $domain = substr(strrchr($email, '@'), 1);
     if ($domain && function_exists('checkdnsrr')
         && !checkdnsrr($domain, 'MX') && !checkdnsrr($domain, 'A')) {
         return "No mail server found for \"$domain\". Please check the email address.";
     }
+    return '';
+}
+
+function validate_account_email($pdo, $email, $ignoreUserId = null) {
+    $email = trim($email);
+
+    if ($email === '') {
+        return 'Please enter an email address.';
+    }
+    if (($ep = email_problem($email)) !== '') return $ep;
 
     // Already used by someone else?
     if ($ignoreUserId) {
@@ -507,9 +516,9 @@ function ensure_booking_review_schema($pdo) {
             $pdo->exec("ALTER TABLE appointments ADD COLUMN health_form TEXT DEFAULT NULL");
         }
         $st = $pdo->query("SHOW COLUMNS FROM appointments LIKE 'status'")->fetch();
-        if ($st && strpos($st['Type'], "'Arrived'") === false) {
+        if ($st && strpos($st['Type'], "'Disapproved'") === false) {
             $pdo->exec("ALTER TABLE appointments MODIFY status ENUM('Pending','Confirmed','Cancelled','Completed',
-                        'No-show','Rescheduled','Needs Review','Expired','Arrived') DEFAULT 'Pending'");
+                        'No-show','Rescheduled','Needs Review','Expired','Arrived','Disapproved') DEFAULT 'Pending'");
         }
         // Same-person identity: normalized name (+ date_of_birth) with an index,
         // so duplicate checks across accounts are one fast lookup.

@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $chk = $pdo->prepare("SELECT treatment AS label, appointment_date AS d FROM appointments
                                    WHERE id = ? AND patient_id IN (" . in_placeholders($fam) . ")
                                      AND (appointment_date < CURDATE()
-                                          OR status IN ('Completed','Cancelled','No-show','Arrived','Expired','Needs Review'))");
+                                          OR status IN ('Completed','Cancelled','No-show','Arrived','Expired','Needs Review','Disapproved'))");
             $chk->execute(array_merge([$id], $fam));
         }
         $item = $chk->fetch();
@@ -391,7 +391,7 @@ if ($pid) {
     $today = date('Y-m-d');
     foreach ($myAppts as $a) {
         $isFuture = ($a['appointment_date'] >= $today);
-        $isDone   = in_array($a['status'], ['Completed','Cancelled','No-show','Arrived','Expired','Needs Review'], true);
+        $isDone   = in_array($a['status'], ['Completed','Cancelled','No-show','Arrived','Expired','Needs Review','Disapproved'], true);
         if ($isFuture && !$isDone) {
             $upcomingAppts[] = $a;
         } else {
@@ -805,6 +805,9 @@ include 'includes/head.php';
                                     </small>
                                 <?php elseif ($a['status'] === 'Cancelled' && ($a['cancelled_by'] ?? '') === 'patient'): ?>
                                     <br><small class="text-muted2">You cancelled this appointment.</small>
+                                <?php elseif ($a['status'] === 'Disapproved'): ?>
+                                    <br><small style="color:#b4531a;">We're sorry — the clinic could not approve this request.
+                                        <?php if (!empty($a['cancel_reason'])): ?><br><em><?= e($a['cancel_reason']) ?></em><?php endif; ?></small>
                                 <?php endif; ?>
                             </td>
                             <td><?= date('M j, Y', strtotime($a['appointment_date'])) ?></td>

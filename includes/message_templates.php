@@ -53,6 +53,19 @@ function message_catalogue() {
                    . "patient portal, or call the clinic and we will gladly find a new time for you.",
     ],
 
+    'appointment_disapproved' => [
+        'group'   => 'To the patient',
+        'label'   => 'Booking request disapproved',
+        'when'    => 'Sent when the clinic disapproves a Pending booking request. The reason they typed is included.',
+        'vars'    => ['patient','date','time','treatment','reason','clinic'],
+        'subject' => 'Your booking request was not approved',
+        'body'    => "Hello {patient}, we are sorry but we could not approve your booking request.\n\n"
+                   . "Date: {date}\nTime: {time}\nTreatment: {treatment}\n\n"
+                   . "Reason: {reason}\n\n"
+                   . "You are welcome to book another time from your patient portal, or call the clinic "
+                   . "and we will gladly help you find a schedule.",
+    ],
+
     'appointment_updated' => [
         'group'   => 'To the patient',
         'label'   => 'Appointment details changed',

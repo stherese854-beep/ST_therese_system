@@ -151,7 +151,7 @@ $pid = (int)($_GET['patient'] ?? 0);
 function badge_for($status) {
     $map = [
         'Completed'=>'b-completed','In Progress'=>'b-progress','Pending'=>'b-pending',
-        'Confirmed'=>'b-confirmed','Cancelled'=>'b-cancelled','No-show'=>'b-noshow',
+        'Confirmed'=>'b-confirmed','Cancelled'=>'b-cancelled','No-show'=>'b-noshow','Disapproved'=>'b-disapproved',
         'Rescheduled'=>'b-progress','Active'=>'b-active','Inactive'=>'b-inactive',
     ];
     return $map[$status] ?? 'b-pending';

@@ -71,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ----- Overview: save edited patient info -----
     if ($action === 'update_patient_info') {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '', false);
+        if ($phoneError === '' && trim($_POST['email'] ?? '') !== '') $phoneError = email_problem($_POST['email']);   // a real address only
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
             header("Location: records?patient=$pid&tab=overview"); exit;

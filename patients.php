@@ -26,9 +26,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status= $_POST['status'] ?? 'Active';
         $ptype = $_POST['patient_type'] ?? 'New';
         $vreason = trim($_POST['visit_reason'] ?? '');
+        if ($email !== '' && ($ep = email_problem($email)) !== '') {          // a real address only
+            set_flash($ep, 'error');
+            header("Location: patients"); exit;
+        }
         $newpass = $_POST['password'] ?? '';
         if ($newpass !== '' && ($pwp = password_problem($newpass)) !== '') {   // only Strong passwords
             set_flash($pwp, 'error');
+            header("Location: patients"); exit;
+        }
+        if ($newpass !== '' && $newpass !== ($_POST['password_confirm'] ?? '')) {
+            set_flash('The passwords do not match. Please type the same password twice.', 'error');
             header("Location: patients"); exit;
         }
 
@@ -525,7 +533,24 @@ $active = 'patients';
 
             <div id="f-pass-wrap">
                 <label class="field-label">Password</label>
-                <input type="text" name="password" id="f-pass" class="form-control mb-1" data-pw-meter placeholder="Blank = a strong temporary password is created (new) / kept (edit)">
+                <div class="pw-wrap mb-1">
+                    <input type="password" name="password" id="f-pass" class="form-control" data-pw-meter autocomplete="new-password"
+                           placeholder="Blank = a strong temporary password is created (new) / kept (edit)">
+                    <button type="button" class="pw-eye" aria-label="Show password">
+                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
+                <label class="field-label mt-2">Confirm Password</label>
+                <div class="pw-wrap mb-1">
+                    <input type="password" name="password_confirm" id="f-pass2" class="form-control" data-pw-match="f-pass" autocomplete="new-password"
+                           placeholder="Type the same password again">
+                    <button type="button" class="pw-eye" aria-label="Show password">
+                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
+                <div id="f-pass2-warn" class="text-danger small mb-2" style="display:none;">The passwords do not match.</div>
                 <div class="text-muted2" style="font-size:.78rem;">New patients with an email automatically get a login account so they can book later. Leave the password blank and a strong temporary password is created and shown after saving (only Strong passwords are accepted).</div>
             </div>
         </div>
@@ -630,6 +655,7 @@ function validatePauseBooking(){
         document.getElementById('f-ptype').value = 'New';
         document.getElementById('f-reason').value = '';
         document.getElementById('f-pass').value = '';
+        document.getElementById('f-pass2').value = '';
         toggleReason();
     }
 
@@ -647,6 +673,7 @@ function validatePauseBooking(){
         document.getElementById('f-ptype').value = p.patient_type || 'New';
         document.getElementById('f-reason').value = p.visit_reason || '';
         document.getElementById('f-pass').value = '';
+        document.getElementById('f-pass2').value = '';
         toggleReason();
     }
 

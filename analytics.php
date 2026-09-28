@@ -124,6 +124,7 @@ $STATUS_COLORS = [                     // categorical slots 1-6, in this fixed o
     'Needs Review' => '#eda100',
     'Cancelled'    => '#e87ba4',
     'No-show'      => '#008300',
+    'Disapproved'  => '#b4531a',
 ];
 $st = []; $other = []; $stColors = [];
 foreach ($STATUS_COLORS as $name => $col) {
