@@ -11,6 +11,35 @@ $role = current_role();
 $isDentist = ($role === 'dentist');
 $myName = $_SESSION['name'] ?? '';
 
+// Appointment times are stored as text ("09:30 AM", some older ones "9:30AM"),
+// so sort them as real times — otherwise "01:00 PM" comes before "11:30 AM".
+const DASH_TIME_ORDER = "STR_TO_DATE(REPLACE(appointment_time, ' ', ''), '%h:%i%p')";
+
+// ---------- Calendar <-> appointments (answered as JSON for the page's script) ----------
+// ?day=YYYY-MM-DD   -> that day's appointments (a dentist only gets their own)
+// ?month=YYYY-MM    -> how many appointments each day of that month has (for the dots)
+if (isset($_GET['day']) || isset($_GET['month'])) {
+    header('Content-Type: application/json');
+    $scopeSql = $isDentist ? " AND dentist = ?" : "";
+    $scopePrm = $isDentist ? [$myName] : [];
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['day'] ?? '')) {
+        $q = $pdo->prepare("SELECT patient_name, appointment_date, appointment_time, treatment, status FROM appointments
+                             WHERE appointment_date = ?$scopeSql ORDER BY " . DASH_TIME_ORDER . ", id");
+        $q->execute(array_merge([$_GET['day']], $scopePrm));
+        echo json_encode($q->fetchAll(PDO::FETCH_ASSOC));
+    } elseif (preg_match('/^\d{4}-\d{2}$/', $_GET['month'] ?? '')) {
+        $q = $pdo->prepare("SELECT appointment_date d, COUNT(*) c FROM appointments
+                             WHERE DATE_FORMAT(appointment_date, '%Y-%m') = ?$scopeSql
+                               AND status NOT IN ('Cancelled','Disapproved','Expired')
+                          GROUP BY appointment_date");
+        $q->execute(array_merge([$_GET['month']], $scopePrm));
+        echo json_encode($q->fetchAll(PDO::FETCH_KEY_PAIR) ?: new stdClass);
+    } else {
+        echo '[]';
+    }
+    exit;
+}
+
 // A one-time pop-up greeting, shown once right after logging in
 // (set by login.php, cleared here so it never shows again this session).
 $justRegistered   = !empty($_SESSION['just_registered']);
@@ -41,8 +70,7 @@ $treatmentsDone = $pdo->query("SELECT COUNT(*) FROM treatments WHERE status='Com
 $appts = $pdo->query(
     "SELECT * FROM appointments
      WHERE appointment_date = CURDATE()$apptScope
-     ORDER BY appointment_time ASC, id ASC
-     LIMIT 6"
+     ORDER BY " . DASH_TIME_ORDER . ", id ASC"
 )->fetchAll();
 
 // Recent patients
@@ -289,13 +317,13 @@ $active = 'dashboard';
             <div class="col-lg-8">
                 <div class="card-box">
                     <div class="flex-between mb-2">
-                        <h5 class="mb-0">Today's Appointments</h5>
+                        <h5 class="mb-0" id="day-title">Today's Appointments</h5>
                         <a href="appointments" class="btn btn-sm btn-outline-teal">View All →</a>
                     </div>
                     <div class="table-responsive">
                         <table class="data">
                             <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th></tr></thead>
-                            <tbody>
+                            <tbody id="day-rows">
                             <?php if (empty($appts)): ?>
                                 <tr>
                                     <td colspan="5" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
@@ -325,6 +353,7 @@ $active = 'dashboard';
                 <div class="card-box">
                     <h5>Calendar</h5>
                     <div id="calendar"></div>
+                    <div class="text-muted2 mt-2" style="font-size:.75rem;">Click a date to see its appointments. <span class="cal-dot" style="position:static;display:inline-block;transform:none;vertical-align:middle;"></span> = has appointments</div>
                 </div>
             </div>
         </div>
@@ -396,10 +425,42 @@ $active = 'dashboard';
 <?php if ($showWelcomePopup): ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <?php endif; ?>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
     startClock();          // live clock (top right)
-    buildCalendar();       // simple month calendar
+    // ---- Calendar <-> appointments table ----
+    // Clicking a date loads that day's appointments into the table on the left;
+    // days that have appointments get a small dot.
+    var DASH_TODAY = <?= json_encode(date('Y-m-d')) ?>;
+    function dashEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+    window.calendarPick = function (ds) {
+        var title = document.getElementById('day-title'), rows = document.getElementById('day-rows');
+        var nice = new Date(ds + 'T00:00:00').toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
+        title.textContent = ds === DASH_TODAY ? "Today's Appointments" : 'Appointments · ' + nice;
+        rows.innerHTML = '<tr><td colspan="5" class="text-center text-muted2 py-4">Loading…</td></tr>';
+        fetch('dashboard?day=' + ds, {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (list) {
+            if (!list.length) {
+                rows.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:34px 12px;color:#8aa0a0;">'
+                    + '<div style="font-size:2.2rem;margin-bottom:6px;">📭</div>No appointments on ' + dashEsc(nice) + '.</td></tr>';
+                return;
+            }
+            rows.innerHTML = list.map(function (a) {
+                return '<tr><td><strong>' + dashEsc(a.patient_name) + '</strong></td><td>' + dashEsc(a.appointment_date) + '</td>'
+                     + '<td class="date-blue">' + dashEsc(a.appointment_time) + '</td><td>' + dashEsc(a.treatment) + '</td>'
+                     + '<td><span class="badge-pill b-' + dashEsc(String(a.status).toLowerCase()) + '">' + dashEsc(a.status) + '</span></td></tr>';
+            }).join('');
+        }).catch(function () { rows.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Could not load that day. Please try again.</td></tr>'; });
+    };
+    window.calendarMonthLoaded = function (year, month) {
+        var ym = year + '-' + String(month + 1).padStart(2, '0');
+        fetch('dashboard?month=' + ym, {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (counts) {
+            Object.keys(counts).forEach(function (ds) {
+                var td = document.querySelector('#calendar td[data-date="' + ds + '"]');
+                if (td) { td.classList.add('has-appts'); td.title = counts[ds] + ' appointment' + (counts[ds] > 1 ? 's' : ''); }
+            });
+        }).catch(function () {});
+    };
+    buildCalendar();       // month calendar (js/app.js)
     <?php if ($showWelcomePopup): ?>
     document.addEventListener('DOMContentLoaded', function () {
         new bootstrap.Modal(document.getElementById('welcomeModal')).show();

@@ -287,7 +287,7 @@ function pill($key, $label, $current) {
 </div></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
 function openAdd(){
     document.getElementById('a-title').textContent='New Announcement';

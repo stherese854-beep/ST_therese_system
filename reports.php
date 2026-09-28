@@ -629,7 +629,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
 // Fit a single-patient report on ONE printed page. Just before printing, lay the report
 // out at printed-page width, measure it, and scale it down if it would run

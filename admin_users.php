@@ -224,7 +224,7 @@ $active = 'users';
 </div></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="js/app.js"></script>
+<script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
 function openAddUser(){
     u_title.textContent='Add User'; document.getElementById('u-id').value='';

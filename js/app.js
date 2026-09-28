@@ -34,9 +34,9 @@ function buildCalendar(year, month) {
     const daysIn   = new Date(year, month + 1, 0).getDate();
 
     let html = `<div class="d-flex justify-content-between align-items-center mb-2">
-                  <button class="btn btn-sm btn-light" onclick="buildCalendar(${month===0?year-1:year}, ${month===0?11:month-1})">‹</button>
+                  <button class="btn btn-sm btn-light" data-keep-text title="Previous month" onclick="buildCalendar(${month===0?year-1:year}, ${month===0?11:month-1})">‹</button>
                   <strong>${monthNames[month]} ${year}</strong>
-                  <button class="btn btn-sm btn-light" onclick="buildCalendar(${month===11?year+1:year}, ${month===11?0:month+1})">›</button>
+                  <button class="btn btn-sm btn-light" data-keep-text title="Next month" onclick="buildCalendar(${month===11?year+1:year}, ${month===11?0:month+1})">›</button>
                 </div>
                 <table style="width:100%;text-align:center;font-size:.82rem;border-collapse:collapse;">
                 <tr style="color:#94a3b8;">
@@ -46,16 +46,28 @@ function buildCalendar(year, month) {
     // empty cells before the 1st
     for (let i = 0; i < firstDay; i++) html += '<td></td>';
 
+    const pickable = (typeof window.calendarPick === 'function');
     for (let d = 1; d <= daysIn; d++) {
         const isToday = (d === today.getDate() && month === today.getMonth() && year === today.getFullYear());
-        const style = isToday
-            ? 'background:#0f766e;color:#fff;border-radius:8px;'
-            : 'color:#475569;';
-        html += `<td style="padding:7px 0;${style}">${d}</td>`;
+        const ds = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        const cls = 'cal-day' + (isToday ? ' is-today' : '') + (ds === window.calSelected ? ' is-picked' : '') + (pickable ? ' pickable' : '');
+        html += `<td class="${cls}" data-date="${ds}">${d}<span class="cal-dot"></span></td>`;
         if ((firstDay + d) % 7 === 0) html += '</tr><tr>';
     }
     html += '</tr></table>';
     el.innerHTML = html;
+
+    // A page can react to a clicked date (window.calendarPick) and mark the
+    // days that have something on them (window.calendarMonthLoaded).
+    if (pickable) {
+        el.querySelectorAll('td.cal-day').forEach(td => td.addEventListener('click', () => {
+            window.calSelected = td.dataset.date;
+            el.querySelectorAll('td.is-picked').forEach(x => x.classList.remove('is-picked'));
+            td.classList.add('is-picked');
+            window.calendarPick(td.dataset.date);
+        }));
+    }
+    if (typeof window.calendarMonthLoaded === 'function') window.calendarMonthLoaded(year, month);
 }
 
 /* ---- Odontogram: when a tooth is clicked, show its info ---- */
