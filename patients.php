@@ -354,12 +354,12 @@ $active = 'patients';
             <div class="table-responsive">
                 <table class="data">
                     <thead><tr>
-                        <th>Patient</th><th>Age</th><th>Phone</th><th>Dentist</th><th>Last Visit</th>
+                        <th>Patient</th><th>Age</th><th>Phone</th><?php if (!$isDentist): ?><th>Dentist</th><?php endif; /* a dentist only sees their own patients */ ?><th>Last Visit</th>
                         <th>Next Visit</th><th>Status</th><th>Actions</th>
                     </tr></thead>
                     <tbody>
                     <?php if (empty($patients)): ?>
-                        <tr><td colspan="8" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
+                        <tr><td colspan="<?= $isDentist ? 7 : 8 ?>" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
                             <div style="font-size:2.4rem;margin-bottom:8px;">👥</div>
                             <?php if ($search !== '' || $statusFilter !== ''): ?>
                                 No patients match your search. <a href="patients" style="color:var(--teal);">Clear filters</a>
@@ -436,6 +436,7 @@ $active = 'patients';
                             </td>
                             <td><?= e($p['age']) ?></td>
                             <td><?= e($p['phone']) ?></td>
+                            <?php if (!$isDentist): ?>
                             <td>
                                 <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
                                     <form method="POST" class="m-0">
@@ -456,6 +457,7 @@ $active = 'patients';
                                     <?= $p['primary_dentist'] ? e($p['primary_dentist']) : '<span class="text-muted2">Unassigned</span>' ?>
                                 <?php endif; ?>
                             </td>
+                            <?php endif; ?>
                             <td><?= e($p['last_visit']) ?></td>
                             <td class="date-blue"><?= e($p['next_visit']) ?></td>
                             <td><span class="badge-pill b-<?= strtolower($p['status']) ?>"><?= e($p['status']) ?></span></td>
@@ -484,7 +486,7 @@ $active = 'patients';
                         </tr>
                     <?php endforeach; ?>
                     <?php if (!$patients): ?>
-                        <tr><td colspan="7" class="text-center text-muted2 py-4">No patients found.</td></tr>
+                        <tr><td colspan="<?= $isDentist ? 7 : 8 ?>" class="text-center text-muted2 py-4">No patients found.</td></tr>
                     <?php endif; ?>
                     </tbody>
                 </table>
