@@ -44,7 +44,7 @@ function pick_dentist_for_new_patient($pdo) {
     $lowestCount   = null;
 
     foreach ($dentists as $dentistName) {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE primary_dentist = ?");
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE primary_dentist = ? AND status <> 'Archived'");
         $stmt->execute([$dentistName]);
         $patientCount = (int)$stmt->fetchColumn();
 
@@ -159,7 +159,7 @@ function appt_slot_is_open($pdo, $date, $time, $dentist, $ignoreId = 0) {
 // ============================================================
 function dentist_patient_count($pdo, $dentist) {
     $p = [];
-    $st = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE " . dentist_match_sql('primary_dentist', $dentist, $p));
+    $st = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE status <> 'Archived' AND " . dentist_match_sql('primary_dentist', $dentist, $p));
     $st->execute($p);
     return (int)$st->fetchColumn();
 }

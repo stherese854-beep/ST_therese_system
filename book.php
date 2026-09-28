@@ -101,6 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     $ownDentist      = $chosen !== '' ? $chosen : ($me['primary_dentist'] ?? '');
     if (($_POST['for'] ?? 'myself') === 'other' && $me['id']) {
         // Someone else: their own dentist if they are already a patient here.
+        // A NEW family member has no dentist yet, so they are auto-balanced
+        // like any new patient (free dentist with the fewest patients).
+        $ownDentist = '';
         $depName = trim(($_POST['fname'] ?? '') . ' ' . ($_POST['lname'] ?? ''));
         $dq = $pdo->prepare("SELECT name, primary_dentist FROM patients WHERE guardian_patient_id = ?");
         $dq->execute([$me['id']]);
