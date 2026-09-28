@@ -170,8 +170,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     // (c) Scheduling conflicts (dentist away / already booked at that time) are
     //     handled above: pick_dentist_for_slot() only returns a dentist who is free.
 
-    // Appointments must be booked at least a day ahead — no same-day booking.
-    $minBookDate = date('Y-m-d', strtotime('+1 day'));
+    // Same-day booking is allowed; only a date or time that has already passed is refused.
+    $minBookDate = date('Y-m-d');
 
     [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
 
@@ -191,9 +191,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = $treatError;
     } elseif ($healthError !== '') {
         $bookError = $healthError;
-    } elseif ($_POST['date'] < $minBookDate) {
-        $bookError = "Appointments must be booked at least a day in advance. Please pick "
-                   . date('M j, Y', strtotime($minBookDate)) . " or a later date.";
+    } elseif (($_POST['date'] ?? '') < $minBookDate) {
+        $bookError = "That date has already passed. Please pick today or a later date.";
+    } elseif (($_POST['date'] ?? '') === $minBookDate && strtotime($minBookDate . ' ' . ($_POST['time'] ?? '')) <= time()) {
+        $bookError = "That time has already passed today. Please choose a later time.";
+    } elseif (($_POST['for'] ?? 'myself') === 'other' && ($dobErr = birth_date_error($_POST['patient_dob'] ?? '', true)) !== '') {
+        $bookError = $dobErr;
     } elseif ($manualBlockReason !== '') {
         // Staff paused this account by hand and left a message for the patient.
         $bookError = "<strong>Online booking is currently paused on your account.</strong><br><br>"
@@ -341,7 +344,7 @@ foreach ($busyBy as $date => $times) {
 
 // Past time slots computed in JS in real-time (so the page doesn't go stale)
 $todayStr = date('Y-m-d');
-$minBookDateStr = date('Y-m-d', strtotime('+1 day'));   // earliest bookable date — no same-day booking
+$minBookDateStr = date('Y-m-d');   // earliest bookable date — today (passed times are greyed out)
 
 $page_title = "Book Appointment";
 $hide_hamburger = true;   // this page has no sidebar, so the menu button has nothing to open
@@ -482,7 +485,7 @@ include 'includes/head.php';
                 <label class="field-label">Date</label>
                 <input type="date" name="date" id="sel-date" class="form-control mb-1"
                        value="<?= $minBookDateStr ?>" min="<?= $minBookDateStr ?>" onchange="checkDate()" required>
-                <div class="text-muted2 mb-1" style="font-size:.76rem;">Appointments must be booked at least a day in advance.</div>
+                <div class="text-muted2 mb-1" style="font-size:.76rem;">You can book for today — times that have already passed are greyed out.</div>
                 <div id="date-warn" class="text-danger small mb-2" style="display:none;"></div>
 
                 <label class="field-label">Available Slots</label>
@@ -566,8 +569,8 @@ include 'includes/head.php';
 
                     <label class="field-label">Patient's Date of Birth</label>
                     <input type="date" name="patient_dob" id="sel-dob" class="form-control mb-1"
-                           max="<?= date('Y-m-d') ?>">
-                    <div class="text-muted2 mb-2" style="font-size:.8rem;">The date of birth of the person you are booking for.</div>
+                           min="1900-01-01" max="<?= birth_date_max() ?>">
+                    <div class="text-muted2 mb-2" style="font-size:.8rem;">The date of birth of the person you are booking for (at least <?= MIN_PATIENT_AGE ?> years old).</div>
                 </div>
 
                 <div class="row">
@@ -784,7 +787,7 @@ const DAYS_OFF   = <?= json_encode($allOffDates) ?>;   // dates when NO dentist 
 const OPEN_DAYS  = <?= json_encode($openDaysArr) ?>;      // e.g. ['Mon','Tue',...]
 const SHORT_DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const TODAY_STR  = <?= json_encode($todayStr) ?>;
-const MIN_BOOK_DATE = <?= json_encode($minBookDateStr) ?>;   // earliest selectable date — no same-day booking
+const MIN_BOOK_DATE = <?= json_encode($minBookDateStr) ?>;   // earliest selectable date — today
 const TAKEN_BY_DATE = <?= json_encode($takenByDate) ?>;   // times when every dentist is away or booked
 const ALL_SLOTS  = <?= json_encode($slots) ?>;            // all clinic time slots
 
@@ -845,6 +848,11 @@ function validateStep3() {
 
     if (forOther && document.getElementById('sel-dob').value === '') {
         alert("Please enter the patient's date of birth.");
+        document.getElementById('sel-dob').focus();
+        return;
+    }
+    if (forOther && document.getElementById('sel-dob').value > document.getElementById('sel-dob').max) {
+        alert("The date of birth must be at least <?= MIN_PATIENT_AGE ?> years ago.");
         document.getElementById('sel-dob').focus();
         return;
     }
@@ -958,10 +966,10 @@ function checkDate() {
     var d  = new Date(v + 'T00:00:00');
     var wd = SHORT_DAYS[d.getDay()];
 
-    // No same-day (or past) booking — appointments need at least a day's notice.
+    // No past dates (today is fine; its passed times are greyed out in the grid).
     // Blocks it even if a browser lets someone type a date past the "min" attribute.
     if (v < MIN_BOOK_DATE) {
-        warn.textContent = 'Appointments must be booked at least a day in advance. Please pick ' +
+        warn.textContent = 'That date has already passed. Please pick ' +
             new Date(MIN_BOOK_DATE + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) +
             ' or a later date.';
         warn.style.display = 'block';

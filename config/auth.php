@@ -528,6 +528,21 @@ function complete_arrived_visit($pdo, $patientId, $date = null) {
     } catch (Throwable $e) {}
 }
 
+// ---- Birth dates ----
+// A real calendar date, and the patient must be at least MIN_PATIENT_AGE
+// years old (so today, future dates and newborns are refused).
+const MIN_PATIENT_AGE = 2;
+function birth_date_max() { return date('Y-m-d', strtotime('-' . MIN_PATIENT_AGE . ' years')); }
+function birth_date_error($v, $required = false) {
+    $v = trim((string)$v);
+    if ($v === '') return $required ? 'Please enter the date of birth.' : '';
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $v);
+    if (!$d || $d->format('Y-m-d') !== $v) return 'Please enter a valid date of birth.';
+    if ($v > birth_date_max()) return 'The date of birth must be at least ' . MIN_PATIENT_AGE . ' years ago.';
+    if ($v < '1900-01-01')     return 'Please enter a valid date of birth.';
+    return '';
+}
+
 // "Maria  santos " and "maria Santos" are the same person.
 function person_name_key($name) {
     return strtolower(preg_replace('/\s+/', ' ', trim((string)$name)));

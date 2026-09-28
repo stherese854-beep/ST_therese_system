@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'save_profile' && $pid) {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
+        if ($phoneError === '') $phoneError = birth_date_error($_POST['dob'] ?? '');   // at least 2 years old
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
             header("Location: portal?view=profile"); exit;
@@ -849,7 +850,7 @@ include 'includes/head.php';
                                     <input name="phone" class="form-control" value="<?= e($me['phone']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?> required></div>
 
                                 <div class="col-md-4"><label class="field-label">Date of Birth</label>
-                                    <input type="date" name="dob" class="form-control" value="<?= e($me['date_of_birth']) ?>"></div>
+                                    <input type="date" name="dob" class="form-control" value="<?= e($me['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>"></div>
                                 <div class="col-md-4"><label class="field-label">Age</label>
                                     <input type="number" name="age" class="form-control" value="<?= e($me['age']) ?>"></div>
                                 <div class="col-md-4"><label class="field-label">Blood Type</label>

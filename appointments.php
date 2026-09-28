@@ -186,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
         if ($first === '' || $last === '')                                  $err = 'Please enter the walk-in patient\'s first and last name.';
         elseif ($phoneErr !== '')                                           $err = $phoneErr;
         elseif ($wEmail !== '' && !filter_var($wEmail, FILTER_VALIDATE_EMAIL)) $err = 'That email address is not valid.';
-        elseif ($wDob !== '' && !DateTimeImmutable::createFromFormat('!Y-m-d', $wDob)) $err = 'Please enter a valid date of birth.';
+        elseif (($dobErr = birth_date_error($wDob)) !== '')                   $err = $dobErr;
     }
 
     [$sbHealth, $sbHealthErr] = health_form_from_post($_POST);
@@ -757,7 +757,7 @@ $active = 'appointments';
             <div class="col-md-6"><label class="field-label">First name *</label><input name="first_name" class="form-control"></div>
             <div class="col-md-6"><label class="field-label">Last name *</label><input name="last_name" class="form-control"></div>
             <div class="col-md-4"><label class="field-label">Phone *</label><input name="phone" class="form-control" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
-            <div class="col-md-4"><label class="field-label">Date of birth</label><input type="date" name="dob" class="form-control" max="<?= date('Y-m-d') ?>"></div>
+            <div class="col-md-4"><label class="field-label">Date of birth</label><input type="date" name="dob" class="form-control" min="1900-01-01" max="<?= birth_date_max() ?>"></div>
             <div class="col-md-4"><label class="field-label">Email <span class="text-muted2">(optional)</span></label><input type="email" name="email" class="form-control" placeholder="for reminders"></div>
           </div>
           <div class="text-muted2 mt-1" style="font-size:.78rem;">A patient record is created (no login). They can register online later with the same email.</div>
