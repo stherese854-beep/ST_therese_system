@@ -23,17 +23,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash($phoneError, 'error');
             header("Location: patients"); exit;
         }
-        $age   = (int)($_POST['age'] ?? 0);
         $status= $_POST['status'] ?? 'Active';
-        $blood = trim($_POST['blood_type'] ?? '');
         $ptype = $_POST['patient_type'] ?? 'New';
         $vreason = trim($_POST['visit_reason'] ?? '');
         $newpass = $_POST['password'] ?? '';
 
         if ($id) {
             // UPDATE the patient record.
-            $pdo->prepare("UPDATE patients SET name=?, email=?, phone=?, age=?, blood_type=?, status=?, patient_type=?, visit_reason=? WHERE id=?")
-                ->execute([$name, $email, $phone, $age, $blood, $status, $ptype, $vreason, $id]);
+            // Age and blood type are left alone here — they are edited in Records.
+            $pdo->prepare("UPDATE patients SET name=?, email=?, phone=?, status=?, patient_type=?, visit_reason=? WHERE id=?")
+                ->execute([$name, $email, $phone, $status, $ptype, $vreason, $id]);
 
             // If this patient has a LOGIN account, keep it in sync (name + email),
             // and change the password if a new one was typed.
@@ -74,8 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $assignedDentist = (current_role() === 'dentist')
                 ? ($_SESSION['name'] ?? null)
                 : pick_dentist_for_new_patient($pdo);
-            $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,age,blood_type,status,patient_type,primary_dentist) VALUES (?,?,?,?,?,?,?,'New',?)")
-                ->execute([$newUserId, $name, $email, $phone, $age, $blood, $status, $assignedDentist]);
+            $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,status,patient_type,primary_dentist) VALUES (?,?,?,?,?,'New',?)")
+                ->execute([$newUserId, $name, $email, $phone, $status, $assignedDentist]);
 
             // Message that explains whether an account was created.
             if ($newUserId) {
@@ -489,23 +488,11 @@ $active = 'patients';
             </div>
             <label class="field-label">Email</label>
             <input type="email" name="email" id="f-email" class="form-control mb-3">
+            <!-- Age and blood type are clinical details: they are edited in Records. -->
             <div class="row">
                 <div class="col"><label class="field-label">Phone</label>
                     <input name="phone" id="f-phone" class="form-control mb-3" placeholder="09XX XXX XXXX"
                            <?= phone_input_attrs() ?>></div>
-                <div class="col"><label class="field-label">Age</label>
-                    <input type="number" name="age" id="f-age" class="form-control mb-3"></div>
-            </div>
-            <div class="row">
-                <div class="col"><label class="field-label">Blood Type</label>
-                    <select name="blood_type" id="f-blood" class="form-select mb-3">
-                        <option value="">Unknown</option>
-                        <option>O+</option><option>O-</option>
-                        <option>A+</option><option>A-</option>
-                        <option>B+</option><option>B-</option>
-                        <option>AB+</option><option>AB-</option>
-                    </select>
-                </div>
                 <div class="col"><label class="field-label">Status</label>
                     <select name="status" id="f-status" class="form-select mb-3">
                         <option>Active</option><option>Inactive</option>
@@ -631,8 +618,6 @@ function validatePauseBooking(){
         document.getElementById('f-last').value = '';
         document.getElementById('f-email').value = '';
         document.getElementById('f-phone').value = '';
-        document.getElementById('f-age').value = '';
-        document.getElementById('f-blood').value = '';
         document.getElementById('f-status').value = 'Active';
         document.getElementById('f-ptype').value = 'New';
         document.getElementById('f-reason').value = '';
@@ -650,8 +635,6 @@ function validatePauseBooking(){
         document.getElementById('f-last').value  = parts.join(' ');
         document.getElementById('f-email').value = p.email || '';
         document.getElementById('f-phone').value = p.phone || '';
-        document.getElementById('f-age').value = p.age || '';
-        document.getElementById('f-blood').value = p.blood_type || '';
         document.getElementById('f-status').value = p.status;
         document.getElementById('f-ptype').value = p.patient_type || 'New';
         document.getElementById('f-reason').value = p.visit_reason || '';
