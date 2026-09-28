@@ -96,6 +96,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
     $cur->execute([$id]);
     $ap = $cur->fetch();
 
+    // Only admin and staff may move an appointment to another dentist; a
+    // dentist's edit always keeps the dentist it already has.
+    if ($ap && current_role() === 'dentist') $dent = (string)$ap['dentist'];
+
     // Treatments: 1 to 3 ticked; none ticked keeps what the appointment already has
     // (older bookings may use names that are not on the list, e.g. "Check-up").
     $treatErr = '';
@@ -726,6 +730,10 @@ $active = 'appointments';
         <div class="text-muted2 mb-1" style="font-size:.78rem;">Currently: <b id="ea-treatment-now"></b> · leave all unticked to keep it</div>
         <div class="mb-3"><?= treatment_picker([], 'ea') ?></div>
 
+        <?php if (current_role() === 'dentist'): ?>
+          <!-- Dentists cannot move an appointment to another dentist (admin/staff only). -->
+          <input type="hidden" name="dentist" id="ea-dentist">
+        <?php else: ?>
         <label class="field-label">Dentist</label>
         <select name="dentist" id="ea-dentist" class="form-select mb-3">
           <option value="">To be assigned</option>
@@ -733,6 +741,7 @@ $active = 'appointments';
             <option value="<?= e($dn) ?>"><?= e($dn) ?></option>
           <?php endforeach; ?>
         </select>
+        <?php endif; ?>
 
         <label class="field-label">Note to the patient <span class="text-muted2">(optional)</span></label>
         <textarea name="edit_note" class="form-control mb-1" rows="2"

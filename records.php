@@ -76,6 +76,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash($phoneError, 'error');
             header("Location: records?patient=$pid&tab=overview"); exit;
         }
+        // Only admin and staff may change the patient's dentist; for anyone
+        // else the dentist on file is kept, whatever the form sends.
+        if (!in_array(current_role(), ['admin','staff'])) {
+            $keep = $pdo->prepare("SELECT primary_dentist FROM patients WHERE id=?");
+            $keep->execute([$pid]);
+            $_POST['primary_dentist'] = (string)$keep->fetchColumn();
+        }
         $pdo->prepare(
             "UPDATE patients SET name=?, age=?, blood_type=?, phone=?, email=?, patient_type=?,
              primary_dentist=?, last_visit=?, next_visit=?, medical_alert=?, chart_remarks=?
@@ -318,7 +325,13 @@ $active = 'records';
                             </select></div>
 
                         <div class="col-md-4"><label class="field-label">Primary Dentist</label>
-                            <input name="primary_dentist" class="form-control" value="<?= e($patientRow['primary_dentist']) ?>"></div>
+                            <?php if (in_array(current_role(), ['admin','staff'])): ?>
+                                <input name="primary_dentist" class="form-control" value="<?= e($patientRow['primary_dentist']) ?>">
+                            <?php else: ?>
+                                <!-- Only admin and staff can change a patient's dentist. -->
+                                <input class="form-control" value="<?= e($patientRow['primary_dentist']) ?>" readonly style="background:#eef3f3;"
+                                       title="Only the admin or staff can change a patient's dentist">
+                            <?php endif; ?></div>
                         <div class="col-md-4"><label class="field-label">Last Visit</label>
                             <input type="date" name="last_visit" class="form-control" value="<?= e($patientRow['last_visit']) ?>"></div>
                         <div class="col-md-4"><label class="field-label">Next Visit</label>

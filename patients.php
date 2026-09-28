@@ -437,7 +437,7 @@ $active = 'patients';
                             <td><?= e($p['age']) ?></td>
                             <td><?= e($p['phone']) ?></td>
                             <td>
-                                <?php if (current_role() === 'admin' || current_role() === 'admin'): ?>
+                                <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
                                     <form method="POST" class="m-0">
                                         <input type="hidden" name="action" value="assign_dentist">
                                         <input type="hidden" name="id" value="<?= $p['id'] ?>">
