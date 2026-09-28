@@ -798,9 +798,26 @@ const MIN_BOOK_DATE = <?= json_encode($minBookDateStr) ?>;   // earliest selecta
 const TAKEN_BY_DATE = <?= json_encode($takenByDate) ?>;   // times when every dentist is away or booked
 const ALL_SLOTS  = <?= json_encode($slots) ?>;            // all clinic time slots
 
+// A date as "YYYY-MM-DD" in LOCAL time. (toISOString() uses UTC, which in the
+// Philippines, UTC+8, turns midnight of the 28th into the 27th — yesterday.)
+function ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// The clinic's current time (Asia/Manila), whatever timezone the phone or
+// computer is set to — so "passed" times always match the clinic's clock.
+function clinicNowMinutes() {
+    try {
+        var p = new Intl.DateTimeFormat('en-GB', {timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false})
+                    .formatToParts(new Date());
+        var h = 0, m = 0;
+        p.forEach(function (x) { if (x.type === 'hour') h = parseInt(x.value, 10) % 24; if (x.type === 'minute') m = parseInt(x.value, 10); });
+        return h * 60 + m;
+    } catch (e) { var n = new Date(); return n.getHours() * 60 + n.getMinutes(); }
+}
+
 // Returns true if a slot string like "01:30 PM" is already past right now
 function isSlotPast(slotStr) {
-    var now = new Date();
     var parts = slotStr.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
     if (!parts) return false;
     var h = parseInt(parts[1], 10);
@@ -809,8 +826,7 @@ function isSlotPast(slotStr) {
     if (ampm === 'PM' && h !== 12) h += 12;
     if (ampm === 'AM' && h === 12) h = 0;
     var slotMinutes = h * 60 + m;
-    var nowMinutes  = now.getHours() * 60 + now.getMinutes();
-    return slotMinutes <= nowMinutes;
+    return slotMinutes <= clinicNowMinutes();
 }
 
 // Step 2 (Personal Info): require phone, and the patient's name.
@@ -1072,7 +1088,7 @@ function nextOpenDate(fromStr) {
     var d = new Date(fromStr + 'T00:00:00');
     for (var i = 0; i < 60; i++) {
         var wd = SHORT_DAYS[d.getDay()];
-        var ds = d.toISOString().slice(0,10);
+        var ds = ymd(d);
         if (OPEN_DAYS.indexOf(wd) !== -1 && DAYS_OFF.indexOf(ds) === -1) {
             // Check if at least one slot is free
             var bookedHere = TAKEN_BY_DATE[ds] || [];
@@ -1107,7 +1123,7 @@ function nextOpenDate(fromStr) {
         // Advance to next open day with free slots
         var tomorrow = new Date(currentDate + 'T00:00:00');
         tomorrow.setDate(tomorrow.getDate() + 1);
-        var nextDate = nextOpenDate(tomorrow.toISOString().slice(0,10));
+        var nextDate = nextOpenDate(ymd(tomorrow));
         dateInput.value = nextDate;
         currentDate = nextDate;
     }
