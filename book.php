@@ -317,6 +317,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($healthForm)) {
 } elseif ($me['id']) {
     [$hfPrefill] = patient_health($pdo, $me['id']);          // their record's latest answers
 }
+// Family members this account has booked for before — offered in a dropdown so
+// their details don't have to be typed again.
+$familyList = [];
+if ($me['id']) {
+    $fl = $pdo->prepare("SELECT id, name, relationship, date_of_birth FROM patients
+                          WHERE guardian_patient_id = ? AND status <> 'Archived' ORDER BY name");
+    $fl->execute([$me['id']]);
+    foreach ($fl->fetchAll() as $f) {
+        $parts = preg_split('/\s+/', trim($f['name']), 2);
+        $familyList[] = [
+            'first' => $parts[0] ?? '', 'last' => $parts[1] ?? '',
+            'name'  => $f['name'], 'relationship' => (string)$f['relationship'], 'dob' => (string)$f['date_of_birth'],
+            'busy'  => $busyPeople[person_key($f['name'])] ?? null,        // already has an active booking?
+        ];
+    }
+}
+
 // Saved answers of this account holder and of each family member they book for,
 // so the questionnaire shows the answers of whoever the booking is for.
 $hfMine = $me['id'] ? patient_health($pdo, $me['id'])[0] : [];
@@ -558,10 +575,22 @@ include 'includes/head.php';
                 </div>
                 <?php endif; ?>
                 <div id="dependent-note" class="alert alert-light border py-2 mb-3" style="display:none;font-size:.83rem;">
-                    ℹ️ Enter the patient's name below. The appointment will still be under your account.
+                    ℹ️ <?= $familyList ? 'Choose someone you booked for before, or pick <b>Someone new</b> and enter their name.' : "Enter the patient's name below." ?>
+                    The appointment will still be under your account.
                 </div>
 
                 <div id="rel-wrap" style="display:none;">
+                    <?php if ($familyList): ?>
+                    <label class="field-label" for="sel-family">Who is it?</label>
+                    <select id="sel-family" class="form-select mb-2" onchange="pickFamily()">
+                        <option value="">➕ Someone new</option>
+                        <?php foreach ($familyList as $i => $f): ?>
+                            <option value="<?= $i ?>" <?= $f['busy'] ? 'disabled' : '' ?>>
+                                <?= e($f['name']) ?><?= $f['relationship'] ? ' (' . e($f['relationship']) . ')' : '' ?><?= $f['busy'] ? ' — has an appointment on ' . date('M j, Y', strtotime($f['busy'])) : '' ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php endif; ?>
                     <label class="field-label">Your relationship to the patient *</label>
                     <select name="relationship" id="sel-rel" class="form-select mb-1" onchange="relOther()">
                         <option value="">— Please select —</option>
@@ -939,6 +968,27 @@ function hfPrefillFor() {
         : (Object.keys(HF_MINE).length ? 'These are your saved answers — please review and update them.' : '');
 }
 
+// "Who is it?" — someone booked before: fill in their details (name locked);
+// "Someone new": empty fields to type in.
+var FAMILY = <?= json_encode($familyList, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+function pickFamily() {
+    var sel = document.getElementById('sel-family'), f = sel && sel.value !== '' ? FAMILY[+sel.value] : null;
+    var fn = document.getElementById('sel-fname'), ln = document.getElementById('sel-lname');
+    var rel = document.getElementById('sel-rel'), relOtherBox = document.getElementById('sel-rel-other');
+    if (f) {
+        fn.value = f.first; ln.value = f.last; fn.readOnly = true; ln.readOnly = true;
+        var known = [].some.call(rel.options, function (o) { return o.value === f.relationship || o.text === f.relationship; });
+        if (f.relationship && !known) { rel.value = 'Other relative'; relOtherBox.value = f.relationship; }
+        else { rel.value = f.relationship; relOtherBox.value = ''; }
+        document.getElementById('sel-dob').value = f.dob || '';
+    } else {
+        fn.value = ''; ln.value = ''; fn.readOnly = false; ln.readOnly = false;
+        rel.value = ''; relOtherBox.value = ''; document.getElementById('sel-dob').value = '';
+        fn.focus();
+    }
+    relOther();
+}
+
 // Toggle between booking for "myself" (name locked) and "someone else" (name editable).
 <?php if ($ownerBusyDate): ?>
 document.addEventListener('DOMContentLoaded', function () { toggleFor(); });
@@ -949,9 +999,11 @@ function toggleFor() {
     var ln = document.getElementById('sel-lname');
     document.getElementById('dependent-note').style.display = forOther ? 'block' : 'none';
     document.getElementById('rel-wrap').style.display       = forOther ? 'block' : 'none';
+    var fam = document.getElementById('sel-family');
     if (forOther) {
         fn.readOnly = false; ln.readOnly = false;
-        fn.value = ''; ln.value = ''; fn.focus();
+        fn.value = ''; ln.value = '';
+        if (fam) { fam.value = ''; pickFamily(); } else { fn.focus(); }
     } else {
         fn.readOnly = true; ln.readOnly = true;
         fn.value = <?= json_encode(explode(' ', $me['name'])[0]) ?>;
