@@ -142,10 +142,11 @@ $backLink = ($role === 'patient') ? 'portal?view=appointments' : 'appointments';
     .btn-light{ background:#fff; color:var(--teal); border:1px solid #cfe0dd; }
 
     @media print {
-        body{ background:#fff; padding:0; }
+        body{ background:#fff; padding:14mm; margin:0; -webkit-box-decoration-break:clone; box-decoration-break:clone;
+              -webkit-print-color-adjust:exact; print-color-adjust:exact; }
         .slip{ box-shadow:none; border-radius:0; max-width:100%; }
         .actions{ display:none !important; }
-        @page{ margin:14mm; }
+        @page{ margin:0; }   /* no room for the browser's own headers/footers */
     }
 </style>
 </head>

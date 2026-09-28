@@ -444,7 +444,16 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
     tr                  { break-inside: avoid; page-break-inside: avoid; }
     thead               { display: table-header-group; }   /* repeat headers on each page */
     .print-only         { display: block !important; }
-    @page               { margin: 14mm; }
+
+    /* No page margin -> the browser has no room for its own date / title /
+       web-address "Headers and footers", so that option is hidden in the print
+       window. The white space is drawn inside the page instead, on every page
+       (box-decoration-break: clone). Colours always print, whether or not
+       "Background graphics" is ticked. */
+    @page               { margin: 0; }
+    html, body          { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body                { padding: 14mm !important; margin: 0 !important;
+                          -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 }
 
 /* ── Icon-only buttons with tooltip on hover ── */

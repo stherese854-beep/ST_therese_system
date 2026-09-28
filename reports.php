@@ -175,7 +175,8 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
     border: none !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important;
     -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
   }
-  @page { margin: 1cm; }
+  @page { margin: 0; }                                     /* no room for browser headers/footers */
+  body { padding: 1cm !important; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 }
 
 /* Compact print sizing. Switched on (body.print-compact) right before printing

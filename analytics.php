@@ -243,7 +243,8 @@ $active = 'analytics';
 .print-only { display: none; }
 .print-chart-img { display: none; }
 @media print {
-    @page { margin: 12mm; }
+    @page { margin: 0; }                                  /* no room for browser headers/footers */
+    body { padding: 12mm !important; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
     body, .main { background: #fff !important; }
     .print-hide, .page-head .clock, .viz-card details summary { display: none !important; }
     .print-only { display: block !important; }
