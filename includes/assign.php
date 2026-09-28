@@ -136,7 +136,7 @@ function appt_slot_is_open($pdo, $date, $time, $dentist, $ignoreId = 0) {
         $p = [$date, $time];
         $sql = "SELECT COUNT(*) FROM appointments
                  WHERE appointment_date = ? AND appointment_time = ?
-                   AND status IN ('Pending','Confirmed')";
+                   AND status IN ('Pending','Confirmed','Arrived')";
         if ($dentist) { $sql .= " AND " . dentist_match_sql('dentist', $dentist, $p); }
         if ($ignoreId) { $sql .= " AND id <> ?"; $p[] = (int)$ignoreId; }
         $q = $pdo->prepare($sql); $q->execute($p);

@@ -287,12 +287,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
         if ($ap['status'] !== 'Confirmed' || $ap['appointment_date'] !== date('Y-m-d')) {
             set_flash('Only today\'s confirmed appointments can be marked as arrived.', 'error');
         } else {
-            $pdo->prepare("UPDATE appointments SET arrived_at = NOW(), arrived_by = ? WHERE id = ?")->execute([$_SESSION['name'] ?? '', $aid]);
+            // Arrived: out of the patient's upcoming list and booking limits;
+            // becomes Completed when treatment is recorded (or the next day).
+            $pdo->prepare("UPDATE appointments SET status = 'Arrived', arrived_at = NOW(), arrived_by = ? WHERE id = ?")->execute([$_SESSION['name'] ?? '', $aid]);
             log_activity($pdo, 'Marked arrived', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
-            set_flash($ap['patient_name'] . ' marked as arrived.');
+            set_flash($ap['patient_name'] . ' marked as arrived. It becomes Completed once treatment is recorded.');
         }
     } else {
-        $pdo->prepare("UPDATE appointments SET arrived_at = NULL, arrived_by = NULL WHERE id = ?")->execute([$aid]);
+        $pdo->prepare("UPDATE appointments SET arrived_at = NULL, arrived_by = NULL,
+                                               status = IF(status = 'Arrived', 'Confirmed', status) WHERE id = ?")->execute([$aid]);
         log_activity($pdo, 'Undid arrival', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
         set_flash('Arrival undone for ' . $ap['patient_name'] . '.', 'info');
     }
@@ -416,7 +419,7 @@ $myName    = $_SESSION['name'] ?? '';
 
 $conds = [];
 $params = [];
-if (in_array($filter, ['Confirmed','Pending','Cancelled','Completed'])) {
+if (in_array($filter, ['Confirmed','Pending','Cancelled','Completed','Arrived'])) {
     $conds[] = "a.status = ?"; $params[] = $filter;
 }
 if ($search !== '') {
@@ -441,7 +444,7 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $appts = $stmt->fetchAll();
 
-$tabs = ['All','Confirmed','Pending','Cancelled'];
+$tabs = ['All','Confirmed','Pending','Arrived','Cancelled'];
 
 // For the "+ Book" form.
 $bookPatients = staff_bookable_patients($pdo);
@@ -523,7 +526,7 @@ $active = 'appointments';
                                 <?php endif; ?></td>
                             <td>
                                 <div class="d-flex gap-1 align-items-center">
-                                <?php if ($a['status'] === 'Confirmed' && $a['appointment_date'] === date('Y-m-d')): ?>
+                                <?php if (in_array($a['status'], ['Confirmed','Arrived'], true) && $a['appointment_date'] === date('Y-m-d')): ?>
                                     <form method="POST" class="d-inline m-0">
                                         <input type="hidden" name="action" value="<?= empty($a['arrived_at']) ? 'arrived' : 'undo_arrived' ?>">
                                         <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
@@ -566,7 +569,7 @@ $active = 'appointments';
                                             ], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>✎</button>
                                 <?php endif; ?>
 
-                                <?php if ($a['status'] !== 'Cancelled'): ?>
+                                <?php if (!in_array($a['status'], ['Cancelled','Arrived'], true)): ?>
                                     <button type="button" class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;"
                                             title="Cancel"
                                             onclick='openCancelAppt(<?= json_encode([

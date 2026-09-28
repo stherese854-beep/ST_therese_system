@@ -334,7 +334,7 @@ if ($pid) {
     $today = date('Y-m-d');
     foreach ($myAppts as $a) {
         $isFuture = ($a['appointment_date'] >= $today);
-        $isDone   = in_array($a['status'], ['Completed','Cancelled','No-Show','Noshow']);
+        $isDone   = in_array($a['status'], ['Completed','Cancelled','No-show','Arrived','Expired','Needs Review'], true);
         if ($isFuture && !$isDone) {
             $upcomingAppts[] = $a;
         } else {
@@ -376,7 +376,7 @@ if ($rsDentist !== '') {
         $rsDaysOff = $q->fetchAll(PDO::FETCH_COLUMN);
 
         $q = $pdo->prepare("SELECT appointment_date, appointment_time FROM appointments
-                             WHERE dentist = ? AND status IN ('Pending','Confirmed')
+                             WHERE dentist = ? AND status IN ('Pending','Confirmed','Arrived')
                                AND appointment_date >= CURDATE()");
         $q->execute([$rsDentist]);
         foreach ($q->fetchAll() as $row) {

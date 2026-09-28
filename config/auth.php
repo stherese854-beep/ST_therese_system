@@ -487,9 +487,9 @@ function ensure_booking_review_schema($pdo) {
             $pdo->exec("ALTER TABLE appointments ADD COLUMN health_form TEXT DEFAULT NULL");
         }
         $st = $pdo->query("SHOW COLUMNS FROM appointments LIKE 'status'")->fetch();
-        if ($st && strpos($st['Type'], "'Expired'") === false) {
+        if ($st && strpos($st['Type'], "'Arrived'") === false) {
             $pdo->exec("ALTER TABLE appointments MODIFY status ENUM('Pending','Confirmed','Cancelled','Completed',
-                        'No-show','Rescheduled','Needs Review','Expired') DEFAULT 'Pending'");
+                        'No-show','Rescheduled','Needs Review','Expired','Arrived') DEFAULT 'Pending'");
         }
         if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'health_form'")->rowCount()) {
             $pdo->exec("ALTER TABLE patients ADD COLUMN health_form TEXT DEFAULT NULL");
@@ -513,6 +513,19 @@ function ensure_booking_review_schema($pdo) {
             $pdo->exec("ALTER TABLE patients ADD COLUMN cancel_reset_by VARCHAR(100) DEFAULT NULL");
         }
     } catch (Throwable $e) { /* ignore */ }
+}
+
+// ---- Arrived -> Completed ----
+// "Arrived" = the patient is at the clinic (it already left their upcoming
+// list and no longer counts toward booking limits). As soon as treatment is
+// recorded for them that day — a treatment, chart visit, note or X-ray — the
+// visit becomes Completed.
+function complete_arrived_visit($pdo, $patientId, $date = null) {
+    try {
+        $pdo->prepare("UPDATE appointments SET status = 'Completed'
+                        WHERE patient_id = ? AND status = 'Arrived' AND appointment_date = ?")
+            ->execute([(int)$patientId, $date ?: date('Y-m-d')]);
+    } catch (Throwable $e) {}
 }
 
 // "Maria  santos " and "maria Santos" are the same person.

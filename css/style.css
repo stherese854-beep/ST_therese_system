@@ -146,6 +146,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .b-pending  { background: #fdeccd; color: #b9802a; }
 .b-inactive, .b-cancelled, .b-noshow { background: #fbdcdc; color: #c0392b; }
 .b-expired { background: #eceff1; color: #5f6f7a; }   /* never confirmed before its date */
+.b-arrived { background: #dff3ff; color: #1b6fa8; }   /* patient is at the clinic now */
 .b-archived { background: #e6e6e6; color: #6b6b6b; }
 .b-progress { background: #dbeafe; color: #2563eb; }
 

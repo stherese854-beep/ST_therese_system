@@ -326,7 +326,7 @@ foreach ($pdo->query("SELECT dentist_name, off_date FROM dentist_daysoff WHERE o
     if (isset($canon[$r['dentist_name']])) $offBy[$r['off_date']][$canon[$r['dentist_name']]] = true;
 }
 foreach ($pdo->query("SELECT dentist, appointment_date, appointment_time FROM appointments
-                       WHERE status IN ('Pending','Confirmed') AND appointment_date >= CURDATE()") as $r) {
+                       WHERE status IN ('Pending','Confirmed','Arrived') AND appointment_date >= CURDATE()") as $r) {
     if (isset($canon[$r['dentist']])) $busyBy[$r['appointment_date']][$r['appointment_time']][$canon[$r['dentist']]] = true;
 }
 $nDentists = max(1, count($activeDentists));

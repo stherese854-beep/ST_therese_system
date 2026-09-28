@@ -68,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$pid, $sid, $tooth, $status]);
         }
         touch_primary_dentist($pdo, $pid);
+        complete_arrived_visit($pdo, $pid);
         log_activity($pdo, 'Updated dental chart', patient_name_of($pdo, $pid) . " — Tooth #$tooth: $status");
         set_flash("Tooth #$tooth set to $status.");
         odo_back($pid, $sid);
@@ -94,6 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         touch_primary_dentist($pdo, $pid);
+        complete_arrived_visit($pdo, $pid, $visitDate);
         log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — ' . $visitDate . ($title ? ' · ' . $title : ''));
         set_flash($copyFrom
             ? 'New chart added, carried over from the previous visit. Mark only what changed.'

@@ -35,6 +35,9 @@ function expire_stale_pending($pdo) {
     try {
         $pdo->exec("UPDATE appointments SET status = 'Expired'
                      WHERE status = 'Pending' AND appointment_date < CURDATE()");
+        // They came (staff marked them Arrived) even if no treatment was recorded.
+        $pdo->exec("UPDATE appointments SET status = 'Completed'
+                     WHERE status = 'Arrived' AND appointment_date < CURDATE()");
     } catch (Throwable $e) { /* status column not updated yet — try next time */ }
 }
 

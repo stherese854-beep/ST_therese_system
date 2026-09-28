@@ -107,6 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pid, $_POST['patient_name'], trim($_POST['treatment_name']), trim($_POST['tooth'] ?? ''),
             $_SESSION['name'] ?? '', $_POST['treatment_date'], $_POST['status'], trim($_POST['notes'] ?? '')
         ]);
+        complete_arrived_visit($pdo, $pid, $_POST['treatment_date'] ?? null);   // arrived today -> Completed
         log_activity($pdo, 'Added treatment', patient_name_of($pdo, $pid) . ' — ' . trim($_POST['treatment_name']));
         set_flash('Treatment record added.');
         header("Location: records?patient=$pid&tab=treatments"); exit;
@@ -133,6 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (move_uploaded_file($_FILES['xray']['tmp_name'], "$XRAY_DIR/$fname")) {
                     $pdo->prepare("INSERT INTO xrays (patient_id,image_file,caption,xray_date,uploaded_by) VALUES (?,?,?,?,?)")
                         ->execute([$pid, $fname, trim($_POST['caption'] ?? ''), ($_POST['xray_date'] ?: null), $_SESSION['name'] ?? '']);
+                    complete_arrived_visit($pdo, $pid);
                     log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid));
                     set_flash('X-ray uploaded.');
                 } else {
@@ -163,6 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'add_note') {
         $pdo->prepare("INSERT INTO clinical_notes (patient_id,note,author) VALUES (?,?,?)")
             ->execute([$pid, trim($_POST['note']), $_SESSION['name'] ?? '']);
+        complete_arrived_visit($pdo, $pid);
         log_activity($pdo, 'Added clinical note', patient_name_of($pdo, $pid));
         set_flash('Note added.');
         header("Location: records?patient=$pid&tab=notes"); exit;
