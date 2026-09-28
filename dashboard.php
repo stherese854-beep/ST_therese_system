@@ -323,7 +323,7 @@ $active = 'dashboard';
             <!-- ===== Mini calendar ===== -->
             <div class="col-lg-4">
                 <div class="card-box">
-                    <h5>Schedule</h5>
+                    <h5>Calendar</h5>
                     <div id="calendar"></div>
                 </div>
             </div>
