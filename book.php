@@ -7,6 +7,7 @@ require_once 'includes/mailer.php';
 require_once 'includes/message_templates.php';   // editable message wording   // to email a booking confirmation
 require_once 'includes/noshow_check.php';   // patient_noshow_count(), patient_cancel_count()
 require_once 'includes/health_form.php';    // health questionnaire
+require_once 'includes/treatments.php';     // clinic_treatments()
 require_login(['patient']);   // only patients book through this page
 
 // Get the logged-in patient's info to pre-fill the form.
@@ -294,16 +295,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     }
 }
 
-// Treatments, each with a plain-language explanation for patients.
-$treatments = [
-    'Consultation'          => 'check-up and advice from the dentist',
-    'Cleaning'              => 'removing plaque and tartar to keep teeth and gums healthy',
-    'Dental Filling'        => 'filling a small hole or cavity in a tooth',
-    'Tooth Extraction'      => 'pulling out a damaged or painful tooth',
-    'Root Canal'            => 'cleaning an infected tooth from the inside to save it',
-    'Dental Crown'          => 'a cap placed over a weak or broken tooth',
-    'Braces / Orthodontics' => 'straightening crooked teeth',
-];
+// Treatments, each with a plain-language explanation (shared with the clinic's booking form).
+$treatments = clinic_treatments();
 
 // Health questionnaire: start from the answers this patient gave last time
 // (they only need to update what changed). After a failed submit, keep what

@@ -449,6 +449,7 @@ $active = 'patients';
                                 <button class="btn btn-sm btn-teal"
                                     onclick='openEdit(<?= json_encode($p) ?>)'
                                     data-bs-toggle="modal" data-bs-target="#patientModal">Edit</button>
+                                <a href="appointments?book=<?= (int)$p['id'] ?>" class="btn btn-sm btn-outline-teal" title="Book an appointment for this patient">📅 Book</a>
                                 <button class="btn btn-sm icon-btn" style="background:#e8f5f3;color:var(--teal-mid);"
                                     onclick='openMessage(<?= json_encode($p) ?>)'
                                     data-bs-toggle="modal" data-bs-target="#msgModal"

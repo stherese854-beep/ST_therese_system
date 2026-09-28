@@ -237,6 +237,7 @@ $active = 'dashboard';
             </div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock">--:--</span><br><span id="clock-date"></span></div>
+                <a href="appointments?book=1" class="btn btn-teal">+ Book Appointment</a>
                 <a href="patients" class="btn btn-dark-navy">+ New Patient</a>
             </div>
         </div>

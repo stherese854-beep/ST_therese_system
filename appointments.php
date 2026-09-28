@@ -7,6 +7,7 @@ require_once 'includes/assign.php';   // dentist_match_sql() for role scoping
 require_once 'includes/mailer.php';     // confirmation / cancellation emails
 require_once 'includes/message_templates.php';  // editable message wording
 require_once 'includes/health_form.php';        // health questionnaire view
+require_once 'includes/treatments.php';         // clinic_treatments(), clinic_time_slots()
 require_login(['admin','dentist','staff']);
 
 // ---------- Remove an old, finished appointment ----------
@@ -133,6 +134,125 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
         set_flash('Appointment updated.' . $mailNote);
     }
     header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
+}
+
+// ---------- The clinic books an appointment for a patient ----------
+// Admin, staff and dentists can book for ANY patient — with or without an
+// account (e.g. a walk-in who needs to come back) — or register a new
+// walk-in patient on the spot. A booking made by the clinic is Confirmed
+// straight away (the clinic chose the time with the patient).
+function staff_bookable_patients($pdo) {
+    $sql = "SELECT p.id, p.name, p.phone, p.email, p.user_id, p.primary_dentist, g.name AS guardian_name, g.email AS guardian_email
+              FROM patients p
+         LEFT JOIN users u ON u.id = p.user_id
+         LEFT JOIN patients g ON g.id = p.guardian_patient_id
+             WHERE p.status <> 'Archived' AND (u.id IS NULL OR u.role = 'patient')";
+    $prm = [];
+    if (current_role() === 'dentist') { $sql .= " AND " . dentist_match_sql('p.primary_dentist', $_SESSION['name'] ?? '', $prm); }
+    $st = $pdo->prepare($sql . " ORDER BY p.name"); $st->execute($prm);
+    return $st->fetchAll();
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff_book') {
+    $role    = current_role();
+    $back    = "Location: appointments";
+    $date    = trim($_POST['date'] ?? '');
+    $time    = trim($_POST['time'] ?? '');
+    $treat   = trim($_POST['treatment'] ?? '');
+    $notes   = mb_substr(trim($_POST['notes'] ?? ''), 0, 500);
+    $mode    = ($_POST['patient_mode'] ?? '') === 'new' ? 'new' : 'existing';
+    $dateObj = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    $err = '';
+    $patient = null;
+
+    if ($mode === 'existing') {
+        $pid = (int)($_POST['patient_id'] ?? 0);
+        foreach (staff_bookable_patients($pdo) as $bp) if ((int)$bp['id'] === $pid) $patient = $bp;
+        if (!$patient) $err = 'Please choose a patient from the list.';
+    } else {
+        $first = trim($_POST['first_name'] ?? ''); $last = trim($_POST['last_name'] ?? '');
+        [$wPhone, $phoneErr] = validate_phone($_POST['phone'] ?? '');
+        $wEmail = trim($_POST['email'] ?? '');
+        $wDob   = trim($_POST['dob'] ?? '');
+        if ($first === '' || $last === '')                                  $err = 'Please enter the walk-in patient\'s first and last name.';
+        elseif ($phoneErr !== '')                                           $err = $phoneErr;
+        elseif ($wEmail !== '' && !filter_var($wEmail, FILTER_VALIDATE_EMAIL)) $err = 'That email address is not valid.';
+        elseif ($wDob !== '' && !DateTimeImmutable::createFromFormat('!Y-m-d', $wDob)) $err = 'Please enter a valid date of birth.';
+    }
+
+    if ($err === '') {
+        if (!$dateObj || $dateObj->format('Y-m-d') !== $date)               $err = 'Please choose a valid date.';
+        elseif ($date < date('Y-m-d'))                                      $err = 'The date has already passed.';
+        elseif (!in_array($time, clinic_time_slots($pdo), true))            $err = 'Please choose one of the clinic\'s time slots.';
+        elseif ($date === date('Y-m-d') && strtotime("$date $time") <= time()) $err = 'That time has already passed today.';
+        elseif (!array_key_exists($treat, clinic_treatments()))             $err = 'Please choose a treatment.';
+    }
+
+    // Which dentist?
+    $dentist = null;
+    if ($err === '') {
+        $choice = trim($_POST['dentist'] ?? 'auto');
+        if ($role === 'dentist') {
+            $dentist = $_SESSION['name'] ?? '';                            // a dentist books for themselves
+            if (!appt_slot_is_open($pdo, $date, $time, $dentist)) $err = "You are not available at $time on " . date('M j, Y', strtotime($date)) . '.';
+        } elseif ($choice === '' || $choice === 'auto') {
+            $dentist = pick_dentist_for_slot($pdo, $date, $time, $patient['primary_dentist'] ?? '');
+            if (!$dentist) $err = "No dentist is free at $time on " . date('M j, Y', strtotime($date)) . '. Please choose another time.';
+        } else {
+            $ok = in_array($choice, $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active'")->fetchAll(PDO::FETCH_COLUMN), true);
+            if (!$ok) $err = 'Please choose a dentist from the list.';
+            elseif (!appt_slot_is_open($pdo, $date, $time, $choice)) $err = "$choice is not available at $time on " . date('M j, Y', strtotime($date)) . '.';
+            else $dentist = $choice;
+        }
+    }
+
+    // Same patient already booked that day?
+    if ($err === '' && $patient) {
+        $dq = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id = ? AND appointment_date = ? AND status IN ('Pending','Confirmed')");
+        $dq->execute([$patient['id'], $date]);
+        if ((int)$dq->fetchColumn() > 0) $err = $patient['name'] . ' already has an appointment on ' . date('M j, Y', strtotime($date)) . '.';
+    }
+
+    if ($err !== '') {
+        set_flash($err, 'error');
+        header($back . '?book=' . ($mode === 'existing' && $patient ? (int)$patient['id'] : '1')); exit;
+    }
+
+    // New walk-in: create their patient record (no login needed).
+    if ($mode === 'new') {
+        $age = null;
+        if ($wDob !== '') $age = (int)(new DateTime($wDob))->diff(new DateTime())->y;
+        $pdo->prepare("INSERT INTO patients (name, phone, email, date_of_birth, age, patient_type, status, primary_dentist)
+                       VALUES (?, ?, ?, ?, ?, 'New', 'Active', ?)")
+            ->execute([ucwords(trim("$first $last")), $wPhone, $wEmail ?: null, $wDob ?: null, $age, $dentist]);
+        $newId = (int)$pdo->lastInsertId();
+        $patient = ['id' => $newId, 'name' => ucwords(trim("$first $last")), 'email' => $wEmail, 'guardian_email' => null, 'primary_dentist' => $dentist];
+        log_activity($pdo, 'Added patient', $patient['name'] . ' (walk-in)');
+    } elseif (empty($patient['primary_dentist'])) {
+        $pdo->prepare("UPDATE patients SET primary_dentist = ? WHERE id = ?")->execute([$dentist, $patient['id']]);
+    }
+
+    $bookedNote = 'Booked by the clinic (' . ($_SESSION['name'] ?? 'staff') . ')' . ($notes !== '' ? ' — ' . $notes : '');
+    $pdo->prepare("INSERT INTO appointments (patient_id, patient_name, dentist, treatment, appointment_date, appointment_time,
+                                             status, confirmed_at, notes, booked_for)
+                   VALUES (?, ?, ?, ?, ?, ?, 'Confirmed', NOW(), ?, 'Myself')")
+        ->execute([$patient['id'], $patient['name'], $dentist, $treat, $date, $time, $bookedNote]);
+    log_activity($pdo, 'Booked appointment for patient', $patient['name'] . ' — ' . $treat . ', ' . date('M j, Y', strtotime($date)) . " $time with $dentist");
+
+    // Email the patient (or the family member's guardian) the confirmation.
+    $mailNote = '';
+    $to = trim((string)($patient['email'] ?: ($patient['guardian_email'] ?? '')));
+    if ($to !== '' && mail_is_ready($pdo)) {
+        $cat = message_catalogue()['appointment_confirmed'];
+        [$subj, $body] = tpl_message($pdo, 'appointment_confirmed', $cat['subject'], $cat['body'], [
+            'patient' => $patient['name'], 'date' => date('l, F j, Y', strtotime($date)), 'time' => $time,
+            'treatment' => $treat, 'dentist' => $dentist, 'clinic' => clinic_name($pdo),
+        ]);
+        $e2 = '';
+        $mailNote = send_mail($pdo, $to, $subj, $body, $e2, 'appointment_confirmed') ? ' A confirmation was emailed.' : " (The email could not be sent — $e2)";
+    }
+    set_flash('Appointment booked for ' . $patient['name'] . ' — ' . date('M j, Y', strtotime($date)) . " at $time with $dentist." . $mailNote);
+    header($back); exit;
 }
 
 // ---------- Arrived / undo (today's confirmed appointments) ----------
@@ -309,6 +429,12 @@ $appts = $stmt->fetchAll();
 
 $tabs = ['All','Confirmed','Pending','Cancelled'];
 
+// For the "+ Book" form.
+$bookPatients = staff_bookable_patients($pdo);
+$bookDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+$bookSlots    = clinic_time_slots($pdo);
+$bookPrefill  = (int)($_GET['book'] ?? 0);           // ?book=<patient id> opens the form with that patient chosen
+
 $page_title = "Appointments";
 include 'includes/head.php';
 $active = 'appointments';
@@ -320,7 +446,7 @@ $active = 'appointments';
             <div><h1>Appointments</h1><div class="sub">Schedule management</div></div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
-                <a href="appointments?book=1" class="btn btn-teal">+ Book</a>
+                <button type="button" class="btn btn-teal" onclick="openStaffBook()">+ Book Appointment</button>
             </div>
         </div>
 
@@ -576,10 +702,141 @@ $active = 'appointments';
   </div>
 </div>
 
+<!-- ===== The clinic books for a patient ===== -->
+<div class="modal fade" id="staffBookModal" tabindex="-1" aria-labelledby="sbTitle">
+  <div class="modal-dialog modal-lg">
+    <form method="POST" class="modal-content" onsubmit="return sbValidate()">
+      <input type="hidden" name="action" value="staff_book">
+      <div class="modal-header">
+        <h5 class="modal-title" id="sbTitle">📅 Book an appointment for a patient</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex gap-3 mb-2">
+          <label><input type="radio" name="patient_mode" value="existing" checked onchange="sbMode()"> Existing patient</label>
+          <label><input type="radio" name="patient_mode" value="new" onchange="sbMode()"> New walk-in patient</label>
+        </div>
+
+        <div id="sb-existing">
+          <input type="text" id="sb-search" class="form-control form-control-sm mb-1" placeholder="Search by name or phone..." oninput="sbFilter()">
+          <select name="patient_id" id="sb-patient" class="form-select" size="6">
+            <?php foreach ($bookPatients as $bp): ?>
+              <option value="<?= (int)$bp['id'] ?>" data-dentist="<?= e($bp['primary_dentist']) ?>" <?= $bookPrefill === (int)$bp['id'] ? 'selected' : '' ?>>
+                <?= e($bp['name']) ?><?= $bp['phone'] ? ' · ' . e($bp['phone']) : '' ?> —
+                <?= $bp['user_id'] ? 'has an account' : ($bp['guardian_name'] ? 'family of ' . e($bp['guardian_name']) : 'no account (walk-in)') ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+          <div class="text-muted2 mt-1" style="font-size:.78rem;">Patients without an account are fine — the clinic manages their bookings.</div>
+        </div>
+
+        <div id="sb-new" style="display:none;">
+          <div class="row g-2">
+            <div class="col-md-6"><label class="field-label">First name *</label><input name="first_name" class="form-control"></div>
+            <div class="col-md-6"><label class="field-label">Last name *</label><input name="last_name" class="form-control"></div>
+            <div class="col-md-4"><label class="field-label">Phone *</label><input name="phone" class="form-control" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
+            <div class="col-md-4"><label class="field-label">Date of birth</label><input type="date" name="dob" class="form-control" max="<?= date('Y-m-d') ?>"></div>
+            <div class="col-md-4"><label class="field-label">Email <span class="text-muted2">(optional)</span></label><input type="email" name="email" class="form-control" placeholder="for reminders"></div>
+          </div>
+          <div class="text-muted2 mt-1" style="font-size:.78rem;">A patient record is created (no login). They can register online later with the same email.</div>
+        </div>
+
+        <hr>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="field-label">Treatment *</label>
+            <select name="treatment" class="form-select" required>
+              <?php foreach (clinic_treatments() as $t => $plain): ?><option value="<?= e($t) ?>"><?= e($t) ?> (<?= e($plain) ?>)</option><?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="field-label">Date *</label>
+            <input type="date" name="date" id="sb-date" class="form-control" min="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d', strtotime('+1 day')) ?>" required onchange="sbTimes()">
+          </div>
+          <div class="col-md-3">
+            <label class="field-label">Time *</label>
+            <select name="time" id="sb-time" class="form-select" required>
+              <?php foreach ($bookSlots as $sl): ?><option><?= e($sl) ?></option><?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="field-label">Dentist</label>
+            <?php if (current_role() === 'dentist'): ?>
+              <input class="form-control" value="<?= e($_SESSION['name'] ?? '') ?> (you)" readonly>
+            <?php else: ?>
+              <select name="dentist" class="form-select">
+                <option value="auto">Automatic — their own dentist if free, otherwise the least busy</option>
+                <?php foreach ($bookDentists as $dn): ?><option value="<?= e($dn) ?>"><?= e($dn) ?></option><?php endforeach; ?>
+              </select>
+            <?php endif; ?>
+          </div>
+          <div class="col-md-6">
+            <label class="field-label">Notes <span class="text-muted2">(optional)</span></label>
+            <input name="notes" class="form-control" maxlength="500" placeholder="e.g. follow-up after extraction">
+          </div>
+        </div>
+        <div id="sb-warn" class="text-danger small mt-2" style="display:none;"></div>
+        <div class="text-muted2 mt-2" style="font-size:.78rem;">Booked by the clinic, so it is <b>Confirmed</b> right away; the patient is emailed if they have an email.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-teal">📅 Book appointment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js"></script>
 <script>
 startClock();
+
+// ---- "+ Book Appointment" (the clinic books for a patient) ----
+function openStaffBook() {
+    sbMode(); sbTimes();
+    var m = document.getElementById('staffBookModal');
+    m.addEventListener('shown.bs.modal', function () {       // bring a pre-chosen patient into view
+        var s = document.getElementById('sb-patient');
+        if (s.selectedIndex >= 0) s.scrollTop = s.options[s.selectedIndex].offsetTop - s.clientHeight / 2;
+    }, { once: true });
+    new bootstrap.Modal(m).show();
+}
+function sbMode() {
+    var isNew = document.querySelector('[name="patient_mode"]:checked').value === 'new';
+    document.getElementById('sb-existing').style.display = isNew ? 'none' : '';
+    document.getElementById('sb-new').style.display      = isNew ? '' : 'none';
+}
+function sbFilter() {
+    var q = document.getElementById('sb-search').value.toLowerCase();
+    [].forEach.call(document.getElementById('sb-patient').options, function (o) { o.hidden = q !== '' && o.text.toLowerCase().indexOf(q) === -1; });
+}
+// Today: times that have already passed are not offered.
+function sbTimes() {
+    var d = document.getElementById('sb-date').value, now = new Date(), today = now.toISOString().slice(0, 10);
+    today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    var sel = document.getElementById('sb-time'), firstOk = null;
+    [].forEach.call(sel.options, function (o) {
+        var m = o.value.match(/(\d+):(\d+) (AM|PM)/), h = (+m[1] % 12) + (m[3] === 'PM' ? 12 : 0);
+        var past = d === today && (h * 60 + +m[2]) <= (now.getHours() * 60 + now.getMinutes());
+        o.disabled = past; if (!past && firstOk === null) firstOk = o.value;
+    });
+    if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled && firstOk) sel.value = firstOk;
+}
+function sbValidate() {
+    var warn = document.getElementById('sb-warn'), isNew = document.querySelector('[name="patient_mode"]:checked').value === 'new';
+    var msg = '';
+    if (!isNew && !document.getElementById('sb-patient').value) msg = 'Please choose a patient from the list.';
+    if (isNew) {
+        var f = document.querySelector('#sb-new [name="first_name"]').value.trim(), l = document.querySelector('#sb-new [name="last_name"]').value.trim();
+        var p = document.querySelector('#sb-new [name="phone"]').value;
+        if (!f || !l) msg = "Please enter the walk-in patient's first and last name.";
+        else if (typeof phoneProblem === 'function' && phoneProblem(p, true)) msg = phoneProblem(p, true);
+    }
+    if (msg) { warn.textContent = msg; warn.style.display = 'block'; return false; }
+    return true;
+}
+// Opened from the Patients list (?book=<id>) or after a booking problem (?book=1).
+<?php if (isset($_GET['book'])): ?>document.addEventListener('DOMContentLoaded', openStaffBook);<?php endif; ?>
 
 // Fill and open the edit dialog with the appointment's current details.
 // Health questionnaire (admin / dentist): read-only view in a modal.
