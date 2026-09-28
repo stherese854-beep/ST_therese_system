@@ -61,6 +61,36 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         });
     })();
 
+    // ---- Delete several at once: tick boxes + "Delete selected" bar ----
+    function bulkPicks(id) { return Array.prototype.slice.call(document.querySelectorAll('.bulk-pick[form="' + id + '"]')); }
+    function bulkSync(id) {
+        var f = document.getElementById(id); if (!f) return;
+        var picks = bulkPicks(id), n = picks.filter(function (c) { return c.checked; }).length;
+        f.style.display = picks.length ? '' : 'none';              // nothing to delete -> no bar
+        f.querySelector('.bulk-count').textContent = n ? n + ' selected' : '';
+        f.querySelector('.bulk-go').disabled = !n;
+        var all = f.querySelector('.bulk-all');
+        if (all) { all.checked = n > 0 && n === picks.length; all.indeterminate = n > 0 && n < picks.length; }
+        f.classList.toggle('has-picks', n > 0);
+    }
+    document.addEventListener('change', function (e) {
+        var t = e.target;
+        if (t.classList && t.classList.contains('bulk-pick')) bulkSync(t.getAttribute('form'));
+        if (t.classList && t.classList.contains('bulk-all')) {
+            bulkPicks(t.dataset.bulk).forEach(function (c) { c.checked = t.checked; });
+            bulkSync(t.dataset.bulk);
+        }
+    });
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('form.bulk-bar').forEach(function (f) { bulkSync(f.id); });
+    });
+    window.bulkConfirm = function (f) {
+        var n = bulkPicks(f.id).filter(function (c) { return c.checked; }).length;
+        if (!n) return false;
+        return confirm((f.dataset.verb || 'Delete') + ' ' + n + ' selected ' + (f.dataset.noun || 'items') + '?'
+                       + (f.dataset.warning ? '\n\n' + f.dataset.warning : ''));
+    };
+
     // ---- Email fields: a real address (name@domain.tld) ----
     // The browser alone accepts "jomar@123"; this refuses it before sending.
     document.addEventListener('input', function (e) {

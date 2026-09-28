@@ -114,12 +114,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: records?patient=$pid&tab=treatments"); exit;
     }
     if ($action === 'delete_treatment') {
-        $t = $pdo->prepare("SELECT patient_name, treatment_name FROM treatments WHERE id=? AND patient_id=?");
-        $t->execute([$_POST['id'], $pid]);
-        $tRow = $t->fetch();
-        $pdo->prepare("DELETE FROM treatments WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
-        log_activity($pdo, 'Deleted treatment record', $tRow ? ($tRow['patient_name'] . ' — ' . $tRow['treatment_name']) : ('#' . $_POST['id']));
-        set_flash('Treatment record deleted.', 'info');
+        $done = 0;
+        foreach (bulk_ids() as $tid) {             // one record, or several ticked ones
+            $t = $pdo->prepare("SELECT patient_name, treatment_name FROM treatments WHERE id=? AND patient_id=?");
+            $t->execute([$tid, $pid]);
+            $tRow = $t->fetch();
+            if (!$tRow) continue;
+            $pdo->prepare("DELETE FROM treatments WHERE id=? AND patient_id=?")->execute([$tid, $pid]);
+            log_activity($pdo, 'Deleted treatment record', $tRow['patient_name'] . ' — ' . $tRow['treatment_name']);
+            $done++;
+        }
+        set_flash($done === 1 ? 'Treatment record deleted.' : "$done treatment records deleted.", 'info');
         header("Location: records?patient=$pid&tab=treatments"); exit;
     }
 
@@ -150,15 +155,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: records?patient=$pid&tab=xrays"); exit;
     }
     if ($action === 'delete_xray') {
-        $x = $pdo->prepare("SELECT image_file FROM xrays WHERE id=? AND patient_id=?");
-        $x->execute([$_POST['id'], $pid]);
-        $row = $x->fetch();
-        if ($row && is_file("$XRAY_DIR/" . basename($row['image_file']))) @unlink("$XRAY_DIR/" . basename($row['image_file']));
-        $pdo->prepare("DELETE FROM xrays WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
         $xrPatientName = 'Patient #' . $pid;
         foreach ($patients as $pRow) { if ((int)$pRow['id'] === $pid) { $xrPatientName = $pRow['name']; break; } }
-        log_activity($pdo, 'Deleted X-ray', $xrPatientName);
-        set_flash('X-ray deleted.', 'info');
+        $done = 0;
+        foreach (bulk_ids() as $xid) {             // one X-ray, or several ticked ones
+            $x = $pdo->prepare("SELECT image_file FROM xrays WHERE id=? AND patient_id=?");
+            $x->execute([$xid, $pid]);
+            $row = $x->fetch();
+            if (!$row) continue;
+            if (is_file("$XRAY_DIR/" . basename($row['image_file']))) @unlink("$XRAY_DIR/" . basename($row['image_file']));
+            $pdo->prepare("DELETE FROM xrays WHERE id=? AND patient_id=?")->execute([$xid, $pid]);
+            $done++;
+        }
+        if ($done) log_activity($pdo, 'Deleted X-ray', $xrPatientName . ($done > 1 ? " ($done images)" : ''));
+        set_flash($done === 1 ? 'X-ray deleted.' : "$done X-rays deleted.", 'info');
         header("Location: records?patient=$pid&tab=xrays"); exit;
     }
 
@@ -174,9 +184,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete_note') {
         $nPatientName = 'Patient #' . $pid;
         foreach ($patients as $pRow) { if ((int)$pRow['id'] === $pid) { $nPatientName = $pRow['name']; break; } }
-        $pdo->prepare("DELETE FROM clinical_notes WHERE id=? AND patient_id=?")->execute([$_POST['id'], $pid]);
-        log_activity($pdo, 'Deleted clinical note', $nPatientName);
-        set_flash('Note deleted.', 'info');
+        $done = 0;
+        foreach (bulk_ids() as $nid) {             // one note, or several ticked ones
+            $del = $pdo->prepare("DELETE FROM clinical_notes WHERE id=? AND patient_id=?");
+            $del->execute([$nid, $pid]);
+            $done += $del->rowCount();
+        }
+        if ($done) log_activity($pdo, 'Deleted clinical note', $nPatientName . ($done > 1 ? " ($done notes)" : ''));
+        set_flash($done === 1 ? 'Note deleted.' : "$done notes deleted.", 'info');
         header("Location: records?patient=$pid&tab=notes"); exit;
     }
 }
@@ -398,6 +413,7 @@ $active = 'records';
 
             <div class="card-box">
                 <h6 class="mb-2">History <span class="text-muted2" style="font-size:.85rem;">(<?= count($treatments) ?> record<?= count($treatments)==1?'':'s' ?>)</span></h6>
+                <?= bulk_bar('bulk-treat', 'delete_treatment', 'treatment records', ['patient_id' => $pid]) ?>
                 <?php foreach ($treatments as $t): ?>
                     <div class="flex-between py-3 border-bottom">
                         <div class="d-flex align-items-center gap-3">
@@ -409,7 +425,8 @@ $active = 'records';
                         </div>
                         <div class="d-flex align-items-center gap-2">
                             <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':'progress' ?>"><?= e($t['status']) ?></span>
-                            <form method="POST" onsubmit="return confirm('Delete this treatment record?')">
+                            <?= bulk_pick('bulk-treat', $t['id']) ?>
+                            <form method="POST" class="m-0" onsubmit="return confirm('Delete this treatment record?')">
                                 <input type="hidden" name="action" value="delete_treatment">
                                 <input type="hidden" name="patient_id" value="<?= $pid ?>">
                                 <input type="hidden" name="id" value="<?= $t['id'] ?>">
@@ -444,6 +461,7 @@ $active = 'records';
 
             <div class="card-box">
                 <h6 class="mb-3">X-ray Images <span class="text-muted2" style="font-size:.85rem;">(<?= count($xrays) ?>)</span></h6>
+                <?= bulk_bar('bulk-xray', 'delete_xray', 'X-rays', ['patient_id' => $pid]) ?>
                 <div class="d-flex flex-wrap gap-3">
                     <?php foreach ($xrays as $xr): ?>
                         <div style="width:180px;border:1px solid #e3e9ee;border-radius:10px;overflow:hidden;">
@@ -451,7 +469,7 @@ $active = 'records';
                                 <img src="xray?id=<?= (int)$xr['id'] ?>" alt="X-ray" style="width:100%;height:130px;object-fit:cover;background:#000;">
                             </a>
                             <div style="padding:8px;">
-                                <div style="font-size:.82rem;font-weight:600;"><?= $xr['caption'] ? e($xr['caption']) : 'X-ray' ?></div>
+                                <div class="d-flex align-items-center gap-2" style="font-size:.82rem;font-weight:600;"><?= bulk_pick('bulk-xray', $xr['id']) ?><span><?= $xr['caption'] ? e($xr['caption']) : 'X-ray' ?></span></div>
                                 <div class="text-muted2" style="font-size:.72rem;"><?= e($xr['xray_date'] ?: date('M j, Y', strtotime($xr['created_at']))) ?></div>
                                 <form method="POST" onsubmit="return confirm('Delete this X-ray?')" class="mt-1">
                                     <input type="hidden" name="action" value="delete_xray">
@@ -480,18 +498,22 @@ $active = 'records';
 
             <div class="card-box">
                 <h6 class="mb-3">Notes History <span class="text-muted2" style="font-size:.85rem;">(<?= count($notes) ?>)</span></h6>
+                <?= bulk_bar('bulk-notes', 'delete_note', 'notes', ['patient_id' => $pid]) ?>
                 <?php foreach ($notes as $nt): ?>
                     <div class="flex-between py-3 border-bottom">
                         <div style="flex:1;">
                             <div style="white-space:pre-wrap;font-size:.92rem;"><?= e($nt['note']) ?></div>
                             <small class="text-muted2"><?= date('M j, Y g:i A', strtotime($nt['created_at'])) ?> • <?= e($nt['author']) ?></small>
                         </div>
-                        <form method="POST" onsubmit="return confirm('Delete this note?')">
+                        <div class="d-flex align-items-center gap-2">
+                        <?= bulk_pick('bulk-notes', $nt['id']) ?>
+                        <form method="POST" class="m-0" onsubmit="return confirm('Delete this note?')">
                             <input type="hidden" name="action" value="delete_note">
                             <input type="hidden" name="patient_id" value="<?= $pid ?>">
                             <input type="hidden" name="id" value="<?= $nt['id'] ?>">
                             <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;">🗑</button>
                         </form>
+                        </div>
                     </div>
                 <?php endforeach; ?>
                 <?php if (!$notes): ?><p class="text-muted2 text-center py-4">No notes yet for this patient.</p><?php endif; ?>

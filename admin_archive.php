@@ -43,6 +43,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: admin_archive"); exit;
     }
 
+    // Several ticked rows: run the same permanent delete for each one.
+    if ($action === 'permadelete' && !empty($_POST['ids']) && is_array($_POST['ids'])) {
+        $done = 0;
+        foreach ($_POST['ids'] as $pick) {
+            if (!preg_match('/^(user|patient):(\d+)$/', (string)$pick, $m)) continue;
+            $bid = (int)$m[2];
+            if ($m[1] === 'patient') {
+                $q = $pdo->prepare("SELECT name FROM patients WHERE id = ? AND status = 'Archived'");
+                $q->execute([$bid]); $nm = $q->fetchColumn();
+                if ($nm === false) continue;
+                log_activity($pdo, 'Permanently deleted patient', $nm ?: "#$bid");
+                delete_patient_records($pdo, $bid);
+            } else {
+                $q = $pdo->prepare("SELECT name FROM users WHERE id = ? AND status = 'archived'");
+                $q->execute([$bid]);
+                if ($q->fetchColumn() === false) continue;
+                delete_user_completely($pdo, $bid, $_SESSION['name'] ?? null);
+            }
+            $done++;
+        }
+        set_flash($done . ' item' . ($done === 1 ? '' : 's') . ' permanently deleted.', 'info');
+        header("Location: admin_archive"); exit;
+    }
+
     if ($action === 'permadelete' && $id > 0) {
         if ($type === 'patient') {
             $info = $pdo->prepare("SELECT name FROM patients WHERE id = ? AND status = 'Archived'");
@@ -139,6 +163,7 @@ $active = 'archive';
                 </div>
             <?php else: ?>
             <div class="table-responsive">
+                <?= bulk_bar('bulk-archive', 'permadelete', 'items permanently', [], '🗑 Delete selected permanently', 'Their records, dental charts and appointments are removed for good. This cannot be undone.') ?>
                 <table class="data">
                     <thead><tr><th>User</th><th>Role</th><th>Archived By</th><th>Archived On</th><th>Actions</th></tr></thead>
                     <tbody>
@@ -155,7 +180,8 @@ $active = 'archive';
                             <td><?= e($u['archived_by'] ?: '-') ?></td>
                             <td><small class="text-muted2"><?= $u['archived_at'] ? date('M j, Y g:i A', strtotime($u['archived_at'])) : '-' ?></small></td>
                             <td>
-                                <div class="d-flex gap-1">
+                                <div class="d-flex gap-1 align-items-center">
+                                    <?= bulk_pick('bulk-archive', $u['type'] . ':' . $u['id'], 'Select ' . $u['name']) ?>
                                     <form method="POST" onsubmit="return confirmDelete('Restore ' + <?= json_encode($u['name']) ?> + '’s <?= $u['type'] === 'patient' ? 'record' : 'account' ?>?')">
                                         <input type="hidden" name="action" value="restore">
                                         <input type="hidden" name="type" value="<?= e($u['type']) ?>">

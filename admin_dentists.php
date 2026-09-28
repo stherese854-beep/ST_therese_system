@@ -110,13 +110,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'delete_dentist') {
+      $totalRemoved = 0; $totalMoved = 0;
+      foreach (bulk_ids() as $delDentistId) {    // one dentist, or several ticked ones
         // Get the dentist's name first (needed to find their patients).
         $d = $pdo->prepare("SELECT name FROM users WHERE id=? AND role='dentist'");
-        $d->execute([$_POST['id']]);
+        $d->execute([$delDentistId]);
         $dname = $d->fetchColumn();
+        if (!$dname) continue;
 
         // Delete the dentist account.
-        $pdo->prepare("DELETE FROM users WHERE id=? AND role='dentist'")->execute([$_POST['id']]);
+        $pdo->prepare("DELETE FROM users WHERE id=? AND role='dentist'")->execute([$delDentistId]);
+        $totalRemoved++;
 
         // Auto-transfer this dentist's patients to the REMAINING dentists.
         // We reassign one patient at a time using the same auto-balancer, so the
@@ -132,12 +136,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        log_activity($pdo, 'Deleted dentist', ($dname ?: '#' . $_POST['id']) . ($moved ? " ($moved patient(s) reassigned)" : ''));
+        log_activity($pdo, 'Deleted dentist', $dname . ($moved ? " ($moved patient(s) reassigned)" : ''));
+        $totalMoved += $moved;
+      }
 
-        if ($moved > 0) {
-            set_flash("Dentist removed. $moved patient(s) transferred to another dentist.", 'info');
+        $what = $totalRemoved === 1 ? 'Dentist removed.' : "$totalRemoved dentists removed.";
+        if ($totalMoved > 0) {
+            set_flash("$what $totalMoved patient(s) transferred to another dentist.", 'info');
         } else {
-            set_flash('Dentist removed.', 'info');
+            set_flash($what, 'info');
         }
         header("Location: admin_dentists"); exit;
     }
@@ -372,6 +379,7 @@ $active = 'dentists';
         </div>
 
         <div class="row g-3">
+            <div class="col-12"><?= bulk_bar('bulk-dentists', 'delete_dentist', 'dentists', [], '🗑 Delete selected', 'Their patients will be transferred to the remaining dentists.') ?></div>
             <?php foreach ($dentists as $doc):
                 // how many patients are assigned to this dentist?
                 $cnt = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE primary_dentist = ?");
@@ -407,7 +415,8 @@ $active = 'dentists';
 
                         <div class="flex-between" style="border-top:1px solid #eee;padding-top:10px;">
                             <span><strong style="font-size:1.3rem;color:var(--teal-mid);"><?= $patientCount ?></strong> <span class="text-muted2" style="font-size:.85rem;">patients</span></span>
-                            <div class="d-flex gap-1">
+                            <div class="d-flex gap-1 align-items-center">
+                                <?= bulk_pick('bulk-dentists', $doc['id'], 'Select ' . $doc['name']) ?>
                                 <a href="admin_dentists?dentist=<?= $doc['id'] ?>" class="btn btn-sm btn-teal">View →</a>
                                 <form method="POST" onsubmit="return confirm('Delete <?= e(addslashes($doc['name'])) ?>? Their patients will be transferred to another dentist.')">
                                     <input type="hidden" name="action" value="delete_dentist">

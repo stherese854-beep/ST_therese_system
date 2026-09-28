@@ -76,25 +76,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'delete') {
-        $delId = (int)$_POST['id'];
+        $moved = []; $skippedSelf = false;
+        foreach (bulk_ids() as $delId) {          // one user, or several ticked ones
+            // Don't let an admin delete their own account while logged in.
+            if ($delId === (int)($_SESSION['user_id'] ?? 0)) { $skippedSelf = true; continue; }
 
-        // Don't let an admin delete their own account while logged in.
-        if ($delId === (int)($_SESSION['user_id'] ?? 0)) {
-            set_flash('You cannot delete the account you are signed in with.', 'error');
-            header("Location: admin_users"); exit;
+            // Look up what we are about to move so the message can be honest.
+            $info = $pdo->prepare("SELECT name, role FROM users WHERE id=?");
+            $info->execute([$delId]);
+            $u = $info->fetch();
+            if (!$u) continue;
+
+            // Deleting no longer removes the account right away — it moves it to
+            // the Archive first. An admin can restore it or permanently delete it
+            // from there.
+            archive_user($pdo, $delId, $_SESSION['name'] ?? null);
+            $moved[] = $u['name'];
         }
-
-        // Look up what we are about to move so the message can be honest.
-        $info = $pdo->prepare("SELECT name, role FROM users WHERE id=?");
-        $info->execute([$delId]);
-        $u = $info->fetch();
-
-        // Deleting no longer removes the account right away — it moves it to
-        // the Archive first. An admin can restore it or permanently delete it
-        // from there.
-        archive_user($pdo, $delId, $_SESSION['name'] ?? null);
-
-        set_flash(($u ? $u['name'] : 'User') . ' moved to Archive.', 'info');
+        $msg = count($moved) === 1 ? $moved[0] . ' moved to Archive.' : (count($moved) . ' users moved to Archive.');
+        if ($skippedSelf) $msg = (count($moved) ? $msg . ' ' : '') . 'You cannot delete the account you are signed in with.';
+        set_flash($msg, $skippedSelf && !$moved ? 'error' : 'info');
         header("Location: admin_users"); exit;
     }
 }
@@ -143,6 +144,7 @@ $active = 'users';
                     <button class="btn btn-teal" data-bs-toggle="modal" data-bs-target="#userModal" onclick="openAddUser()">+ Add User</button>
                 </div>
             </div>
+            <?= bulk_bar('bulk-users', 'delete', 'users to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive.', 'Move') ?>
             <div class="table-responsive">
                 <table class="data">
                     <thead><tr><th>User</th><th>Role</th><th>Specialty / Position</th><th>Contact</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
@@ -162,6 +164,7 @@ $active = 'users';
                             <td><span class="badge-pill b-<?= $u['status'] ?>"><?= ucfirst($u['status']) ?></span></td>
                             <td><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : '-' ?></small></td>
                             <td>
+                                <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
                                 <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode($u) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
                                 <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')">
                                     <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $u['id'] ?>">

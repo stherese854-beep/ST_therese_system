@@ -146,6 +146,17 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .b-pending  { background: #fdeccd; color: #b9802a; }
 .b-inactive, .b-cancelled, .b-noshow { background: #fbdcdc; color: #c0392b; }
 .b-disapproved { background: #fde6d3; color: #b4531a; }
+
+/* ---- Delete several at once (bulk_bar / bulk_pick in config/auth.php) ---- */
+.bulk-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px;
+            padding: 7px 12px; border: 1px dashed #d6e2e1; border-radius: 10px; background: #f8fbfb; font-size: .84rem; }
+.bulk-bar.has-picks { border-style: solid; border-color: #f0c9c9; background: #fff6f6; }
+.bulk-all-wrap { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; color: #55606a; font-weight: 600; }
+.bulk-count { color: #c0392b; font-weight: 600; }
+.bulk-go { background: #fbdcdc; color: #c0392b; margin-left: auto; font-weight: 600; }
+.bulk-go:disabled { background: #eef2f2; color: #9aa7a7; border-color: transparent; }
+.bulk-pick, .bulk-all { width: 17px; height: 17px; accent-color: #c0392b; cursor: pointer; flex: none; vertical-align: middle; }
+@media print { .bulk-bar, .bulk-pick { display: none !important; } }
 .b-expired { background: #eceff1; color: #5f6f7a; }   /* never confirmed before its date */
 .b-arrived { background: #dff3ff; color: #1b6fa8; }   /* patient is at the clinic now */
 .b-archived { background: #e6e6e6; color: #6b6b6b; }

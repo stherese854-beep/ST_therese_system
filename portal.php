@@ -69,8 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Delete (move to My Archive) or restore a past appointment / treatment record.
     if (in_array($action, ['archive_item', 'restore_item'], true) && $pid) {
         $type = ($_POST['item_type'] ?? '') === 'treatment' ? 'treatment' : 'appointment';
-        $id   = (int)($_POST['item_id'] ?? 0);
         $back = ($_POST['back'] ?? '') === 'archive' ? 'archive' : ($type === 'treatment' ? 'records' : 'appointments');
+        $ok = 0;
+        foreach (bulk_ids('item_id') as $id) {     // one item, or several ticked ones
         // Only this account's own items, and only appointments that are over.
         if ($type === 'treatment') {
             $chk = $pdo->prepare("SELECT treatment_name AS label, treatment_date AS d FROM treatments WHERE id = ? AND patient_id = ?");
@@ -85,18 +86,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $item = $chk->fetch();
         if (!$item) {
-            set_flash('That item could not be found.', 'error');
+            continue;
         } elseif ($action === 'archive_item') {
             $pdo->prepare("INSERT IGNORE INTO patient_archive (user_id, item_type, item_id) VALUES (?,?,?)")
                 ->execute([$_SESSION['user_id'], $type, $id]);
             log_activity($pdo, 'Archived ' . $type, $item['label'] . ' (' . $item['d'] . ')');
-            set_flash('Moved to My Archive. You can restore it from Clinic Contact › My Archive.');
         } else {
             $pdo->prepare("DELETE FROM patient_archive WHERE user_id = ? AND item_type = ? AND item_id = ?")
                 ->execute([$_SESSION['user_id'], $type, $id]);
             log_activity($pdo, 'Restored ' . $type, $item['label'] . ' (' . $item['d'] . ')');
-            set_flash('Restored.');
         }
+        $ok++;
+        }
+        if (!$ok)                          set_flash('That item could not be found.', 'error');
+        elseif ($action === 'archive_item') set_flash(($ok > 1 ? "$ok items moved" : 'Moved') . ' to My Archive. You can restore '
+                                                     . ($ok > 1 ? 'them' : 'it') . ' from Clinic Contact › My Archive.');
+        else                               set_flash($ok > 1 ? "$ok items restored." : 'Restored.');
         header("Location: portal?view=" . $back); exit;
     }
 
@@ -429,7 +434,8 @@ $clinicFacebook = facebook_url($ci('land_contact_facebook'))[0];
 function archive_button($type, $id, $restore = false, $back = '') {
     $msg = $restore ? 'Put this back in your ' . ($type === 'treatment' ? 'records' : 'history') . '?'
                     : 'Delete this from your ' . ($type === 'treatment' ? 'records' : 'history') . "?\nIt will be moved to My Archive, where you can restore it.";
-    return '<form method="POST" class="d-inline" onsubmit="return confirm(' . e(json_encode($msg)) . ')">'
+    return ($restore ? '' : bulk_pick('bulk-' . $type, $id) . ' ')          // tick box for "Delete selected"
+         . '<form method="POST" class="d-inline" onsubmit="return confirm(' . e(json_encode($msg)) . ')">'
          . '<input type="hidden" name="action" value="' . ($restore ? 'restore_item' : 'archive_item') . '">'
          . '<input type="hidden" name="item_type" value="' . e($type) . '">'
          . '<input type="hidden" name="item_id" value="' . (int)$id . '">'
@@ -790,6 +796,7 @@ include 'includes/head.php';
                 <div class="text-muted2 mb-2" style="font-size:.85rem;">
                     A record of all your past visits<?= count($pastAppts) ? ' (' . count($pastAppts) . ')' : '' ?>.
                 </div>
+                <?= bulk_bar('bulk-appointment', 'archive_item', 'appointments from your history', ['item_type' => 'appointment'], '🗑 Delete selected', 'They will be moved to My Archive, where you can restore them.') ?>
                 <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
                 <table class="data" style="min-width:640px;">
                     <thead><tr><th>Patient</th><th>Treatment</th><th>Date</th><th>Time</th><th>Dentist</th><th>Status</th><th></th></tr></thead>
@@ -1161,6 +1168,7 @@ include 'includes/head.php';
             <!-- ===== MY RECORDS (treatment history) ===== -->
             <div class="card-box">
                 <h5>Treatment History</h5>
+                <?= bulk_bar('bulk-treatment', 'archive_item', 'records', ['item_type' => 'treatment'], '🗑 Delete selected', 'They will be moved to My Archive, where you can restore them.') ?>
                 <?php foreach ($myTreatments as $t): ?>
                     <div class="flex-between py-3 border-bottom">
                         <div class="d-flex align-items-center gap-3">

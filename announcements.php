@@ -97,13 +97,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'delete') {
-        $delInfo = $pdo->prepare("SELECT title FROM announcements WHERE id=?");
-        $delInfo->execute([$_POST['id']]);
-        $delTitle = $delInfo->fetchColumn();
-
-        $pdo->prepare("DELETE FROM announcements WHERE id=?")->execute([$_POST['id']]);
-        log_activity($pdo, 'Deleted announcement', $delTitle ?: ('#' . $_POST['id']));
-        set_flash('Announcement deleted.', 'info');
+        $done = 0;
+        foreach (bulk_ids() as $delId) {          // one announcement, or several ticked ones
+            $delInfo = $pdo->prepare("SELECT title FROM announcements WHERE id=?");
+            $delInfo->execute([$delId]);
+            $delTitle = $delInfo->fetchColumn();
+            if ($delTitle === false) continue;
+            $pdo->prepare("DELETE FROM announcements WHERE id=?")->execute([$delId]);
+            log_activity($pdo, 'Deleted announcement', $delTitle ?: ('#' . $delId));
+            $done++;
+        }
+        set_flash($done === 1 ? 'Announcement deleted.' : "$done announcements deleted.", 'info');
         header("Location: announcements"); exit;
     }
 }
@@ -169,6 +173,7 @@ function pill($key, $label, $current) {
         </div>
 
         <!-- ===== Announcement cards ===== -->
+        <?= bulk_bar('bulk-ann', 'delete', 'announcements') ?>
         <?php foreach ($announcements as $a):
             $isDraft = ($a['status'] === 'Draft');
         ?>
@@ -202,6 +207,7 @@ function pill($key, $label, $current) {
                         <button class="btn btn-sm" style="background:#d7f5e3;color:#138a4e;"
                                 onclick='openSend("sms", <?= json_encode($a['id']) ?>, <?= json_encode($a['title']) ?>, <?= json_encode($a['content']) ?>)'
                                 data-bs-toggle="modal" data-bs-target="#sendModal">📱 SMS</button>
+                        <?= bulk_pick('bulk-ann', $a['id'], 'Select this announcement') ?>
                         <form method="POST" class="d-inline" onsubmit="return confirmDelete('Delete this announcement?')">
                             <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $a['id'] ?>">
                             <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;">🗑</button>

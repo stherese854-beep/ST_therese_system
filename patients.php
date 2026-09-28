@@ -103,7 +103,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'delete') {
-        $delId = (int)$_POST['id'];
+      $movedNames = [];
+      foreach (bulk_ids() as $delId) {             // one patient, or several ticked ones
 
         // Deleting no longer removes the patient right away — it moves the
         // record to the Archive first (same as User Management), so nothing
@@ -111,11 +112,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // it from the Archive page.
         $delNameStmt = $pdo->prepare("SELECT name FROM patients WHERE id=?");
         $delNameStmt->execute([$delId]);
-        $delPatientName = $delNameStmt->fetchColumn() ?: ('#' . $delId);
+        $delPatientName = $delNameStmt->fetchColumn();
+        if ($delPatientName === false) continue;
 
         archive_patient($pdo, $delId, $_SESSION['name'] ?? null);
-
-        set_flash($delPatientName . ' moved to Archive.', 'info');
+        $movedNames[] = $delPatientName ?: ('#' . $delId);
+      }
+        set_flash(count($movedNames) === 1 ? $movedNames[0] . ' moved to Archive.' : count($movedNames) . ' patients moved to Archive.', 'info');
         header("Location: patients"); exit;
     }
 
@@ -345,6 +348,9 @@ $active = 'patients';
 
         <!-- Patients table -->
         <div class="card-box">
+            <?php if (current_role() === 'admin'): ?>
+                <?= bulk_bar('bulk-patients', 'delete', 'patients to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive.', 'Move') ?>
+            <?php endif; ?>
             <div class="table-responsive">
                 <table class="data">
                     <thead><tr>
@@ -467,6 +473,7 @@ $active = 'patients';
                                     data-bs-toggle="modal" data-bs-target="#msgModal"
                                     title="Message">✉️</button>
                                 <?php if (current_role() === 'admin'): ?>
+                                    <?= bulk_pick('bulk-patients', $p['id'], 'Select ' . $p['name']) ?>
                                     <form method="POST" class="d-inline" onsubmit="return confirm('Move this patient to Archive?')">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="id" value="<?= $p['id'] ?>">

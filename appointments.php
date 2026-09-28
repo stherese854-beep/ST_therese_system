@@ -20,28 +20,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         set_flash('Only admin and staff can remove old appointments.', 'error');
         header("Location: appointments"); exit;
     }
-    $id = (int)($_POST['id'] ?? 0);
+    $removed = []; $refused = '';
+    foreach (bulk_ids() as $id) {                  // one appointment, or several ticked ones
+        $q = $pdo->prepare(
+            "SELECT patient_name, appointment_date, status,
+                    DATEDIFF(CURDATE(), appointment_date) AS days_old
+               FROM appointments WHERE id = ?"
+        );
+        $q->execute([$id]);
+        $row = $q->fetch();
 
-    $q = $pdo->prepare(
-        "SELECT patient_name, appointment_date, status,
-                DATEDIFF(CURDATE(), appointment_date) AS days_old
-           FROM appointments WHERE id = ?"
-    );
-    $q->execute([$id]);
-    $row = $q->fetch();
-
-    if (!$row) {
-        set_flash('That appointment could not be found.', 'error');
-    } elseif ((int)$row['days_old'] < 7) {
-        set_flash('Only appointments more than a week old can be removed.', 'error');
-    } elseif (!in_array($row['status'], ['Cancelled','Completed','No-show','Disapproved'])) {
-        set_flash('Only cancelled, disapproved, completed or missed appointments can be removed.', 'error');
+        if (!$row) {
+            $refused = 'That appointment could not be found.';
+        } elseif ((int)$row['days_old'] < 7) {
+            $refused = 'Only appointments more than a week old can be removed.';
+        } elseif (!in_array($row['status'], ['Cancelled','Completed','No-show','Disapproved'])) {
+            $refused = 'Only cancelled, disapproved, completed or missed appointments can be removed.';
+        } else {
+            $pdo->prepare("DELETE FROM appointments WHERE id = ?")->execute([$id]);
+            log_activity($pdo, 'Deleted appointment', $row['patient_name'] . ' — '
+                    . date('M j, Y', strtotime($row['appointment_date'])) . ' (' . $row['status'] . ')');
+            $removed[] = $row;
+        }
+    }
+    if (count($removed) === 1) {
+        set_flash($removed[0]['patient_name'] . "'s appointment from "
+                . date('M j, Y', strtotime($removed[0]['appointment_date'])) . ' was removed.', 'info');
+    } elseif ($removed) {
+        set_flash(count($removed) . ' appointments were removed.', 'info');
     } else {
-        $pdo->prepare("DELETE FROM appointments WHERE id = ?")->execute([$id]);
-        log_activity($pdo, 'Deleted appointment', $row['patient_name'] . ' — '
-                . date('M j, Y', strtotime($row['appointment_date'])) . ' (' . $row['status'] . ')');
-        set_flash($row['patient_name'] . "'s appointment from "
-                . date('M j, Y', strtotime($row['appointment_date'])) . ' was removed.', 'info');
+        set_flash($refused ?: 'Nothing was removed.', 'error');
     }
     header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
 }
@@ -493,6 +501,9 @@ $active = 'appointments';
         </div>
 
         <div class="card-box">
+            <?php if (in_array(current_role(), ['admin','staff'])): ?>
+                <?= bulk_bar('bulk-appts', 'delete_appointment', 'old appointments', ['filter' => $filter], '🗑 Remove selected', 'Only settled appointments older than a week can be removed. This cannot be undone.') ?>
+            <?php endif; ?>
             <div class="table-responsive">
                 <table class="data">
                     <thead><tr>
@@ -609,6 +620,7 @@ $active = 'appointments';
                                         <input type="hidden" name="filter" value="<?= e($filter) ?>">
                                         <button class="btn btn-sm icon-btn" style="background:#f0f0f0;color:#8aa0a0;" title="Remove">🗑</button>
                                     </form>
+                                    <?= bulk_pick('bulk-appts', $a['id'], 'Select to remove') ?>
                                 <?php endif; ?>
                                 </div>
                             </td>

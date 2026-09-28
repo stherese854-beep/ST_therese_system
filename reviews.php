@@ -31,9 +31,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         set_flash('Review hidden from the landing page.', 'info');
     }
     if ($action === 'delete') {
-        $pdo->prepare("DELETE FROM reviews WHERE id=?")->execute([$id]);
-        log_activity($pdo, 'Deleted review', $revName);
-        set_flash('Review deleted.', 'info');
+        $done = 0;
+        foreach (bulk_ids() as $rid) {             // one review, or several ticked ones
+            $n = $pdo->prepare("SELECT name FROM reviews WHERE id=?"); $n->execute([$rid]);
+            $rn = $n->fetchColumn();
+            if ($rn === false) continue;
+            $pdo->prepare("DELETE FROM reviews WHERE id=?")->execute([$rid]);
+            log_activity($pdo, 'Deleted review', $rn ?: ('#' . $rid));
+            $done++;
+        }
+        set_flash($done === 1 ? 'Review deleted.' : "$done reviews deleted.", 'info');
     }
     header("Location: reviews"); exit;
 }
@@ -97,6 +104,7 @@ $active = 'reviews';
                    Patients can leave one from <strong>My Profile</strong> in their portal.</p>
             <?php endif; ?>
 
+            <?= bulk_bar('bulk-reviews', 'delete', 'reviews', [], '🗑 Delete selected', 'This cannot be undone.') ?>
             <?php foreach ($reviews as $r): ?>
                 <div class="py-3" style="border-bottom:1px solid #eef2f2;">
                     <div class="d-flex gap-3 align-items-start flex-wrap">
@@ -142,6 +150,7 @@ $active = 'reviews';
                                 </form>
                             <?php endif; ?>
 
+                            <?= bulk_pick('bulk-reviews', $r['id'], 'Select this review') ?>
                             <form method="POST" onsubmit="return confirm('⚠️ Permanently delete this review? This cannot be undone.')">
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="id" value="<?= $r['id'] ?>">

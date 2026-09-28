@@ -116,11 +116,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ---------- Delete a whole visit chart ----------
     if ($action === 'delete_session') {
-        $sid = (int)$_POST['session_id'];
-        $pdo->prepare("DELETE FROM odontogram WHERE patient_id=? AND session_id=?")->execute([$pid, $sid]);
-        $pdo->prepare("DELETE FROM chart_sessions WHERE id=? AND patient_id=?")->execute([$sid, $pid]);
-        log_activity($pdo, 'Deleted visit chart', patient_name_of($pdo, $pid));
-        set_flash('That visit chart was deleted.', 'info');
+        // One visit, or several ticked ones — but the patient always keeps at least one chart.
+        $cnt = $pdo->prepare("SELECT COUNT(*) FROM chart_sessions WHERE patient_id=?");
+        $cnt->execute([$pid]);
+        $left = (int)$cnt->fetchColumn();
+        $done = 0;
+        foreach (bulk_ids('session_id') as $sid) {
+            if ($left <= 1) break;
+            $del = $pdo->prepare("DELETE FROM chart_sessions WHERE id=? AND patient_id=?");
+            $del->execute([$sid, $pid]);
+            if (!$del->rowCount()) continue;
+            $pdo->prepare("DELETE FROM odontogram WHERE patient_id=? AND session_id=?")->execute([$pid, $sid]);
+            $left--; $done++;
+        }
+        if ($done) log_activity($pdo, 'Deleted visit chart', patient_name_of($pdo, $pid) . ($done > 1 ? " ($done visits)" : ''));
+        set_flash($done === 1 ? 'That visit chart was deleted.'
+                 : ($done ? "$done visit charts were deleted." : 'A patient must keep at least one visit chart.'),
+                  $done ? 'info' : 'error');
         header("Location: odontogram?patient=$pid"); exit;
     }
 }
@@ -367,6 +379,20 @@ $active = 'odontogram';
                                 <input type="hidden" name="session_id" value="<?= $sid ?>">
                                 <button class="btn btn-light w-100" style="color:#c0392b;">🗑 Delete This Visit</button>
                             </form>
+                            <!-- Delete several visits at once (at least one always stays) -->
+                            <details class="mt-2">
+                                <summary class="text-muted2" style="font-size:.82rem;cursor:pointer;">Delete several visits…</summary>
+                                <div class="mt-2">
+                                    <?= bulk_bar('bulk-visits', 'delete_session', 'visit charts', ['patient_id' => $pid], '🗑 Delete selected',
+                                                 'Every tooth recorded on those visits is permanently removed. At least one visit always stays.') ?>
+                                    <?php foreach (array_reverse($sessions) as $vi => $vs): ?>
+                                        <label class="d-flex align-items-center gap-2 py-1" style="font-size:.85rem;cursor:pointer;">
+                                            <?= bulk_pick('bulk-visits', $vs['id']) ?>
+                                            <span>Visit <?= $vi + 1 ?> · <?= date('M j, Y', strtotime($vs['visit_date'])) ?><?= $vs['title'] ? ' · ' . e($vs['title']) : '' ?></span>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </details>
                         <?php endif; ?>
                     </div>
 

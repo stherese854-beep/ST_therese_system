@@ -1,13 +1,13 @@
 <?php
 // ============================================================
-//  CLINIC CONTACT  (clinic_contact.php) -- admin / staff
+//  CLINIC CONTACT  (clinic_contact.php) -- admin only
 // ============================================================
 //  The clinic's phone, email, address, hours and Facebook page.
 //  Patients see these under "Clinic Contact" in their portal, and
 //  the same details appear on the public home page.
 // ============================================================
 require_once 'config/auth.php';
-require_login(['admin','staff']);
+require_login(['admin']);
 
 $fields = [
     'land_contact_phone'    => 'Contact Number',

@@ -52,7 +52,6 @@ function nav_active($page) {
         <!-- Staff: front desk — scheduling and patient contact only, no clinical access -->
         <a class="nav-item <?= nav_active('patients') ?>"     href="patients">👥 Patients</a>
         <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">📅 Appointments</a>
-        <a class="nav-item <?= nav_active('clinic_contact') ?>" href="clinic_contact">📞 Clinic Contact</a>
 
     <?php elseif ($role === 'dentist'): ?>
         <!-- Dentist: own assigned patients only -->

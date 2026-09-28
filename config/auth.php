@@ -954,6 +954,39 @@ function facebook_url($raw) {
     return [preg_replace('#^http://#i', 'https://', $url), ''];
 }
 
+// ============================================================
+//  DELETE SEVERAL AT ONCE
+// ============================================================
+//  Every list with a delete button also gets a tick box per row and a
+//  "Select all / Delete selected" bar (bulk_bar + bulk_pick). The bar is
+//  its own form; the tick boxes join it through the form="" attribute,
+//  so they can sit anywhere in the row. The handler then reads
+//  bulk_ids(): the ticked ids[], or the single id from a row's button.
+// ============================================================
+function bulk_ids($single = 'id') {
+    $ids = $_POST['ids'] ?? [$_POST[$single] ?? 0];
+    if (!is_array($ids)) $ids = [$ids];
+    return array_values(array_unique(array_filter(array_map('intval', $ids), fn($i) => $i > 0)));
+}
+
+// The bar: "☐ Select all · 3 selected · [🗑 Delete selected]".
+// $noun is used in the question, e.g. "Delete 3 selected notes?".
+function bulk_bar($formId, $action, $noun, $hidden = [], $button = '🗑 Delete selected', $warning = '', $verb = 'Delete') {
+    $h = '<form method="POST" id="' . e($formId) . '" class="bulk-bar" data-noun="' . e($noun) . '" data-verb="' . e($verb) . '"'
+       . ' data-warning="' . e($warning) . '" onsubmit="return bulkConfirm(this)">'
+       . '<input type="hidden" name="action" value="' . e($action) . '">';
+    foreach ($hidden as $k => $v) $h .= '<input type="hidden" name="' . e($k) . '" value="' . e($v) . '">';
+    return $h . '<label class="bulk-all-wrap"><input type="checkbox" class="bulk-all" data-bulk="' . e($formId) . '"> Select all</label>'
+         . '<span class="bulk-count"></span>'
+         . '<button type="submit" class="btn btn-sm bulk-go" disabled>' . e($button) . '</button></form>';
+}
+
+// One row's tick box.
+function bulk_pick($formId, $value, $label = 'Select') {
+    return '<input type="checkbox" class="bulk-pick" form="' . e($formId) . '" name="ids[]" value="' . e($value) . '"'
+         . ' title="' . e($label) . '" aria-label="' . e($label) . '">';
+}
+
 function save_setting($pdo, $key, $value) {
     $pdo->prepare(
         "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)

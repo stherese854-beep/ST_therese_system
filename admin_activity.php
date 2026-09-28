@@ -15,14 +15,19 @@ require_login(['admin']);
 // entry that no longer needs to be kept (a test action, a mistake, etc.).
 // The deletion of a log entry is itself logged, same as everywhere else.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_log') {
-    $id = (int)($_POST['id'] ?? 0);
-    $info = $pdo->prepare("SELECT action, actor_name FROM activity_log WHERE id=?");
-    $info->execute([$id]);
-    $row = $info->fetch();
-    if ($row) {
+    $done = 0;
+    foreach (bulk_ids() as $id) {               // one entry, or several ticked ones
+        $info = $pdo->prepare("SELECT action, actor_name FROM activity_log WHERE id=?");
+        $info->execute([$id]);
+        $row = $info->fetch();
+        if (!$row) continue;
         $pdo->prepare("DELETE FROM activity_log WHERE id=?")->execute([$id]);
-        log_activity($pdo, 'Deleted activity log entry', $row['action'] . ' — ' . $row['actor_name']);
-        set_flash('Log entry deleted.', 'info');
+        $done++;
+        $last = $row['action'] . ' — ' . $row['actor_name'];
+    }
+    if ($done) {
+        log_activity($pdo, 'Deleted activity log entry', $done === 1 ? $last : "$done entries");
+        set_flash($done === 1 ? 'Log entry deleted.' : "$done log entries deleted.", 'info');
     }
     // Keep whatever filters were active before deleting.
     header("Location: admin_activity?" . http_build_query($_POST['return'] ?? []));
@@ -119,6 +124,7 @@ $active = 'activity';
                     No activity recorded yet.
                 </div>
             <?php else: ?>
+            <?= bulk_bar('bulk-log', 'delete_log', 'log entries', ['return[role]' => $roleFilter, 'return[q]' => $actionFilter, 'return[date]' => $dateFilter], '🗑 Delete selected', 'This cannot be undone.') ?>
             <div class="table-responsive">
                 <table class="data">
                     <thead><tr><th>When</th><th>Who</th><th>Role</th><th>Action</th><th>Details</th><th></th></tr></thead>
@@ -131,7 +137,9 @@ $active = 'activity';
                             <td><span class="badge-pill <?= activity_badge($log['action']) ?>"><?= e($log['action']) ?></span></td>
                             <td class="text-muted2"><?= e($log['details'] ?: '-') ?></td>
                             <td class="text-end">
-                                <form method="POST" onsubmit="return confirm('Delete this log entry? This cannot be undone.');">
+                                <div class="d-flex gap-2 align-items-center justify-content-end">
+                                <?= bulk_pick('bulk-log', $log['id']) ?>
+                                <form method="POST" class="m-0" onsubmit="return confirm('Delete this log entry? This cannot be undone.');">
                                     <input type="hidden" name="action" value="delete_log">
                                     <input type="hidden" name="id" value="<?= (int)$log['id'] ?>">
                                     <input type="hidden" name="return[role]" value="<?= e($roleFilter) ?>">
@@ -139,6 +147,7 @@ $active = 'activity';
                                     <input type="hidden" name="return[date]" value="<?= e($dateFilter) ?>">
                                     <button type="submit" class="btn btn-sm btn-outline-secondary" title="Delete entry">🗑️</button>
                                 </form>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
