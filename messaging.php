@@ -241,7 +241,7 @@ $active = 'messaging';
                         <input name="sms_country" class="form-control mb-3" value="<?= e(cfg($cfg,'sms_country','+63')) ?>">
 
                         <label class="field-label">Max SMS Per Day</label>
-                        <input name="sms_max_day" class="form-control mb-3" value="<?= e(cfg($cfg,'sms_max_day','200')) ?>">
+                        <input name="sms_max_day" class="form-control mb-3" inputmode="numeric" data-digits maxlength="6" value="<?= e(cfg($cfg,'sms_max_day','200')) ?>">
 
                         <div class="d-flex gap-2">
                             <button class="btn btn-teal">💾 Save</button>

@@ -51,8 +51,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: admin_dentists"); exit;
         }
 
-        // New dentists get the default password 'password123' (they change it later).
-        $hash = password_hash('password123', PASSWORD_DEFAULT);
+        // New dentists get a random Strong temporary password (shown once, emailed).
+        $tempPass = generate_temp_password();
+        $hash = password_hash($tempPass, PASSWORD_DEFAULT);
         try {
             $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status)
                            VALUES (?,?,?,'dentist',?,?,'active')")
@@ -66,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$wSubj, $body] = tpl_message($pdo, 'account_welcome', $cat['subject'], $cat['body'], [
                     'name'     => $name,
                     'email'    => $email,
-                    'password' => 'password123',
+                    'password' => $tempPass,
                     'clinic'   => clinic_name($pdo),
                 ]);
                 $err = '';
@@ -74,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                       ? ' Their login details were emailed to them.'
                       : " (Note: the welcome email could not be sent — $err)";
             }
-            set_flash("$name added. Their password is password123." . $note);
+            set_flash("$name added. Temporary password: $tempPass — they should change it after signing in." . $note);
             header("Location: admin_dentists"); exit;
         } catch (PDOException $ex) {
             set_flash('That email is already in use. Please use a different email.', 'error');
@@ -465,7 +466,7 @@ $active = 'dentists';
                     <input name="contact" class="form-control mb-3" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?> required>
 
                     <div class="alert alert-secondary py-2 mb-0" style="font-size:.83rem;">
-                        The new dentist's password will be <strong>password123</strong>. They can change it later.
+                        A strong temporary password is created and shown (and emailed) after saving. They can change it later.
                     </div>
                 </div>
                 <div class="modal-footer">

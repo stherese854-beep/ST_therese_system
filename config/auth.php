@@ -228,8 +228,8 @@ function take_flash() {
 // ============================================================
 //  PASSWORD STRENGTH  (server-side — the JS meter mirrors this)
 // ============================================================
-//  Returns 'weak', 'medium' or 'strong'. Only medium/strong are
-//  allowed to create an account — this is the check that actually
+//  Returns 'weak', 'medium' or 'strong'. Only STRONG is accepted
+//  (password_problem() below) — this is the check that actually
 //  enforces it (JS can be bypassed, this cannot).
 // ============================================================
 function password_strength($pass) {
@@ -300,9 +300,29 @@ function validate_phone($raw, $required = true, $allowLandline = false) {
 // Attributes for a mobile-number <input>, so the browser also checks it
 // before the form is sent (the server check above is the one that counts).
 function phone_input_attrs() {
-    return 'type="tel" inputmode="tel" maxlength="17" autocomplete="tel"'
-         . ' pattern="\s*(\+?63|0)[\s\-]?9\d{2}[\s\-]?\d{3}[\s\-]?\d{4}\s*"'
-         . ' title="Philippine mobile number, e.g. 0917 123 4567"';
+    return 'type="tel" inputmode="numeric" maxlength="11" autocomplete="tel" data-digits'
+         . ' pattern="09[0-9]{9}"'
+         . ' title="11-digit Philippine mobile number, e.g. 09171234567"';
+}
+
+// Only STRONG passwords are accepted anywhere a password is set.
+// Returns an error message, or '' when the password is fine.
+function password_problem($pass) {
+    if (password_strength($pass) !== 'strong') {
+        return 'Please choose a Strong password: at least 8 characters using upper- and lower-case letters, '
+             . 'a number and a symbol (e.g. Smile#2026).';
+    }
+    return '';
+}
+
+// A random Strong password for accounts created by staff (shown once and
+// emailed to the new user, who should change it after signing in).
+function generate_temp_password() {
+    $sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnpqrstuvwxyz', '23456789', '#@!%*?'];
+    $chars = [];
+    foreach ([3, 5, 2, 2] as $i => $n) for ($k = 0; $k < $n; $k++) $chars[] = $sets[$i][random_int(0, strlen($sets[$i]) - 1)];
+    for ($i = count($chars) - 1; $i > 0; $i--) { $j = random_int(0, $i); [$chars[$i], $chars[$j]] = [$chars[$j], $chars[$i]]; }
+    return implode('', $chars);                         // 12 characters, all four kinds
 }
 
 // ============================================================

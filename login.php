@@ -122,13 +122,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $mode  = 'register';
 
         // ---- Password checks (server-side, so they cannot be bypassed) ----
-        // Only Medium and Strong passwords are accepted.
+        // Only Strong passwords are accepted.
         if ($pass !== $pass2) {
             $error = "The passwords do not match. Please re-type them.";
-        } elseif (strlen($pass) < 4) {
-            $error = "Your password must be at least 4 characters.";
-        } elseif (password_strength($pass) === 'weak') {
-            $error = "That password is too weak. Please choose a Medium or Strong password.";
+        } elseif (($pwp = password_problem($pass)) !== '') {
+            $error = $pwp;
         } elseif ($phoneError !== '') {
             $error = $phoneError;
         }
@@ -170,8 +168,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // have to retype it, they just need a different email address.
             $error = "That email is already registered.";
             $emailTaken = true;
-        } elseif (strlen($pass) < 4) {
-            $error = "Password must be at least 4 characters.";
+        } elseif (($pwp = password_problem($pass)) !== '') {
+            $error = $pwp;
         } else {
             // Make a 6-digit verification code and remember the pending sign-up.
             $code = (string) random_int(100000, 999999);
@@ -367,7 +365,7 @@ include 'includes/head.php';
                 <form method="POST">
                     <input type="hidden" name="action" value="verify">
                     <label class="field-label">Verification Code</label>
-                    <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" autofocus required
+                    <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" data-digits autofocus required
                            style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
                     <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Create Account →</button>
                 </form>
@@ -407,7 +405,7 @@ include 'includes/head.php';
                     <label class="field-label">Password</label>
                     <div class="muted mb-1" style="font-size:.74rem;">💡 8+ characters · upper &amp; lower case · a number · a symbol</div>
 <div class="pw-wrap mb-3">
-                    <input type="password" name="password" id="reg-pass" class="form-control" placeholder="At least 4 characters" required onkeyup="checkStrength()">
+                    <input type="password" name="password" id="reg-pass" class="form-control" placeholder="Strong: 8+ characters, Aa, 1, #" required onkeyup="checkStrength()">
                     <button type="button" class="pw-eye" aria-label="Show password">
                         <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                         <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -490,7 +488,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
 // Check the two password boxes match before the register form submits.
 // Live password strength meter on the register form. This mirrors
-// password_strength() in config/auth.php exactly — only Medium and
+// password_strength() in config/auth.php exactly — only Strong
 // Strong are allowed through; Weak blocks the form.
 function passwordStrength(pass){
     var len = pass.length;
@@ -517,7 +515,7 @@ function checkStrength(){
     var level = passwordStrength(pass);
     var levels = {
         weak:   {w:'33%',  c:'#e05b5b', t:'Weak — not allowed, please make it stronger'},
-        medium: {w:'66%',  c:'#e0a92e', t:'Medium — good to go'},
+        medium: {w:'66%',  c:'#e0a92e', t:'Medium — not strong enough yet, add a symbol, number or capital letter'},
         strong: {w:'100%', c:'#34d399', t:'Strong — good to go'}
     };
     var lvl = levels[level];
@@ -544,8 +542,8 @@ function checkRegPass(){
   }
   phoneWarn.style.display = 'none';
 
-  if (passwordStrength(p1) === 'weak') {
-    warn.textContent = 'That password is too weak — please choose a Medium or Strong password (see the tip above).';
+  if (passwordStrength(p1) !== 'strong') {
+    warn.textContent = 'Please choose a Strong password: at least 8 characters with upper- and lower-case letters, a number and a symbol.';
     warn.style.display = 'block';
     document.getElementById('reg-pass').focus();
     return false;   // stop the form

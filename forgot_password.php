@@ -80,8 +80,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
     } elseif ($pass !== $pass2) {
         $error = "The passwords do not match.";
         $step = 'reset';
-    } elseif (strlen($pass) < 4) {
-        $error = "Your password must be at least 4 characters.";
+    } elseif (($pwp = password_problem($pass)) !== '') {
+        $error = $pwp;
         $step = 'reset';
     } else {
         $hash = password_hash($pass, PASSWORD_DEFAULT);
@@ -139,7 +139,7 @@ include 'includes/head.php';
             <form method="POST">
                 <input type="hidden" name="action" value="verify">
                 <label class="field-label">Reset Code</label>
-                <input type="text" name="code" class="form-control mb-3" placeholder="6-digit code" maxlength="6"
+                <input type="text" name="code" class="form-control mb-3" placeholder="6-digit code" maxlength="6" inputmode="numeric" data-digits
                        style="letter-spacing:6px;text-align:center;font-size:1.2rem;" required autofocus>
                 <button class="btn btn-teal w-100 py-2">Verify Code →</button>
             </form>
@@ -152,7 +152,7 @@ include 'includes/head.php';
                 <input type="hidden" name="action" value="reset">
                 <label class="field-label">New Password</label>
                 <div class="pw-wrap mb-3">
-                    <input type="password" name="password" id="rp1" class="form-control" placeholder="At least 4 characters" required>
+                    <input type="password" name="password" id="rp1" class="form-control" placeholder="Strong: 8+ characters, Aa, 1, #" data-pw-meter required>
                     <button type="button" class="pw-eye" aria-label="Show password">
                         <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                         <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>

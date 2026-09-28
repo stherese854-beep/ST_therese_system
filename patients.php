@@ -27,6 +27,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ptype = $_POST['patient_type'] ?? 'New';
         $vreason = trim($_POST['visit_reason'] ?? '');
         $newpass = $_POST['password'] ?? '';
+        if ($newpass !== '' && ($pwp = password_problem($newpass)) !== '') {   // only Strong passwords
+            set_flash($pwp, 'error');
+            header("Location: patients"); exit;
+        }
 
         if ($id) {
             // UPDATE the patient record.
@@ -54,10 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             // INSERT new patient. Also create a LOGIN ACCOUNT for them when an email
             // is given, so they can book appointments later even as a walk-in.
-            // The password defaults to "password123" if the admin leaves it blank.
+            // Left blank, a random Strong temporary password is created (shown once).
             $newUserId = null;
             if ($email !== '') {
-                $accPass = ($newpass !== '') ? $newpass : 'password123';
+                $accPass = ($newpass !== '') ? $newpass : generate_temp_password();
                 try {
                     $pdo->prepare("INSERT INTO users (name,email,password,role,status) VALUES (?,?,?,'patient','active')")
                         ->execute([$name, $email, password_hash($accPass, PASSWORD_DEFAULT)]);
@@ -80,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($newUserId) {
                 $newMsg = ($newpass !== '')
                     ? 'New patient added with a login account.'
-                    : 'New patient added. Login account created (password: password123).';
+                    : 'New patient added. Login account created — temporary password: ' . $accPass . ' (give it to the patient; they should change it after signing in).';
             } else {
                 $newMsg = 'New patient added (no email given, so no login account yet).';
             }
@@ -521,8 +525,8 @@ $active = 'patients';
 
             <div id="f-pass-wrap">
                 <label class="field-label">Password</label>
-                <input type="text" name="password" id="f-pass" class="form-control mb-1" placeholder="Blank = password123 for new, or keep current when editing">
-                <div class="text-muted2" style="font-size:.78rem;">New patients with an email automatically get a login account so they can book later. Blank password defaults to <strong>password123</strong>.</div>
+                <input type="text" name="password" id="f-pass" class="form-control mb-1" data-pw-meter placeholder="Blank = a strong temporary password is created (new) / kept (edit)">
+                <div class="text-muted2" style="font-size:.78rem;">New patients with an email automatically get a login account so they can book later. Leave the password blank and a strong temporary password is created and shown after saving (only Strong passwords are accepted).</div>
             </div>
         </div>
         <div class="modal-footer">

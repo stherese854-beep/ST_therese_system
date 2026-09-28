@@ -281,7 +281,7 @@ $active = 'records';
                         <div class="col-md-4"><label class="field-label">Full Name</label>
                             <input name="name" class="form-control" value="<?= e($patientRow['name']) ?>" required></div>
                         <div class="col-md-4"><label class="field-label">Age</label>
-                            <input type="number" name="age" class="form-control" value="<?= e($patientRow['age']) ?>"></div>
+                            <input type="number" name="age" class="form-control" min="0" max="120" step="1" data-digits value="<?= e($patientRow['age']) ?>"></div>
                         <div class="col-md-4"><label class="field-label">Blood Type</label>
                             <select name="blood_type" class="form-select">
                                 <option value="">Unknown</option>

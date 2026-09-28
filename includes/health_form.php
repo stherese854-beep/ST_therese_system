@@ -27,7 +27,7 @@ const HEALTH_CONDITIONS = [
 const HEALTH_YESNO = [
     'anesthesia' => ['Have you had serious troubles caused by local anesthesia?', 'Yes, which?', 'yes'],
     'allergy'    => ['Are you allergic to any medicine or other stuff (e.g. penicillin, aspirin, rubber, any foodstuff)?', 'Yes, which?', 'yes'],
-    'smoke'      => ['Do you smoke regularly?', 'Yes, how many (per day)?', 'yes'],
+    'smoke'      => ['Do you smoke regularly?', 'Yes, how many per day?', 'yes'],
     'good_health'=> ['Are you in good health?', 'If not, please tell us more', 'no'],
 ];
 
@@ -56,7 +56,8 @@ function health_form_fields($p = [], $byStaff = false) {
         <label><input type="radio" name="hf[<?= $k ?>]" value="<?= $k === 'good_health' ? 'no' : 'yes' ?>" <?= $chk($k, $k === 'good_health' ? 'no' : 'yes') ?> onchange="hfToggle()"> <?= $k === 'good_health' ? 'No' : 'Yes' ?></label>
         <div class="hf-more" data-when="<?= $k ?>=<?= $when ?>">
           <span><?= e($more) ?></span>
-          <input type="text" name="hf[<?= $k ?>_detail]" class="form-control form-control-sm" maxlength="200" value="<?= $v($k . '_detail') ?>">
+          <input type="text" name="hf[<?= $k ?>_detail]" class="form-control form-control-sm" value="<?= $v($k . '_detail') ?>"
+                 <?= $k === 'smoke' ? 'inputmode="numeric" data-digits maxlength="3" placeholder="per day"' : 'maxlength="200"' ?>>
         </div>
       </div>
       <?php endforeach; ?>

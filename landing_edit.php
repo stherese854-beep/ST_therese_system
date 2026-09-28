@@ -442,7 +442,7 @@ $active = 'landing_edit';
                     <div class="col-md-6"><label class="field-label">Clinic Address</label>
                         <input name="land_contact_address" class="form-control mb-3" value="<?= e(v('land_contact_address','123 Dental St., Naic, Cavite, Philippines')) ?>"></div>
                     <div class="col-md-6"><label class="field-label">Contact Number</label>
-                        <input name="land_contact_phone" class="form-control mb-3" value="<?= e(v('land_contact_phone','(046) 123-4567')) ?>" type="tel" maxlength="20"></div>
+                        <input name="land_contact_phone" class="form-control mb-3" value="<?= e(preg_replace('/\D/', '', v('land_contact_phone','0461234567'))) ?>" type="tel" inputmode="numeric" data-digits maxlength="11"></div>
                     <div class="col-md-6"><label class="field-label">Email Address</label>
                         <input name="land_contact_email" class="form-control mb-3" value="<?= e(v('land_contact_email','hello@stthereesedental.ph')) ?>"></div>
                     <div class="col-md-6"><label class="field-label">Office Hours</label>

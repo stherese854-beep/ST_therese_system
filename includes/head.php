@@ -25,6 +25,64 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
          the latest copy after a deploy, instead of serving a stale cache) -->
     <link href="css/style.css?v=<?= @filemtime(__DIR__ . '/../css/style.css') ?: time() ?>" rel="stylesheet">
     <script>
+    // ---- Number fields: digits only ----
+    // Phone numbers, ages, codes, counts... (type="tel", type="number" or
+    // data-digits) only accept 0-9: other keys are ignored, and pasted or
+    // autofilled text keeps only its digits.
+    (function () {
+        function isDigits(t) { return t && t.tagName === 'INPUT' && (t.type === 'tel' || t.type === 'number' || t.hasAttribute('data-digits')); }
+        // beforeinput sees every typed/inserted character (keyboard, on-screen
+        // keyboards, autofill...), so anything that is not a digit is refused.
+        document.addEventListener('beforeinput', function (e) {
+            if (!isDigits(e.target) || !e.data) return;
+            if (/\D/.test(e.data)) {
+                e.preventDefault();
+                var d = e.data.replace(/\D/g, '');            // keep the digits of pasted/inserted text
+                if (d && e.target.type !== 'number' && typeof e.target.setRangeText === 'function') {
+                    e.target.setRangeText(d, e.target.selectionStart, e.target.selectionEnd, 'end');
+                    e.target.dispatchEvent(new Event('input', { bubbles: true }));
+                } else if (d && e.target.type === 'number') {
+                    e.target.value = (e.target.value || '') + d;
+                }
+            }
+        });
+        document.addEventListener('input', function (e) {
+            var t = e.target;
+            if (!isDigits(t) || t.type === 'number') return;
+            var v = t.value.replace(/\D/g, '');
+            if (t.maxLength > 0) v = v.slice(0, t.maxLength);
+            if (v !== t.value) t.value = v;
+        });
+        document.addEventListener('paste', function (e) {
+            var t = e.target;
+            if (!isDigits(t) || t.type !== 'number') return;
+            var txt = (e.clipboardData || window.clipboardData).getData('text');
+            if (/\D/.test(txt)) { e.preventDefault(); t.value = txt.replace(/\D/g, ''); }
+        });
+    })();
+
+    // ---- Password strength (same scoring as password_strength() in config/auth.php) ----
+    // Any <input data-pw-meter> gets a live "Weak / Medium / Strong" line; only Strong is accepted.
+    function pwLevel(p) {
+        var s = 0; if (p.length >= 8) s++; if (p.length >= 12) s++;
+        if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++; if (/\d/.test(p)) s++; if (/[^A-Za-z0-9]/.test(p)) s++;
+        return (p.length < 8 || s <= 2) ? 'weak' : (s === 3 ? 'medium' : 'strong');
+    }
+    document.addEventListener('input', function (e) {
+        var t = e.target;
+        if (!t || !t.hasAttribute || !t.hasAttribute('data-pw-meter')) return;
+        var box = t.nextElementSibling && t.nextElementSibling.classList && t.nextElementSibling.classList.contains('pw-meter')
+                ? t.nextElementSibling : null;
+        if (!box) { box = document.createElement('div'); box.className = 'pw-meter'; box.style.cssText = 'font-size:.78rem;margin:3px 0 8px;'; t.insertAdjacentElement('afterend', box); }
+        if (t.value === '') { box.textContent = ''; t.setCustomValidity(''); return; }
+        var lv = pwLevel(t.value);
+        box.style.color = lv === 'strong' ? '#138a4e' : (lv === 'medium' ? '#b07d12' : '#c0392b');
+        box.textContent = lv === 'strong' ? '✓ Strong — good to go'
+            : (lv === 'medium' ? 'Medium — not strong enough yet' : 'Weak — not allowed')
+              + ': use 8+ characters with upper- and lower-case letters, a number and a symbol.';
+        t.setCustomValidity(lv === 'strong' ? '' : 'Please choose a Strong password.');
+    });
+
     // Browser-side mirror of validate_phone() in config/auth.php, so people see
     // the problem straight away. The server check is still the one that counts.
     function phoneProblem(v, required) {

@@ -150,8 +150,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$row || !password_verify($current, $row['password'])) {
             $pwError = 'Your current password is incorrect.';
-        } elseif (strlen($new) < 6) {
-            $pwError = 'New password must be at least 6 characters.';
+        } elseif (($pwp = password_problem($new)) !== '') {
+            $pwError = $pwp;
         } elseif ($new !== $confirm) {
             $pwError = 'The new passwords do not match.';
         } else {
@@ -276,7 +276,7 @@ $active = 'settings';
                         <div class="row">
                             <div class="col-md-6">
                                 <label class="field-label">Phone</label>
-                                <input name="clinic_phone" class="form-control mb-3" value="<?= e(cfg($cfg,'clinic_phone')) ?>" type="tel" maxlength="20" placeholder="(046) 123-4567 or 0917 123 4567">
+                                <input name="clinic_phone" class="form-control mb-3" value="<?= e(preg_replace('/\D/', '', (string)cfg($cfg,'clinic_phone'))) ?>" type="tel" inputmode="numeric" data-digits maxlength="11" placeholder="0461234567 or 09171234567">
                             </div>
                             <div class="col-md-6">
                                 <label class="field-label">Email</label>
@@ -510,7 +510,7 @@ $active = 'settings';
 
                 <label class="field-label">New Password</label>
 <div class="pw-wrap mb-1">
-                    <input type="password" name="new_password" class="form-control" required minlength="6">
+                    <input type="password" name="new_password" class="form-control" required minlength="8" data-pw-meter>
                     <button type="button" class="pw-eye" aria-label="Show password">
                         <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                         <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>

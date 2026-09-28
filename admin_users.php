@@ -48,8 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_activity($pdo, 'Updated user', "$name ($role)");
             set_flash('User updated.');
         } else {
-            // New users get the default password (they should change it later).
-            $hash = password_hash('password123', PASSWORD_DEFAULT);
+            // New users get a random Strong temporary password (shown once, emailed).
+            $tempPass = generate_temp_password();
+            $hash = password_hash($tempPass, PASSWORD_DEFAULT);
             $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status) VALUES (?,?,?,?,?,?,?)")
                 ->execute([$name,$email,$hash,$role,$spec,$contact,$status]);
 
@@ -60,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$wSubj, $body] = tpl_message($pdo, 'account_welcome', $cat['subject'], $cat['body'], [
                     'name'     => $name,
                     'email'    => $email,
-                    'password' => 'password123',
+                    'password' => $tempPass,
                     'clinic'   => clinic_name($pdo),
                 ]);
                 $err = '';
@@ -69,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                       : " (Note: the welcome email could not be sent — $err)";
             }
             log_activity($pdo, 'Created user', "$name ($role)");
-            set_flash("$name added (password: password123)." . $note);
+            set_flash("$name added. Temporary password: $tempPass — please give it to them; they should change it after signing in." . $note);
         }
         header("Location: admin_users"); exit;
     }
