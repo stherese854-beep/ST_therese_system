@@ -413,7 +413,7 @@ $clinicInfo = [];
 try {
     foreach ($pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN
               ('clinic_name','clinic_phone','clinic_email','clinic_address','land_contact_phone',
-               'land_contact_email','land_contact_address','land_contact_hours','operating_hours')") as $r) {
+               'land_contact_email','land_contact_address','land_contact_hours','operating_hours','land_contact_facebook')") as $r) {
         $clinicInfo[$r['setting_key']] = trim((string)$r['setting_value']);
     }
 } catch (Throwable $e) {}
@@ -423,6 +423,7 @@ $clinicPhone   = $ci('land_contact_phone', 'clinic_phone');
 $clinicEmail   = $ci('land_contact_email', 'clinic_email');
 $clinicAddress = $ci('land_contact_address', 'clinic_address');
 $clinicHours   = $ci('land_contact_hours', 'operating_hours');
+$clinicFacebook = facebook_url($ci('land_contact_facebook'))[0];
 
 // A small "Delete" button that moves an item to My Archive (or restores it).
 function archive_button($type, $id, $restore = false, $back = '') {
@@ -1093,6 +1094,11 @@ include 'includes/head.php';
                     <?php endif; ?>
                     <?php if ($clinicHours !== ''): ?>
                     <div class="col-md-6"><div class="field-label">🕘 Clinic Hours</div><?= e($clinicHours) ?></div>
+                    <?php endif; ?>
+                    <?php if ($clinicFacebook !== ''): ?>
+                    <div class="col-md-6"><div class="field-label">📘 Facebook</div>
+                        <a href="<?= e($clinicFacebook) ?>" target="_blank" rel="noopener noreferrer">
+                            <?= e(preg_replace('#^https?://(www\.)?#i', '', $clinicFacebook)) ?></a></div>
                     <?php endif; ?>
                 </div>
             </div>

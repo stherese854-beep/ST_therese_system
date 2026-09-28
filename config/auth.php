@@ -928,6 +928,23 @@ function delete_patient_records($pdo, $patientId) {
 //  need it — the landing editor, message templates, messaging config
 //  and system settings.
 // ============================================================
+// The clinic's Facebook page: a facebook.com / fb.com link, or just the page
+// name ("StThereseDental" -> https://www.facebook.com/StThereseDental).
+// Returns [url, error]; a blank value is allowed (no Facebook shown).
+function facebook_url($raw) {
+    $raw = trim((string)$raw);
+    if ($raw === '') return ['', ''];
+    if (preg_match('/^@?[A-Za-z0-9.\-]{3,80}$/', $raw) && !preg_match('/facebook\.com|fb\.com/i', $raw)) {
+        return ['https://www.facebook.com/' . ltrim($raw, '@'), ''];
+    }
+    $url  = preg_match('#^https?://#i', $raw) ? $raw : 'https://' . $raw;
+    $host = strtolower((string)parse_url($url, PHP_URL_HOST));
+    $ok   = $host !== '' && preg_match('/(^|\.)(facebook\.com|fb\.com|fb\.me)$/', $host)
+            && filter_var($url, FILTER_VALIDATE_URL);
+    if (!$ok) return ['', 'Facebook: please paste a facebook.com link (e.g. https://www.facebook.com/YourClinicPage).'];
+    return [preg_replace('#^http://#i', 'https://', $url), ''];
+}
+
 function save_setting($pdo, $key, $value) {
     $pdo->prepare(
         "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)

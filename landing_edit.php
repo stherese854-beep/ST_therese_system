@@ -29,6 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: landing_edit"); exit;
             }
         }
+        if (isset($_POST['land_contact_facebook'])) {
+            [$fbUrl, $fbErr] = facebook_url($_POST['land_contact_facebook']);
+            if ($fbErr !== '') { set_flash($fbErr, 'error'); header("Location: landing_edit"); exit; }
+            $_POST['land_contact_facebook'] = $fbUrl;
+        }
         // Save every "land_*" field that was submitted.
         foreach ($_POST as $k => $v) {
             if (strpos($k, 'land_') === 0) {
@@ -447,6 +452,8 @@ $active = 'landing_edit';
                         <input name="land_contact_email" class="form-control mb-3" value="<?= e(v('land_contact_email','hello@stthereesedental.ph')) ?>"></div>
                     <div class="col-md-6"><label class="field-label">Office Hours</label>
                         <input name="land_contact_hours" class="form-control mb-3" value="<?= e(v('land_contact_hours','Mon–Sat · 9:00 AM – 5:00 PM')) ?>"></div>
+                    <div class="col-12"><label class="field-label">Facebook Page</label>
+                        <input name="land_contact_facebook" class="form-control mb-3" placeholder="https://www.facebook.com/YourClinicPage" value="<?= e(v('land_contact_facebook','')) ?>"></div>
                 </div>
 
                 <label class="field-label">📍 Google Map Location</label>
