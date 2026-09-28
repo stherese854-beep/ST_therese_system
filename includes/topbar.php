@@ -177,6 +177,10 @@ $badgeCount = ($unreadCount === null) ? $notifCount : $unreadCount;
         <a href="<?= $tbProfileLink ?>" class="pw-item">⚙️ Profile &amp; Settings</a>
         <?php if ($tbRole !== 'admin'): ?>
             <a href="<?= $tbRole === 'patient' ? 'portal?view=activity' : 'my_activity' ?>" class="pw-item">🧾 My Activity</a>
+            <?php if ($tbRole === 'patient'): ?>
+                <a href="portal?view=contact" class="pw-item">📞 Clinic Contact</a>
+                <a href="portal?view=archive" class="pw-item" style="padding-left:34px;font-size:.9em;">🗄 My Archive</a>
+            <?php endif; ?>
         <?php endif; ?>
         <a href="logout" class="pw-item pw-signout" data-confirm="Are you sure you want to log out?" data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-icon="⏻">⏻ Sign Out</a>
     </div>

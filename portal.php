@@ -4,7 +4,8 @@
 // ============================================================
 //  The logged-in patient's own dashboard.
 //  Sections: Appointments / My Dental Chart / My Records /
-//            My Profile / Announcements.
+//            My Profile / Announcements / My Activity /
+//            Clinic Contact / My Archive.
 //  (The old "Overview" section was removed.)
 // ============================================================
 require_once 'config/auth.php';
@@ -33,6 +34,27 @@ $me = $stmt->fetch();
 $pid = $me['id'] ?? 0;
 $firstName = explode(' ', $_SESSION['name'])[0];
 
+// ---- My Archive ----
+// "Delete" on a past appointment or a treatment record only hides it from
+// THIS patient's portal (the clinic keeps the real record). Hidden items
+// are listed under Clinic Contact > My Archive, where they can be restored.
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS patient_archive (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        item_type ENUM('appointment','treatment') NOT NULL,
+        item_id INT NOT NULL,
+        archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_item (user_id, item_type, item_id)
+    )");
+} catch (Throwable $e) {}
+$archivedIds = ['appointment' => [], 'treatment' => []];
+try {
+    $q = $pdo->prepare("SELECT item_type, item_id, archived_at FROM patient_archive WHERE user_id = ?");
+    $q->execute([$_SESSION['user_id']]);
+    foreach ($q->fetchAll() as $r) $archivedIds[$r['item_type']][(int)$r['item_id']] = $r['archived_at'];
+} catch (Throwable $e) {}
+
 // Their login account (for the verification badge + password change).
 $acc = $pdo->prepare("SELECT * FROM users WHERE id=?");
 $acc->execute([$_SESSION['user_id']]);
@@ -43,6 +65,40 @@ $pwError = '';
 // ---------- Save profile / password changes ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+
+    // Delete (move to My Archive) or restore a past appointment / treatment record.
+    if (in_array($action, ['archive_item', 'restore_item'], true) && $pid) {
+        $type = ($_POST['item_type'] ?? '') === 'treatment' ? 'treatment' : 'appointment';
+        $id   = (int)($_POST['item_id'] ?? 0);
+        $back = ($_POST['back'] ?? '') === 'archive' ? 'archive' : ($type === 'treatment' ? 'records' : 'appointments');
+        // Only this account's own items, and only appointments that are over.
+        if ($type === 'treatment') {
+            $chk = $pdo->prepare("SELECT treatment_name AS label, treatment_date AS d FROM treatments WHERE id = ? AND patient_id = ?");
+            $chk->execute([$id, $pid]);
+        } else {
+            $fam = family_patient_ids($pdo, $pid);
+            $chk = $pdo->prepare("SELECT treatment AS label, appointment_date AS d FROM appointments
+                                   WHERE id = ? AND patient_id IN (" . in_placeholders($fam) . ")
+                                     AND (appointment_date < CURDATE()
+                                          OR status IN ('Completed','Cancelled','No-show','Arrived','Expired','Needs Review'))");
+            $chk->execute(array_merge([$id], $fam));
+        }
+        $item = $chk->fetch();
+        if (!$item) {
+            set_flash('That item could not be found.', 'error');
+        } elseif ($action === 'archive_item') {
+            $pdo->prepare("INSERT IGNORE INTO patient_archive (user_id, item_type, item_id) VALUES (?,?,?)")
+                ->execute([$_SESSION['user_id'], $type, $id]);
+            log_activity($pdo, 'Archived ' . $type, $item['label'] . ' (' . $item['d'] . ')');
+            set_flash('Moved to My Archive. You can restore it from Clinic Contact › My Archive.');
+        } else {
+            $pdo->prepare("DELETE FROM patient_archive WHERE user_id = ? AND item_type = ? AND item_id = ?")
+                ->execute([$_SESSION['user_id'], $type, $id]);
+            log_activity($pdo, 'Restored ' . $type, $item['label'] . ' (' . $item['d'] . ')');
+            set_flash('Restored.');
+        }
+        header("Location: portal?view=" . $back); exit;
+    }
 
     // Patient edits their own personal information.
     // Patient updates their own health questionnaire.
@@ -344,6 +400,42 @@ if ($pid) {
     }
     // Upcoming should read soonest-first.
     usort($upcomingAppts, fn($x,$y) => strcmp($x['appointment_date'], $y['appointment_date']));
+}
+
+// Items the patient deleted go to My Archive instead of History / My Records.
+$archivedAppts = array_values(array_filter($pastAppts, fn($a) => isset($archivedIds['appointment'][(int)$a['id']])));
+$pastAppts     = array_values(array_filter($pastAppts, fn($a) => !isset($archivedIds['appointment'][(int)$a['id']])));
+$archivedTreatments = array_values(array_filter($myTreatments, fn($t) => isset($archivedIds['treatment'][(int)$t['id']])));
+$myTreatments       = array_values(array_filter($myTreatments, fn($t) => !isset($archivedIds['treatment'][(int)$t['id']])));
+
+// Clinic contact details (the same ones shown on the public home page).
+$clinicInfo = [];
+try {
+    foreach ($pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN
+              ('clinic_name','clinic_phone','clinic_email','clinic_address','land_contact_phone',
+               'land_contact_email','land_contact_address','land_contact_hours','operating_hours')") as $r) {
+        $clinicInfo[$r['setting_key']] = trim((string)$r['setting_value']);
+    }
+} catch (Throwable $e) {}
+$ci = fn(...$keys) => array_reduce($keys, fn($c, $k) => $c !== '' ? $c : ($clinicInfo[$k] ?? ''), '');
+$clinicName    = $ci('clinic_name') ?: 'St. Therese Dental Clinic';
+$clinicPhone   = $ci('land_contact_phone', 'clinic_phone');
+$clinicEmail   = $ci('land_contact_email', 'clinic_email');
+$clinicAddress = $ci('land_contact_address', 'clinic_address');
+$clinicHours   = $ci('land_contact_hours', 'operating_hours');
+
+// A small "Delete" button that moves an item to My Archive (or restores it).
+function archive_button($type, $id, $restore = false, $back = '') {
+    $msg = $restore ? 'Put this back in your ' . ($type === 'treatment' ? 'records' : 'history') . '?'
+                    : 'Delete this from your ' . ($type === 'treatment' ? 'records' : 'history') . "?\nIt will be moved to My Archive, where you can restore it.";
+    return '<form method="POST" class="d-inline" onsubmit="return confirm(' . e(json_encode($msg)) . ')">'
+         . '<input type="hidden" name="action" value="' . ($restore ? 'restore_item' : 'archive_item') . '">'
+         . '<input type="hidden" name="item_type" value="' . e($type) . '">'
+         . '<input type="hidden" name="item_id" value="' . (int)$id . '">'
+         . ($back ? '<input type="hidden" name="back" value="' . e($back) . '">' : '')
+         . ($restore ? '<button class="btn btn-sm btn-outline-success">↩ Restore</button>'
+                     : '<button class="btn btn-sm btn-outline-danger" title="Move to My Archive">🗑 Delete</button>')
+         . '</form>';
 }
 
 // ---------- Data for the reschedule dialog ----------
@@ -698,8 +790,8 @@ include 'includes/head.php';
                     A record of all your past visits<?= count($pastAppts) ? ' (' . count($pastAppts) . ')' : '' ?>.
                 </div>
                 <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-                <table class="data" style="min-width:560px;">
-                    <thead><tr><th>Patient</th><th>Treatment</th><th>Date</th><th>Time</th><th>Dentist</th><th>Status</th></tr></thead>
+                <table class="data" style="min-width:640px;">
+                    <thead><tr><th>Patient</th><th>Treatment</th><th>Date</th><th>Time</th><th>Dentist</th><th>Status</th><th></th></tr></thead>
                     <tbody>
                     <?php foreach ($pastAppts as $a): ?>
                         <tr>
@@ -718,10 +810,11 @@ include 'includes/head.php';
                             <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                             <td><?= e($a['dentist']) ?></td>
                             <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span></td>
+                            <td class="text-end"><?= archive_button('appointment', $a['id']) ?></td>
                         </tr>
                     <?php endforeach; ?>
                     <?php if (empty($pastAppts)): ?>
-                        <tr><td colspan="6" class="text-center text-muted2 py-4">
+                        <tr><td colspan="7" class="text-center text-muted2 py-4">
                             <div style="font-size:1.8rem;">🗂</div>
                             No past visits yet. Your visit history will appear here after your appointments.
                         </td></tr>
@@ -980,6 +1073,81 @@ include 'includes/head.php';
                 <?php if (!$myActivity): ?><p class="text-muted2 text-center py-4">No activity <?= ($actQ !== '' || $actDate !== '') ? 'matches your filter.' : 'recorded yet.' ?></p><?php endif; ?>
             </div>
 
+        <?php elseif ($view === 'contact'): ?>
+            <!-- ===== CLINIC CONTACT ===== -->
+            <div class="card-box mb-3">
+                <h5 class="mb-1">📞 Clinic Contact</h5>
+                <div class="text-muted2 mb-3" style="font-size:.85rem;">Questions about your appointment or treatment? Reach us here.</div>
+                <div style="font-weight:700;font-size:1.05rem;color:var(--teal-dark);" class="mb-3"><?= e($clinicName) ?></div>
+                <div class="row g-3">
+                    <?php if ($clinicPhone !== ''): ?>
+                    <div class="col-md-6"><div class="field-label">📱 Phone</div>
+                        <a href="tel:<?= e(preg_replace('/[^0-9+]/', '', $clinicPhone)) ?>"><?= e($clinicPhone) ?></a></div>
+                    <?php endif; ?>
+                    <?php if ($clinicEmail !== ''): ?>
+                    <div class="col-md-6"><div class="field-label">✉️ Email</div>
+                        <a href="mailto:<?= e($clinicEmail) ?>"><?= e($clinicEmail) ?></a></div>
+                    <?php endif; ?>
+                    <?php if ($clinicAddress !== ''): ?>
+                    <div class="col-md-6"><div class="field-label">📍 Address</div><?= e($clinicAddress) ?></div>
+                    <?php endif; ?>
+                    <?php if ($clinicHours !== ''): ?>
+                    <div class="col-md-6"><div class="field-label">🕘 Clinic Hours</div><?= e($clinicHours) ?></div>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="card-box">
+                <div class="flex-between flex-wrap gap-2">
+                    <div>
+                        <h5 class="mb-1">🗄 My Archive</h5>
+                        <div class="text-muted2" style="font-size:.85rem;">
+                            Appointments and records you deleted<?php $nArc = count($archivedAppts) + count($archivedTreatments); ?><?= $nArc ? ' (' . $nArc . ')' : '' ?>. You can restore them anytime.
+                        </div>
+                    </div>
+                    <a href="portal?view=archive" class="btn btn-sm btn-teal">Open My Archive</a>
+                </div>
+            </div>
+
+        <?php elseif ($view === 'archive'): ?>
+            <!-- ===== MY ARCHIVE (items the patient deleted) ===== -->
+            <div class="mb-2"><a href="portal?view=contact" class="text-muted2" style="font-size:.85rem;">‹ Back to Clinic Contact</a></div>
+            <div class="card-box mb-3">
+                <h5 class="mb-1">🗄 My Archive — Appointment History</h5>
+                <div class="text-muted2 mb-2" style="font-size:.85rem;">Only hidden from your account — the clinic still keeps these for your care.</div>
+                <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+                <table class="data" style="min-width:640px;">
+                    <thead><tr><th>Patient</th><th>Treatment</th><th>Date</th><th>Time</th><th>Dentist</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ($archivedAppts as $a): ?>
+                        <tr>
+                            <td><?= e($a['patient_name']) ?></td>
+                            <td><?= e($a['treatment']) ?></td>
+                            <td><?= date('M j, Y', strtotime($a['appointment_date'])) ?></td>
+                            <td class="date-blue"><?= e($a['appointment_time']) ?></td>
+                            <td><?= e($a['dentist']) ?></td>
+                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span></td>
+                            <td class="text-end"><?= archive_button('appointment', $a['id'], true, 'archive') ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (!$archivedAppts): ?>
+                        <tr><td colspan="7" class="text-center text-muted2 py-3">No archived appointments.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            <div class="card-box">
+                <h5 class="mb-2">🗄 My Archive — Treatment Records</h5>
+                <?php foreach ($archivedTreatments as $t): ?>
+                    <div class="flex-between py-3 border-bottom gap-2">
+                        <div><strong><?= e($t['treatment_name']) ?></strong><br>
+                            <small class="text-muted2"><?= e($t['treatment_date']) ?> • <?= e($t['dentist']) ?></small></div>
+                        <?= archive_button('treatment', $t['id'], true, 'archive') ?>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (!$archivedTreatments): ?><p class="text-muted2 text-center py-3 mb-0">No archived records.</p><?php endif; ?>
+            </div>
+
         <?php else: ?>
             <!-- ===== MY RECORDS (treatment history) ===== -->
             <div class="card-box">
@@ -992,7 +1160,10 @@ include 'includes/head.php';
                                 <small class="text-muted2"><?= e($t['treatment_date']) ?> • <?= e($t['dentist']) ?></small><br>
                                 <small><?= e($t['notes']) ?></small></div>
                         </div>
-                        <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':'progress' ?>"><?= e($t['status']) ?></span>
+                        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                            <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':'progress' ?>"><?= e($t['status']) ?></span>
+                            <?= archive_button('treatment', $t['id']) ?>
+                        </div>
                     </div>
                 <?php endforeach; ?>
                 <?php if (!$myTreatments): ?><p class="text-muted2 text-center py-3">No records yet.</p><?php endif; ?>
