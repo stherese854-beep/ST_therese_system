@@ -317,6 +317,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($healthForm)) {
 } elseif ($me['id']) {
     [$hfPrefill] = patient_health($pdo, $me['id']);          // their record's latest answers
 }
+// Saved answers of this account holder and of each family member they book for,
+// so the questionnaire shows the answers of whoever the booking is for.
+$hfMine = $me['id'] ? patient_health($pdo, $me['id'])[0] : [];
+$hfFamily = [];                                           // person_key(name) => answers
+if ($me['id']) {
+    $fm = $pdo->prepare("SELECT id, name FROM patients WHERE guardian_patient_id = ?");
+    $fm->execute([$me['id']]);
+    foreach ($fm->fetchAll() as $f) { [$ans] = patient_health($pdo, $f['id']); if ($ans) $hfFamily[person_key($f['name'])] = $ans; }
+}
 
 // ---- What the date & time pickers treat as unavailable ----
 // A booking goes to ANY free dentist, so a date or time is only blocked
@@ -459,8 +468,8 @@ include 'includes/head.php';
         <!-- Step indicator -->
         <div class="steps">
             <div class="step active" id="ind-1"><div class="dot">1</div><small>Schedule</small></div>
-            <div class="step"        id="ind-2"><div class="dot">2</div><small>Service</small></div>
-            <div class="step"        id="ind-3"><div class="dot">3</div><small>Personal Info</small></div>
+            <div class="step"        id="ind-2"><div class="dot">2</div><small>Personal Info</small></div>
+            <div class="step"        id="ind-3"><div class="dot">3</div><small>Service</small></div>
             <div class="step"        id="ind-4"><div class="dot">4</div><small>Confirm</small></div>
         </div>
 
@@ -502,7 +511,7 @@ include 'includes/head.php';
             </div>
 
             <!-- STEP 2: Service -->
-            <div class="wizard-step d-none" id="step-2">
+            <div class="wizard-step d-none" id="step-3">
                 <h3>Service</h3>
                 <p class="text-muted2">Choose the treatment you would like, then tell us about your health.</p>
 
@@ -518,17 +527,18 @@ include 'includes/head.php';
                 <input type="hidden" name="pref_dentist" value="">
 
                 <?= health_form_styles() ?>
+                <div id="hf-person-note" class="text-muted2 mb-1" style="font-size:.82rem;"><?= ($_SERVER['REQUEST_METHOD'] !== 'POST' && $hfMine) ? 'These are your saved answers — please review and update them.' : '' ?></div>
                 <div id="hf-wrap"><?= health_form_fields($hfPrefill) ?></div>
                 <div id="hf-warn" class="text-danger small mb-2" style="display:none;"></div>
 
                 <div class="flex-between">
-                    <button type="button" class="btn btn-outline-teal" onclick="goStep(1)">← Back</button>
+                    <button type="button" class="btn btn-outline-teal" onclick="goStep(2)">← Back</button>
                     <button type="button" class="btn btn-teal" onclick="validateStep2()">Continue →</button>
                 </div>
             </div>
 
             <!-- STEP 3: Personal Info -->
-            <div class="wizard-step d-none" id="step-3">
+            <div class="wizard-step d-none" id="step-2">
                 <h3>Personal Information</h3>
                 <p class="text-muted2">Your details are pre-filled. You can book for yourself or for someone else (e.g. your child).</p>
 
@@ -594,7 +604,7 @@ include 'includes/head.php';
                 <div id="phone-warn" class="text-danger small mb-3" style="display:none;">Please enter your phone number.</div>
 
                 <div class="flex-between">
-                    <button type="button" class="btn btn-outline-teal" onclick="goStep(2)">← Back</button>
+                    <button type="button" class="btn btn-outline-teal" onclick="goStep(1)">← Back</button>
                     <button type="button" class="btn btn-teal" onclick="validateStep3()">Continue →</button>
                 </div>
             </div>
@@ -808,7 +818,7 @@ function isSlotPast(slotStr) {
     return slotMinutes <= nowMinutes;
 }
 
-// Step 3: require phone, and the patient's name.
+// Step 2 (Personal Info): require phone, and the patient's name.
 function validateStep3() {
     var phone = document.getElementById('sel-phone').value.trim();
     var fn = document.getElementById('sel-fname').value.trim();
@@ -866,7 +876,8 @@ function validateStep3() {
         return;
     }
     document.getElementById('phone-warn').style.display = 'none';
-    goStep(4);
+    hfPrefillFor();          // show the health answers of the person this booking is for
+    goStep(3);
 }
 
 // "Other relative": ask which relative.
@@ -903,7 +914,29 @@ function validateStep2() {
         }
     }
     warn.style.display = 'none';
-    goStep(3);
+    goStep(4);
+}
+
+// ---- Health questionnaire follows the person the booking is for ----
+// Myself -> my saved answers; someone already on file -> theirs; someone new -> blank.
+// Only refilled when the person changes, so going back and forth keeps edits.
+var HF_MINE   = <?= json_encode((object)$hfMine, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+var HF_FAMILY = <?= json_encode((object)$hfFamily, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+var hfPerson  = <?= json_encode($_SERVER['REQUEST_METHOD'] === 'POST' ? 'posted' : '__me') ?>;
+function hfPrefillFor() {
+    var other = document.querySelector('input[name="for"]:checked').value === 'other';
+    var name  = (document.getElementById('sel-fname').value + ' ' + document.getElementById('sel-lname').value)
+                  .toLowerCase().replace(/\s+/g, ' ').trim();
+    var key   = other ? 'o:' + name : '__me';
+    if (key === hfPerson) return;
+    hfPerson = key;
+    var known = other ? HF_FAMILY[name] : HF_MINE;
+    hfFill(document.getElementById('hf-wrap'), known || {});
+    var note = document.getElementById('hf-person-note');
+    if (note) note.textContent = other
+        ? (known ? 'These are ' + document.getElementById('sel-fname').value + "'s saved answers — please review them."
+                 : 'Please answer for ' + (document.getElementById('sel-fname').value || 'the patient') + '.')
+        : (Object.keys(HF_MINE).length ? 'These are your saved answers — please review and update them.' : '');
 }
 
 // Toggle between booking for "myself" (name locked) and "someone else" (name editable).
