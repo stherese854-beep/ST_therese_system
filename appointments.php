@@ -530,12 +530,12 @@ $active = 'appointments';
             <div class="table-responsive">
                 <table class="data">
                     <thead><tr>
-                        <th>Patient</th><th>Dentist</th><th>Date</th><th>Time</th>
+                        <th>Patient</th><?php if (!$isDentist): ?><th>Dentist</th><?php endif; /* a dentist only sees their own */ ?><th>Date</th><th>Time</th>
                         <th>Treatment</th><th>Status</th><th>Actions</th>
                     </tr></thead>
                     <tbody>
                     <?php if (empty($appts)): ?>
-                        <tr><td colspan="7" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
+                        <tr><td colspan="<?= $isDentist ? 6 : 7 ?>" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
                             <div style="font-size:2.4rem;margin-bottom:8px;">📅</div>
                             <?php if ($search !== '' || $filter !== 'All'): ?>
                                 No appointments match. <a href="appointments" style="color:var(--teal);">Clear filters</a>
@@ -547,7 +547,7 @@ $active = 'appointments';
                     <?php foreach ($appts as $a): ?>
                         <tr>
                             <td><strong><?= e($a['patient_name']) ?></strong></td>
-                            <td><?= e($a['dentist']) ?></td>
+                            <?php if (!$isDentist): ?><td><?= e($a['dentist']) ?></td><?php endif; ?>
                             <td><?= e($a['appointment_date']) ?></td>
                             <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                             <td><?= e($a['treatment']) ?>
@@ -650,7 +650,7 @@ $active = 'appointments';
                         </tr>
                     <?php endforeach; ?>
                     <?php if (!$appts): ?>
-                        <tr><td colspan="7" class="text-center text-muted2 py-4">No appointments in this view.</td></tr>
+                        <tr><td colspan="<?= $isDentist ? 6 : 7 ?>" class="text-center text-muted2 py-4">No appointments in this view.</td></tr>
                     <?php endif; ?>
                     </tbody>
                 </table>
