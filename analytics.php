@@ -15,23 +15,49 @@
 require_once 'config/auth.php';
 require_login(['admin']);
 
-// ---------- Date range ----------
+// ---------- Period ----------
+// Presets (last 30/90 days, 12 months, all time) run from their start date
+// onwards, upcoming bookings included. A specific MONTH (?range=month&m=2026-06)
+// or DAY (?range=day&d=2026-06-15) is exactly that period.
 $ranges = ['30' => 'Last 30 days', '90' => 'Last 90 days', '365' => 'Last 12 months', 'all' => 'All time'];
-$range  = array_key_exists($_GET['range'] ?? '', $ranges) ? $_GET['range'] : '365';
+$range  = $_GET['range'] ?? '365';
+$today  = new DateTimeImmutable('today');
+$end    = null;                                            // null = no upper limit
 
-$today = new DateTimeImmutable('today');
-if ($range === 'all') {
-    $minDate = $pdo->query("SELECT MIN(appointment_date) FROM appointments")->fetchColumn();
-    $start   = $minDate ? new DateTimeImmutable($minDate) : $today;
+// Only real calendar dates (e.g. Feb 31 is refused, not rolled into March).
+$validDate = function ($v, $fmt) {
+    $d = DateTimeImmutable::createFromFormat('!' . $fmt, (string)$v);
+    return $d && $d->format($fmt) === $v;
+};
+$pickMonth = $validDate($_GET['m'] ?? '', 'Y-m')   ? $_GET['m'] : $today->format('Y-m');
+$pickDay   = $validDate($_GET['d'] ?? '', 'Y-m-d') ? $_GET['d'] : $today->format('Y-m-d');
+
+if ($range === 'month') {
+    $start = new DateTimeImmutable("$pickMonth-01");
+    $end   = $start->modify('last day of this month');
+    $rangeLabel = $start->format('F Y');
+} elseif ($range === 'day') {
+    $start = $end = new DateTimeImmutable($pickDay);
+    $rangeLabel = $start->format('l, F j, Y');
 } else {
-    $start = $today->modify('-' . ((int)$range - 1) . ' days');
+    if (!isset($ranges[$range])) $range = '365';
+    if ($range === 'all') {
+        $minDate = $pdo->query("SELECT MIN(appointment_date) FROM appointments")->fetchColumn();
+        $start   = $minDate ? new DateTimeImmutable($minDate) : $today;
+    } else {
+        $start = $today->modify('-' . ((int)$range - 1) . ' days');
+    }
+    $rangeLabel = $ranges[$range] . ' (from ' . $start->format('M j, Y') . ')';
 }
 $startStr = $start->format('Y-m-d');
+$endStr   = $end ? $end->format('Y-m-d') : null;
+$isDay    = ($range === 'day');
+$isDaily  = ($range === 'month' || ($end === null && (int)$start->diff($today)->days < 62 && $range !== 'all'));
 
-// Appointments in range (upcoming ones included, so pending demand shows).
+// Appointments in the period (for presets: upcoming ones included, so pending demand shows).
 $ap = $pdo->prepare("SELECT appointment_date, appointment_time, status, treatment, dentist, cancelled_by
-                       FROM appointments WHERE appointment_date >= ?");
-$ap->execute([$startStr]);
+                       FROM appointments WHERE appointment_date >= ?" . ($endStr ? " AND appointment_date <= ?" : ""));
+$ap->execute($endStr ? [$startStr, $endStr] : [$startStr]);
 $appts = $ap->fetchAll();
 $total = count($appts);
 
@@ -51,28 +77,37 @@ $rev = $pdo->query("SELECT COUNT(*) n, AVG(rating) avg FROM reviews")->fetch();
 // ---------- Chart data ----------
 $charts = [];   // id => [title, subtitle, labels, values, unit, orientation]
 
-// Appointments per month (every month in range, zeros included)
-$months = [];
-$cursor = $start->modify('first day of this month');
-$lastMonth = $today->modify('first day of this month');
-foreach ($appts as $a) {                                      // stretch to upcoming months
-    $m = (new DateTimeImmutable($a['appointment_date']))->modify('first day of this month');
-    if ($m > $lastMonth) $lastMonth = $m;
-}
-while ($cursor <= $lastMonth) { $months[$cursor->format('Y-m')] = 0; $cursor = $cursor->modify('+1 month'); }
-foreach ($appts as $a) { $k = substr($a['appointment_date'], 0, 7); if (isset($months[$k])) $months[$k]++; }
-$charts['perMonth'] = ['Appointments per month', 'By appointment date · includes upcoming',
-    array_map(fn($k) => date('M Y', strtotime("$k-01")), array_keys($months)), array_values($months), 'appointment', 'line'];
+// Appointments + new patients over time (every bucket in the period, zeros included)
+if (!$isDay) {
+    $bucketKey = $isDaily ? fn($d) => substr($d, 0, 10) : fn($d) => substr($d, 0, 7);
+    $buckets = [];
+    $cursor  = $isDaily ? $start : $start->modify('first day of this month');
+    $last    = $end ?? $today;
+    foreach ($appts as $a) {                                  // presets: stretch to upcoming bookings
+        $d = new DateTimeImmutable($a['appointment_date']);
+        if ($d > $last) $last = $d;
+    }
+    if (!$isDaily) $last = $last->modify('first day of this month');
+    while ($cursor <= $last) {
+        $buckets[$cursor->format($isDaily ? 'Y-m-d' : 'Y-m')] = 0;
+        $cursor = $cursor->modify($isDaily ? '+1 day' : '+1 month');
+    }
+    $label = fn($k) => $isDaily ? date('M j', strtotime($k)) : date('M Y', strtotime("$k-01"));
 
-// New patients per month
-$pm = $pdo->prepare("SELECT DATE_FORMAT(p.created_at, '%Y-%m') m, COUNT(*) n FROM patients p
-                       LEFT JOIN users u ON p.user_id = u.id
-                      WHERE (u.id IS NULL OR u.role = 'patient') AND p.created_at >= ? GROUP BY m");
-$pm->execute([$start->modify('first day of this month')->format('Y-m-d')]);
-$newPts = array_fill_keys(array_keys($months), 0);
-foreach ($pm->fetchAll() as $r) if (isset($newPts[$r['m']])) $newPts[$r['m']] = (int)$r['n'];
-$charts['newPatients'] = ['New patients per month', 'Patient records created',
-    array_map(fn($k) => date('M Y', strtotime("$k-01")), array_keys($newPts)), array_values($newPts), 'patient', 'line'];
+    $per = $buckets;
+    foreach ($appts as $a) { $k = $bucketKey($a['appointment_date']); if (isset($per[$k])) $per[$k]++; }
+    $charts['perMonth'] = [$isDaily ? 'Appointments per day' : 'Appointments per month',
+        'By appointment date' . ($end ? '' : ' · includes upcoming'),
+        array_map($label, array_keys($per)), array_values($per), 'appointment', 'line'];
+
+    $pm = $pdo->prepare("SELECT p.created_at FROM patients p LEFT JOIN users u ON p.user_id = u.id
+                          WHERE (u.id IS NULL OR u.role = 'patient') AND p.created_at >= ?" . ($endStr ? " AND p.created_at < ?" : ""));
+    $pm->execute($endStr ? [$startStr, $end->modify('+1 day')->format('Y-m-d')] : [$startStr]);
+    $np = $buckets;
+    foreach ($pm->fetchAll(PDO::FETCH_COLUMN) as $c) { $k = $bucketKey($c); if (isset($np[$k])) $np[$k]++; }
+    $charts['newPatients'] = [$isDaily ? 'New patients per day' : 'New patients per month', 'Patient records created',
+        array_map($label, array_keys($np)), array_values($np), 'patient', 'line'];
+}
 
 // Helper: count by a key, sorted largest first
 $countBy = function ($rows, $fn) {
@@ -148,7 +183,16 @@ foreach ($pdo->query("SELECT rating FROM reviews")->fetchAll(PDO::FETCH_COLUMN) 
 $charts['ratings'] = ['Review ratings', 'All patient reviews (not date-filtered)',
     array_map(fn($s) => $s . ' ★', array_keys($rt)), array_values($rt), 'review', 'h'];
 
-$chartOrder = ['perMonth', 'newPatients', 'status', 'treatments', 'dentists', 'weekdays', 'hours', 'ages', 'ratings', 'cancelledBy'];
+$chartOrder = array_values(array_filter(
+    ['perMonth', 'newPatients', 'status', 'treatments', 'dentists', 'weekdays', 'hours', 'ages', 'ratings', 'cancelledBy'],
+    fn($id) => isset($charts[$id])));
+
+function clinic_name_for_print($pdo) {
+    try {
+        $n = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='clinic_name'")->fetchColumn();
+        return $n ?: 'St. Therese Dental Clinic';
+    } catch (Throwable $e) { return 'St. Therese Dental Clinic'; }
+}
 
 $page_title = "Analytics";
 include 'includes/head.php';
@@ -184,7 +228,34 @@ $active = 'analytics';
 .kpi .label { font-size: .74rem; color: var(--muted); }
 .kpi .value { font-size: 1.6rem; font-weight: 700; color: var(--ink); line-height: 1.2; margin-top: 2px; }
 .kpi .note { font-size: .72rem; color: var(--muted); }
+.filter-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .range-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.pick { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #dde5ea; border-radius: 999px; padding: 2px 4px 2px 12px; margin: 0; }
+.pick.on { border-color: var(--series-1); box-shadow: 0 0 0 2px rgba(13,148,136,.15); }
+.pick label { font-size: .8rem; color: var(--ink-2); margin: 0; }
+.pick input { border: 0; background: transparent; font-size: .82rem; color: var(--ink); padding: 4px 6px; }
+.pp-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: .9rem; }
+.pp-list label, #printModal label { cursor: pointer; }
+.print-only { display: none; }
+.print-chart-img { display: none; }
+@media print {
+    @page { margin: 12mm; }
+    body, .main { background: #fff !important; }
+    .print-hide, .page-head .clock, .viz-card details summary { display: none !important; }
+    .print-only { display: block !important; }
+    .print-head { border-bottom: 2px solid #0d3b3b; padding-bottom: 6px; margin-bottom: 12px; font-size: 12px; color: #333; }
+    .print-head strong { font-size: 15px; color: #0d3b3b; }
+    .page-head { margin-bottom: 4px !important; }
+    .kpi-row { grid-template-columns: repeat(6, 1fr) !important; gap: 6px !important; }
+    .kpi, .viz-card { box-shadow: none !important; border: 1px solid #dfe6ea; break-inside: avoid; page-break-inside: avoid; }
+    .viz-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+    .viz-card details:not([open]) { display: none; }
+    .viz-card details[open] table { font-size: 10px; }
+    .pp-off { display: none !important; }
+    .viz-canvas { display: none !important; }            /* the live canvas is replaced by its snapshot */
+    .print-chart-img { display: block !important; width: 100%; height: auto; max-height: 260px; object-fit: contain; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
 .range-row a { padding: 6px 12px; border-radius: 999px; font-size: .82rem; text-decoration: none; color: var(--ink-2); background: #fff; border: 1px solid #dde5ea; }
 .range-row a.on { background: var(--series-1); border-color: var(--series-1); color: #fff; font-weight: 600; }
 </style>
@@ -195,7 +266,7 @@ $active = 'analytics';
         <div class="page-head">
             <div>
                 <h1 style="color:var(--teal-light)">Analytics</h1>
-                <div class="sub">All clinic graphs in one place · <?= e($ranges[$range]) ?> (from <?= $start->format('M j, Y') ?>)</div>
+                <div class="sub">All clinic graphs in one place · <?= e($rangeLabel) ?></div>
             </div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock">--:--</span><br><span id="clock-date"></span></div>
@@ -203,14 +274,34 @@ $active = 'analytics';
         </div>
 
         <!-- One filter row, above all charts -->
-        <nav class="range-row mb-3" aria-label="Date range">
-            <?php foreach ($ranges as $k => $lbl): ?>
-                <a href="analytics?range=<?= $k ?>" class="<?= $k === $range ? 'on' : '' ?>" <?= $k === $range ? 'aria-current="page"' : '' ?>><?= $lbl ?></a>
-            <?php endforeach; ?>
-        </nav>
+        <!-- One filter row, above all charts -->
+        <div class="filter-bar mb-3 print-hide">
+            <nav class="range-row" aria-label="Date range">
+                <?php foreach ($ranges as $k => $lbl): ?>
+                    <a href="analytics?range=<?= $k ?>" class="<?= $k === $range ? 'on' : '' ?>" <?= $k === $range ? 'aria-current="page"' : '' ?>><?= $lbl ?></a>
+                <?php endforeach; ?>
+            </nav>
+            <form method="GET" class="pick <?= $range === 'month' ? 'on' : '' ?>">
+                <input type="hidden" name="range" value="month">
+                <label for="pick-m">Month</label>
+                <input type="month" id="pick-m" name="m" value="<?= e($pickMonth) ?>" onchange="this.form.submit()">
+            </form>
+            <form method="GET" class="pick <?= $range === 'day' ? 'on' : '' ?>">
+                <input type="hidden" name="range" value="day">
+                <label for="pick-d">Day</label>
+                <input type="date" id="pick-d" name="d" value="<?= e($pickDay) ?>" onchange="this.form.submit()">
+            </form>
+            <button type="button" class="btn btn-teal btn-sm ms-auto" data-bs-toggle="modal" data-bs-target="#printModal">🖨 Print / Save as PDF</button>
+        </div>
+
+        <!-- Print-only header -->
+        <div class="print-only print-head">
+            <div><strong><?= e(clinic_name_for_print($pdo)) ?></strong> — Clinic Analytics</div>
+            <div>Period: <?= e($rangeLabel) ?> · Printed <?= date('M j, Y g:i A') ?> by <?= e($_SESSION['name'] ?? '') ?></div>
+        </div>
 
         <!-- Headline numbers -->
-        <div class="kpi-row">
+        <div class="kpi-row" id="sec-kpis">
             <div class="kpi"><div class="label">Appointments</div><div class="value"><?= number_format($total) ?></div><div class="note">in this range</div></div>
             <div class="kpi"><div class="label">Completion rate</div><div class="value"><?= $pct($completed, $attendBase) ?></div><div class="note"><?= $completed ?> of <?= $attendBase ?> due visits</div></div>
             <div class="kpi"><div class="label">No-show rate</div><div class="value"><?= $pct($noShows, $attendBase) ?></div><div class="note"><?= $noShows ?> missed</div></div>
@@ -228,7 +319,7 @@ $active = 'analytics';
                 $tall = $orient === 'h' && count($labels) > 5;
                 $sum = max(1, array_sum($values));
             ?>
-            <section class="viz-card <?= $isWide ? 'wide' : '' ?>" aria-labelledby="t-<?= $id ?>">
+            <section class="viz-card <?= $isWide ? 'wide' : '' ?>" id="sec-<?= $id ?>" aria-labelledby="t-<?= $id ?>">
                 <h6 id="t-<?= $id ?>"><?= e($title) ?></h6>
                 <div class="sub"><?= e($sub) ?></div>
                 <?php if ($hasData): ?>
@@ -263,6 +354,41 @@ $active = 'analytics';
             </section>
             <?php endforeach; ?>
         </div>
+
+        <!-- ===== Print / Save as PDF: choose what goes on paper ===== -->
+        <div class="modal fade print-hide" id="printModal" tabindex="-1" aria-labelledby="printModalTitle">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="printModalTitle">🖨 Print / Save as PDF</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <div class="text-muted2 mb-2" style="font-size:.85rem;">Period: <strong><?= e($rangeLabel) ?></strong></div>
+                <div class="d-flex gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-light" id="pp-all">Select all</button>
+                    <button type="button" class="btn btn-sm btn-light" id="pp-none">Clear</button>
+                </div>
+                <div class="pp-list">
+                    <label><input type="checkbox" class="pp-item" value="kpis" checked> Headline numbers</label>
+                    <?php foreach ($chartOrder as $id): ?>
+                        <label><input type="checkbox" class="pp-item" value="<?= $id ?>" checked> <?= e($charts[$id][0]) ?></label>
+                    <?php endforeach; ?>
+                </div>
+                <hr class="my-2">
+                <label style="font-size:.9rem;"><input type="checkbox" id="pp-tables"> Also print each chart's numbers (table)</label>
+                <div class="text-muted2 mt-2" style="font-size:.78rem;">
+                    <b>Save as PDF:</b> in the print window, choose <b>"Save as PDF"</b> as the destination / printer.
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-teal" id="pp-pdf">📄 Save as PDF</button>
+                <button type="button" class="btn btn-teal" id="pp-print">🖨 Print</button>
+              </div>
+            </div>
+          </div>
+        </div>
     </main>
 </div>
 
@@ -271,6 +397,64 @@ $active = 'analytics';
 <script src="js/app.js"></script>
 <script>
 if (document.getElementById('clock')) startClock();
+
+// ---- Print / Save as PDF with a choice of sections ----
+(function () {
+    var KEY = 'analyticsPrintChoice';
+    var items = [].slice.call(document.querySelectorAll('.pp-item'));
+    var tablesBox = document.getElementById('pp-tables');
+    try {                                                    // remember the last choice
+        var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (saved) { items.forEach(function (b) { if (b.value in saved.items) b.checked = saved.items[b.value]; }); tablesBox.checked = !!saved.tables; }
+    } catch (e) {}
+    document.getElementById('pp-all').onclick  = function () { items.forEach(function (b) { b.checked = true; }); };
+    document.getElementById('pp-none').onclick = function () { items.forEach(function (b) { b.checked = false; }); };
+
+    // Charts are drawn for the screen; on paper the page is narrower and the
+    // canvas would be clipped. So just before printing, each chart is copied
+    // into an image that simply scales to the printed card.
+    function snapshotCharts() {
+        removeSnapshots();
+        if (!window.Chart) return;
+        Object.values(Chart.instances).forEach(function (ch) {
+            var box = ch.canvas.closest('.viz-canvas');
+            if (!box) return;
+            var img = new Image();
+            img.className = 'print-chart-img';
+            img.alt = ch.canvas.getAttribute('aria-label') || '';
+            img.src = ch.toBase64Image('image/png', 1);
+            box.insertAdjacentElement('afterend', img);
+        });
+    }
+    function removeSnapshots() { document.querySelectorAll('.print-chart-img').forEach(function (i) { i.remove(); }); }
+    window.addEventListener('beforeprint', snapshotCharts);     // also covers Ctrl+P
+
+    var opened = [];
+    function go() {
+        var choice = { items: {}, tables: tablesBox.checked };
+        var any = false;
+        items.forEach(function (b) {
+            choice.items[b.value] = b.checked; any = any || b.checked;
+            var sec = document.getElementById('sec-' + b.value);
+            if (sec) sec.classList.toggle('pp-off', !b.checked);
+        });
+        if (!any) { alert('Tick at least one section to print.'); return; }
+        try { localStorage.setItem(KEY, JSON.stringify(choice)); } catch (e) {}
+        opened = [];
+        if (tablesBox.checked) document.querySelectorAll('.viz-card details:not([open])').forEach(function (d) { d.open = true; opened.push(d); });
+        var m = bootstrap.Modal.getInstance(document.getElementById('printModal'));
+        if (m) m.hide();
+        snapshotCharts();
+        setTimeout(function () { window.print(); }, 350);     // let the dialog close first
+    }
+    window.addEventListener('afterprint', function () {
+        removeSnapshots();
+        document.querySelectorAll('.pp-off').forEach(function (s) { s.classList.remove('pp-off'); });
+        opened.forEach(function (d) { d.open = false; }); opened = [];
+    });
+    document.getElementById('pp-print').onclick = go;
+    document.getElementById('pp-pdf').onclick   = go;          // same dialog: pick "Save as PDF" as the destination
+})();
 
 (function () {
     if (!window.Chart) return;                       // CDN blocked: the tables still carry every number
