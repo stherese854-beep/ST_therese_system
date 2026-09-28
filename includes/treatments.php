@@ -20,7 +20,7 @@ function clinic_treatments() {
     ];
 }
 
-// Every 30 minutes from opening to closing time (Settings > clinic hours).
+// Every hour from opening time; the last slot ends by closing time (Settings > clinic hours).
 function clinic_time_slots($pdo) {
     $open = '09:00'; $close = '17:00';
     try {
@@ -32,7 +32,7 @@ function clinic_time_slots($pdo) {
     } catch (Throwable $e) {}
     $slots = [];
     $t = strtotime($open); $end = strtotime($close);
-    while ($t < $end) { $slots[] = date('h:i A', $t); $t += 30 * 60; }
+    while ($t + 60 * 60 <= $end) { $slots[] = date('h:i A', $t); $t += 60 * 60; }   // one-hour appointments
     return $slots ?: ['09:00 AM'];
 }
 

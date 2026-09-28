@@ -361,7 +361,7 @@ $rsDays  = array_filter(array_map('trim', explode(',', $rsCfg['clinic_open_days'
 
 $rsSlots = [];
 $t = strtotime($rsOpen); $endT = strtotime($rsClose);
-while ($t < $endT) { $rsSlots[] = date('h:i A', $t); $t += 30 * 60; }
+while ($t + 60 * 60 <= $endT) { $rsSlots[] = date('h:i A', $t); $t += 60 * 60; }   // one-hour appointments
 if (empty($rsSlots)) $rsSlots = ['09:00 AM'];
 
 // The patient's dentist, their upcoming days off, and the slots already taken —
@@ -380,9 +380,9 @@ if ($rsDentist !== '') {
                              WHERE dentist = ? AND status IN ('Pending','Confirmed','Arrived')
                                AND appointment_date >= CURDATE()");
         $q->execute([$rsDentist]);
-        foreach ($q->fetchAll() as $row) {
-            $rsTaken[$row['appointment_date']][] = $row['appointment_time'];
-        }
+        $busyByDate = [];
+        foreach ($q->fetchAll() as $row) $busyByDate[$row['appointment_date']][] = $row['appointment_time'];
+        foreach ($busyByDate as $d => $times) $rsTaken[$d] = slots_blocked_by($rsSlots, $times);   // one-hour gap
     } catch (Throwable $e) {}
 }
 

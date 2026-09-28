@@ -131,16 +131,21 @@ function appt_slot_is_open($pdo, $date, $time, $dentist, $ignoreId = 0) {
         } catch (Throwable $e) {}
     }
 
-    // ---- 3. Is that slot already taken by this dentist? ----
+    // ---- 3. Does this dentist already have an appointment within the hour? ----
+    // Every appointment takes APPT_MINUTES, so another one must start at least
+    // that long before or after (older half-hour bookings are respected too).
     try {
-        $p = [$date, $time];
-        $sql = "SELECT COUNT(*) FROM appointments
-                 WHERE appointment_date = ? AND appointment_time = ?
-                   AND status IN ('Pending','Confirmed','Arrived')";
+        $p = [$date];
+        $sql = "SELECT appointment_time FROM appointments
+                 WHERE appointment_date = ? AND status IN ('Pending','Confirmed','Arrived')";
         if ($dentist) { $sql .= " AND " . dentist_match_sql('dentist', $dentist, $p); }
         if ($ignoreId) { $sql .= " AND id <> ?"; $p[] = (int)$ignoreId; }
         $q = $pdo->prepare($sql); $q->execute($p);
-        if ((int)$q->fetchColumn() > 0) return false;
+        $want = appt_minutes($time);
+        foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $t) {
+            $m = appt_minutes($t);
+            if ($want !== null && $m !== null && abs($m - $want) < APPT_MINUTES) return false;
+        }
     } catch (Throwable $e) {}
 
     return true;
@@ -189,3 +194,27 @@ function pick_dentist_for_slot($pdo, $date, $time, $preferred = '') {
     return $best ? $best[random_int(0, count($best) - 1)] : null;
 }
 
+// ============================================================
+//  ONE APPOINTMENT = ONE HOUR
+// ============================================================
+//  Slots are hourly (see clinic_time_slots()), and a dentist's
+//  appointments must start at least an hour apart.
+// ============================================================
+if (!defined('APPT_MINUTES')) define('APPT_MINUTES', 60);
+
+// "09:30 AM" -> 570 (minutes after midnight), or null if it can't be read.
+function appt_minutes($time) {
+    $t = strtotime('2000-01-01 ' . trim((string)$time));
+    return $t === false ? null : (int)date('G', $t) * 60 + (int)date('i', $t);
+}
+
+// Which of $slots clash with any of $busyTimes (i.e. start less than an hour away)?
+function slots_blocked_by($slots, $busyTimes) {
+    $busy = array_filter(array_map('appt_minutes', $busyTimes), fn($m) => $m !== null);
+    $out = [];
+    foreach ($slots as $s) {
+        $m = appt_minutes($s);
+        foreach ($busy as $b) if (abs($b - $m) < APPT_MINUTES) { $out[] = $s; break; }
+    }
+    return $out;
+}

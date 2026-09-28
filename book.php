@@ -27,7 +27,7 @@ $openDaysArr = array_map('trim', explode(',', $openDays));
 // Build the time slots from the clinic's opening hours (every 30 minutes).
 $slots = [];
 $t = strtotime($openTime); $endT = strtotime($closeTime);
-while ($t < $endT) { $slots[] = date('h:i A', $t); $t += 30 * 60; }
+while ($t + 60 * 60 <= $endT) { $slots[] = date('h:i A', $t); $t += 60 * 60; }   // one-hour appointments
 if (empty($slots)) $slots = ['09:00 AM'];   // safety fallback
 
 // ---- The patient's dentist + that dentist's UPCOMING days off ----
@@ -324,21 +324,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($healthForm)) {
 $activeDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active'")->fetchAll(PDO::FETCH_COLUMN);
 $canon = [];                                          // any stored name shape -> dentist's full name
 foreach ($activeDentists as $d) foreach (dentist_name_variants($d) as $v) $canon[$v] = $d;
-$offBy = []; $busyBy = [];                            // [date][dentist] / [date][time][dentist]
+$offBy = []; $busyBy = [];                            // [date][dentist] / [date][dentist][] = time
 foreach ($pdo->query("SELECT dentist_name, off_date FROM dentist_daysoff WHERE off_date >= CURDATE()") as $r) {
     if (isset($canon[$r['dentist_name']])) $offBy[$r['off_date']][$canon[$r['dentist_name']]] = true;
 }
 foreach ($pdo->query("SELECT dentist, appointment_date, appointment_time FROM appointments
                        WHERE status IN ('Pending','Confirmed','Arrived') AND appointment_date >= CURDATE()") as $r) {
-    if (isset($canon[$r['dentist']])) $busyBy[$r['appointment_date']][$r['appointment_time']][$canon[$r['dentist']]] = true;
+    if (isset($canon[$r['dentist']])) $busyBy[$r['appointment_date']][$canon[$r['dentist']]][] = $r['appointment_time'];
 }
 $nDentists = max(1, count($activeDentists));
 $allOffDates = [];                                    // dates when every dentist is away
 foreach ($offBy as $date => $who) if (count($who) >= $nDentists) $allOffDates[] = $date;
-$takenByDate = [];                                    // times when every dentist is away or booked
-foreach ($busyBy as $date => $times) {
-    foreach ($times as $time => $who) {
-        if (count(($offBy[$date] ?? []) + $who) >= $nDentists) $takenByDate[$date][] = $time;
+$takenByDate = [];                                    // times when every dentist is away or within an hour of a booking
+foreach ($busyBy as $date => $perDentist) {
+    foreach ($slots as $slot) {
+        $unavailable = $offBy[$date] ?? [];
+        foreach ($perDentist as $dn => $times) if (slots_blocked_by([$slot], $times)) $unavailable[$dn] = true;
+        if (count($unavailable) >= $nDentists) $takenByDate[$date][] = $slot;
     }
 }
 
