@@ -282,36 +282,6 @@ $active = 'dashboard';
         include 'includes/announcements_card.php';
         ?>
 
-        <!-- ===== Stat cards ===== -->
-        <div class="stat-grid">
-            <div class="stat-card">
-                <div class="flex-between"><span class="label">Total Patients</span> 👥</div>
-                <div class="value"><?= number_format($totalPatients) ?></div>
-                <div class="change" style="color:#138a4e;"><?= $newPatientsMonth ?> new this month</div>
-                <div class="spark" title="<?= $patientsGrowth['mode'] === 'daily' ? 'Total patients, day by day' : 'Total patients, month by month' ?>">
-                    <?= render_linechart($patientsGrowth['labels'], $patientsGrowth['values'], '#0d9488') ?>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="flex-between"><span class="label">Today's Appointments</span> 📅</div>
-                <div class="value"><?= $todaysAppts ?></div>
-                <div class="change"><?= $confirmedToday ?> confirmed</div>
-                <div class="spark" title="Appointments, last 7 days"><?= render_sparkline($apptsTrend, '#e879b9') ?></div>
-            </div>
-            <div class="stat-card">
-                <div class="flex-between"><span class="label">Pending Requests</span> ⏳</div>
-                <div class="value"><?= $pendingRequests ?></div>
-                <div class="change">awaiting approval</div>
-                <div class="spark" title="Pending requests, last 7 days"><?= render_sparkline($pendingTrend, '#60a5fa') ?></div>
-            </div>
-            <div class="stat-card">
-                <div class="flex-between"><span class="label">Treatments Done</span> 🦷</div>
-                <div class="value"><?= number_format($treatmentsDone) ?></div>
-                <div class="change" style="color:#138a4e;"><?= $completedMonth ?> completed this month</div>
-                <div class="spark" title="Completed treatments, last 7 days"><?= render_sparkline($treatTrend, '#10b981') ?></div>
-            </div>
-        </div>
-
         <div class="row">
             <!-- ===== Today's appointments table ===== -->
             <div class="col-lg-8">
