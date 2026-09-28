@@ -37,6 +37,20 @@ try {
         $pdo->prepare("UPDATE users SET notif_seen_map = ? WHERE id = ?")
             ->execute([json_encode($map), $_SESSION['user_id']]);
     }
+
+    // A clicked notification: remove it from this user's bell until something newer arrives.
+    if (is_array($in['hide'] ?? null)) {
+        $q = $pdo->prepare("SELECT notif_hidden_map FROM users WHERE id = ?");
+        $q->execute([$_SESSION['user_id']]);
+        $hid = json_decode((string)$q->fetchColumn(), true) ?: [];
+        foreach ($in['hide'] as $key => $mark) {
+            if (!preg_match('/^[a-z][a-z0-9]{1,24}$/', (string)$key) || !is_scalar($mark) || strlen((string)$mark) > 30) continue;
+            $hid[$key] = (string)$mark;
+        }
+        if (count($hid) > 60) $hid = array_slice($hid, -60, null, true);   // keep the list small
+        $pdo->prepare("UPDATE users SET notif_hidden_map = ? WHERE id = ?")
+            ->execute([json_encode($hid), $_SESSION['user_id']]);
+    }
     echo json_encode(['ok' => true]);
 } catch (Throwable $e) {
     // The column may not exist yet if update.sql has not been run.

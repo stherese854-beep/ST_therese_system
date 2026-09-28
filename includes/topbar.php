@@ -42,19 +42,26 @@ $tbHasPhoto = $tbPhoto && is_file(__DIR__ . '/../' . $tbPhoto);
 // time). Opening the bell stores the marks it showed (users.notif_seen_map),
 // so the red badge only counts what is NEW since then — once read, it stays
 // cleared until something newer arrives.
+// Clicking an item removes it from the bell (users.notif_hidden_map); it only
+// comes back when something newer of that kind arrives (e.g. another booking).
 $notifs = [];
-$tbSeen = [];
+$tbSeen = []; $tbHidden = [];
 try {
-    $sm = $pdo->prepare("SELECT notif_seen_map FROM users WHERE id=?");
+    $sm = $pdo->prepare("SELECT notif_seen_map, notif_hidden_map FROM users WHERE id=?");
     $sm->execute([$_SESSION['user_id'] ?? 0]);
-    $tbSeen = json_decode((string)$sm->fetchColumn(), true) ?: [];
+    $row = $sm->fetch() ?: [];
+    $tbSeen   = json_decode((string)($row['notif_seen_map'] ?? ''), true) ?: [];
+    $tbHidden = json_decode((string)($row['notif_hidden_map'] ?? ''), true) ?: [];
 } catch (Throwable $e) {}
-$tbAdd = function ($kind, $mark, $icon, $text, $link) use (&$notifs, $tbSeen) {
+$tbNewer = fn($mark, $old) => $old === null
+    || ((is_numeric($mark) && is_numeric($old)) ? $mark + 0 > $old + 0 : strcmp((string)$mark, (string)$old) > 0);
+$tbAdd = function ($kind, $mark, $icon, $text, $link) use (&$notifs, $tbSeen, $tbHidden, $tbNewer) {
     if ($mark === null || $mark === false || $mark === '') return;
-    $seen = $tbSeen[$kind] ?? null;
-    $new  = $seen === null
-         || ((is_numeric($mark) && is_numeric($seen)) ? $mark + 0 > $seen + 0 : strcmp((string)$mark, (string)$seen) > 0);
-    $notifs[] = ['kind' => $kind, 'mark' => (string)$mark, 'icon' => $icon, 'text' => $text, 'link' => $link, 'new' => $new];
+    // Each announcement is its own item; the other kinds are one item each.
+    $key = $kind === 'ann' ? 'ann' . $mark : $kind;
+    if (!$tbNewer($mark, $tbHidden[$key] ?? null)) return;          // clicked already, nothing newer
+    $new = $tbNewer($mark, $tbSeen[$kind] ?? null);
+    $notifs[] = ['kind' => $kind, 'key' => $key, 'mark' => (string)$mark, 'icon' => $icon, 'text' => $text, 'link' => $link, 'new' => $new];
 };
 try {
     if (in_array($tbRole, ['admin','staff'])) {
@@ -139,12 +146,11 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
     </button>
     <div id="notifMenu">
         <div class="notif-head">Notifications</div>
-        <?php if ($notifCount === 0): ?>
-            <div class="notif-empty">🔔 You're all caught up!</div>
-        <?php else: ?>
+        <div class="notif-empty"<?= $notifCount ? ' style="display:none;"' : '' ?>>🔔 You're all caught up!</div>
+        <?php if ($notifCount > 0): ?>
             <?php foreach ($notifs as $n): ?>
-                <a href="<?= e($n['link']) ?>" class="notif-item<?= $n['new'] ? ' is-new' : '' ?>"
-                   data-kind="<?= e($n['kind']) ?>" data-mark="<?= e($n['mark']) ?>">
+                <a href="<?= e($n['link']) ?>" class="notif-item<?= $n['new'] ? ' is-new' : '' ?>" onclick="openNotif(event, this)"
+                   data-kind="<?= e($n['kind']) ?>" data-key="<?= e($n['key']) ?>" data-mark="<?= e($n['mark']) ?>">
                     <span class="notif-ico"><?= $n['icon'] ?></span>
                     <span class="notif-txt"><?= e($n['text']) ?></span>
                     <?php if ($n['new']): ?><span class="notif-new-dot" aria-label="new"></span><?php endif; ?>
@@ -289,6 +295,22 @@ function toggleNotif(e){
               headers: { 'X-CSRF-Token': tk ? tk.content : '', 'Content-Type': 'application/json' },
               body: JSON.stringify({ marks: marks }) }).catch(function(){});
     }
+}
+// Clicking a notification removes it from the bell (remembered on the
+// server), then opens its page.
+function openNotif(e, a){
+    e.preventDefault();
+    e.stopPropagation();
+    var hide = {}; hide[a.dataset.key] = a.dataset.mark;
+    var tk = document.querySelector('meta[name="csrf-token"]');
+    var done = function(){ window.location.href = a.getAttribute('href'); };
+    a.remove();
+    if (!document.querySelector('#notifMenu .notif-item')) {
+        var em = document.querySelector('#notifMenu .notif-empty'); if (em) em.style.display = '';
+    }
+    fetch('notif_seen', { method: 'POST', credentials: 'same-origin', keepalive: true,
+          headers: { 'X-CSRF-Token': tk ? tk.content : '', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hide: hide }) }).then(done, done);
 }
 // Click anywhere else closes both menus.
 document.addEventListener('click', function(){

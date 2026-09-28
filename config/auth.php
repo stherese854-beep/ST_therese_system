@@ -524,6 +524,10 @@ function ensure_booking_review_schema($pdo) {
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'notif_seen_map'")->rowCount()) {
             $pdo->exec("ALTER TABLE users ADD COLUMN notif_seen_map TEXT DEFAULT NULL");
         }
+        // ...and the items they clicked, which are removed from their bell.
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'notif_hidden_map'")->rowCount()) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN notif_hidden_map TEXT DEFAULT NULL");
+        }
         // Same-person identity: normalized name (+ date_of_birth) with an index,
         // so duplicate checks across accounts are one fast lookup.
         try {                                            // own try: never blocks the steps below
