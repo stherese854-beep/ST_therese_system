@@ -21,6 +21,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $id     = (int)($_POST['id'] ?? 0);
 
+    // Frequent cancellations: staff reviewed the patient -> booking allowed again.
+    if ($id && $action === 'restore_cancel' && in_array(current_role(), ['admin','staff'], true)) {
+        $pdo->prepare("UPDATE patients SET cancel_reset_at = NOW(), cancel_reset_by = ? WHERE id = ?")
+            ->execute([$_SESSION['name'] ?? 'staff', $id]);
+        $nm = $pdo->prepare("SELECT name FROM patients WHERE id = ?"); $nm->execute([$id]);
+        $rn = $nm->fetchColumn() ?: 'Patient';
+        log_activity($pdo, 'Reviewed cancellations', $rn . ' — online booking restored');
+        set_flash($rn . ' was reviewed and can book online again. Their cancellations stay on record.');
+        header("Location: noshow?tab=cancels"); exit;
+    }
+
     if ($id && $action === 'confirm_noshow') {
         $pdo->prepare("UPDATE appointments SET status='No-show' WHERE id=?")->execute([$id]);
 
@@ -168,6 +179,27 @@ function statusBadge($status) {
     $map = ['No-show'=>'b-noshow','Cancelled'=>'b-cancelled','Rescheduled'=>'b-confirmed','Needs Review'=>'b-pending'];
     return $map[$status] ?? 'b-pending';
 }
+// ---------- Frequent cancellations waiting for review ----------
+// Patients who cancelled CANCEL_LIMIT+ times themselves (same rolling window,
+// counted since their last review). Their online booking is paused until
+// an admin or staff member reviews them here.
+$cancelReview = [];
+$cq = "SELECT p.id, p.name, p.phone, p.primary_dentist, g.name AS guardian_name FROM patients p
+        LEFT JOIN patients g ON g.id = p.guardian_patient_id WHERE p.status <> 'Archived'";
+$cqp = [];
+if ($isDentistUser) { $cq .= " AND " . dentist_match_sql('p.primary_dentist', $filterDentist, $cqp); }
+$cqs = $pdo->prepare($cq); $cqs->execute($cqp);
+foreach ($cqs->fetchAll() as $cp) {
+    $n = patient_cancel_count($pdo, $cp['id']);
+    if ($n < CANCEL_LIMIT) continue;
+    $lr = $pdo->prepare("SELECT appointment_date, cancel_reason FROM appointments
+                          WHERE patient_id = ? AND status='Cancelled' AND cancelled_by='patient'
+                          ORDER BY COALESCE(cancelled_at, created_at) DESC LIMIT 3");
+    $lr->execute([$cp['id']]);
+    $cp['count'] = $n; $cp['recent'] = $lr->fetchAll();
+    $cancelReview[] = $cp;
+}
+
 // helper for the filter tab links
 function tabLink($key, $label, $count, $current) {
     $cls = ($current === $key) ? 'btn-dark-navy' : 'btn-light';
@@ -285,8 +317,57 @@ function tabLink($key, $label, $count, $current) {
                         tabLink('cancelled', 'Cancelled',       $countCancelled,        $tab);
                         $repeatCount = count(array_filter(array_count_values(array_map(fn($m)=>$m['patient_name'],$missed)), fn($c)=>$c>1));
                         tabLink('repeat',    'Repeat Offenders', $repeatCount,          $tab);
+                        tabLink('cancels',   'Frequent Cancellations', count($cancelReview), $tab);
                     ?>
                 </div>
+                <?php if ($tab === 'cancels'): ?>
+                <!-- ===== Frequent cancellations: one row per patient ===== -->
+                <div class="card-box">
+                    <div class="text-muted2 mb-2" style="font-size:.85rem;">
+                        Patients who cancelled <?= CANCEL_LIMIT ?> or more appointments themselves in the last
+                        <?= NOSHOW_WINDOW_MONTHS ?> months. Their online booking is <b>paused</b> until you review them.
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data">
+                            <thead><tr><th>Patient</th><th>Cancellations</th><th>Recent cancellations (reason)</th><th>Dentist</th><th>Actions</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($cancelReview as $cp): ?>
+                                <tr>
+                                    <td><strong><?= e($cp['name']) ?></strong>
+                                        <?php if ($cp['guardian_name']): ?><br><small class="text-muted2">booked by <?= e($cp['guardian_name']) ?></small><?php endif; ?>
+                                        <?php if ($cp['phone']): ?><br><small class="text-muted2">📞 <?= e($cp['phone']) ?></small><?php endif; ?></td>
+                                    <td><span class="badge-pill b-cancelled"><?= (int)$cp['count'] ?> cancelled</span></td>
+                                    <td style="font-size:.82rem;">
+                                        <?php foreach ($cp['recent'] as $rc): ?>
+                                            <div><?= date('M j, Y', strtotime($rc['appointment_date'])) ?>
+                                                <span class="text-muted2">— <?= e($rc['cancel_reason'] ?: 'no reason given') ?></span></div>
+                                        <?php endforeach; ?>
+                                    </td>
+                                    <td><?= e($cp['primary_dentist'] ?: '—') ?></td>
+                                    <td>
+                                        <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
+                                            <form method="POST" class="m-0" onsubmit="return confirm('Mark <?= e(addslashes($cp['name'])) ?> as reviewed and let them book online again?')">
+                                                <input type="hidden" name="action" value="restore_cancel">
+                                                <input type="hidden" name="id" value="<?= (int)$cp['id'] ?>">
+                                                <button class="btn btn-sm btn-teal">✓ Reviewed — restore booking</button>
+                                            </form>
+                                        <?php else: ?>
+                                            <small class="text-muted2">Admin/staff review</small>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (!$cancelReview): ?>
+                                <tr><td colspan="5" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
+                                    <div style="font-size:2rem;margin-bottom:6px;">✅</div>
+                                    No patient needs a cancellation review right now.
+                                </td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php else: ?>
                 <div class="card-box">
                     <div class="table-responsive">
                         <table class="data">
@@ -343,6 +424,7 @@ function tabLink($key, $label, $count, $current) {
                         </table>
                     </div>
                 </div>
+                <?php endif; ?>
             </div>
 
             <!-- ===== Status breakdown ===== -->

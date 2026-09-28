@@ -59,6 +59,17 @@ try {
             if ($nr > 0) $notifs[] = ['icon'=>'📋','text'=>"$nr missed appointment".($nr>1?'s':'')." to review",'link'=>'noshow?tab=review'];
         } catch (Throwable $e) {}
 
+        // Patients paused for frequent cancellations, waiting for a review.
+        try {
+            if (!function_exists('patient_cancel_count')) require_once __DIR__ . '/noshow_check.php';
+            $cr = 0;
+            foreach ($pdo->query("SELECT DISTINCT patient_id FROM appointments WHERE status='Cancelled' AND cancelled_by='patient'")
+                         ->fetchAll(PDO::FETCH_COLUMN) as $cpid) {
+                if (patient_cancel_count($pdo, $cpid) >= CANCEL_LIMIT) $cr++;
+            }
+            if ($cr > 0) $notifs[] = ['icon'=>'🔁','text'=>"$cr patient".($cr>1?'s':'')." with frequent cancellations to review",'link'=>'noshow?tab=cancels'];
+        } catch (Throwable $e) {}
+
         // reviews table may not exist on older DBs — guard it
         try {
             $rc = (int)$pdo->query("SELECT COUNT(*) FROM reviews WHERE status='Pending'")->fetchColumn();

@@ -158,3 +158,34 @@ function patient_noshow_count($pdo, $patientId, $months = NOSHOW_WINDOW_MONTHS) 
         return 0;
     }
 }
+
+// ============================================================
+//  FREQUENT CANCELLATIONS
+// ============================================================
+//  Appointments the PATIENT cancelled inside the same rolling window,
+//  counted only after staff last reviewed/restored the patient
+//  (patients.cancel_reset_at). CANCEL_LIMIT of them pauses online
+//  booking until an admin or staff member reviews the patient on the
+//  No-Show Report ("Frequent Cancellations" tab).
+// ============================================================
+define('CANCEL_LIMIT', 3);
+
+function patient_cancel_count($pdo, $patientId, $months = NOSHOW_WINDOW_MONTHS) {
+    $patientId = (int)$patientId;
+    if ($patientId <= 0) return 0;
+    try {
+        $cutoff = date('Y-m-d H:i:s', strtotime("-$months months"));
+        $rs = $pdo->prepare("SELECT cancel_reset_at FROM patients WHERE id = ?");
+        $rs->execute([$patientId]);
+        $resetAt = $rs->fetchColumn();
+        if ($resetAt && $resetAt > $cutoff) $cutoff = $resetAt;
+        $q = $pdo->prepare("SELECT COUNT(*) FROM appointments
+                             WHERE patient_id = ? AND status = 'Cancelled' AND cancelled_by = 'patient'
+                               AND COALESCE(cancelled_at, created_at) > ?");
+        $q->execute([$patientId, $cutoff]);
+        return (int)$q->fetchColumn();
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+

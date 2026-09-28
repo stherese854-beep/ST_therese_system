@@ -17,6 +17,7 @@
 require_once 'config/auth.php';
 require_login(['admin','dentist']);   // clinical records - not front-desk staff
 require_once 'includes/teeth.php';     // for the read-only dental chart in Overview
+require_once 'includes/health_form.php';   // latest health questionnaire in Overview
 
 // Only REAL patients (exclude staff/dentist/admin accounts).
 // A DENTIST only sees their own assigned patients; admin/staff see all.
@@ -231,6 +232,16 @@ $active = 'records';
 
         <?php elseif ($tab === 'overview'): ?>
             <!-- ===== OVERVIEW: editable patient info + dental chart + remarks ===== -->
+            <?php
+                $hq = $pdo->prepare("SELECT health_form, appointment_date FROM appointments
+                                      WHERE patient_id = ? AND health_form IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1");
+                $hq->execute([$pid]); $hqRow = $hq->fetch();
+            ?>
+            <div class="card-box mb-3">
+                <h6 class="mb-2">🩺 Health Questionnaire
+                    <small class="text-muted2"><?= $hqRow ? '(latest, from the booking for ' . date('M j, Y', strtotime($hqRow['appointment_date'])) . ')' : '' ?></small></h6>
+                <?= health_form_view($hqRow ? (json_decode($hqRow['health_form'], true) ?: []) : []) ?>
+            </div>
             <form method="POST">
                 <input type="hidden" name="action" value="update_patient_info">
                 <input type="hidden" name="patient_id" value="<?= $pid ?>">

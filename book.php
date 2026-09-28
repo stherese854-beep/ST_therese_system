@@ -5,7 +5,8 @@
 require_once 'config/auth.php';
 require_once 'includes/mailer.php';
 require_once 'includes/message_templates.php';   // editable message wording   // to email a booking confirmation
-require_once 'includes/noshow_check.php';   // patient_noshow_count()
+require_once 'includes/noshow_check.php';   // patient_noshow_count(), patient_cancel_count()
+require_once 'includes/health_form.php';    // health questionnaire
 require_login(['patient']);   // only patients book through this page
 
 // Get the logged-in patient's info to pre-fill the form.
@@ -59,8 +60,11 @@ if ($me['id']) {
     $mb = $pdo->prepare("SELECT booking_blocked, booking_block_reason FROM patients WHERE id=?");
     $mb->execute([$me['id']]);
     $mbRow = $mb->fetch();
-    $missed = 0;
-    foreach ($familyIds as $fid) $missed += patient_noshow_count($pdo, $fid);   // the whole family's missed visits
+    $missed = 0; $cancels = 0;
+    foreach ($familyIds as $fid) {                                   // the whole family
+        $missed  += patient_noshow_count($pdo, $fid);
+        $cancels += patient_cancel_count($pdo, $fid);
+    }
     $pc = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id IN (" . in_placeholders($familyIds) . ") AND status IN ('Pending','Confirmed')");
     $pc->execute($familyIds);
     $activeNow = (int)$pc->fetchColumn();
@@ -74,6 +78,10 @@ if ($me['id']) {
                       . "You have missed <strong>$missed scheduled appointments</strong>. "
                       . "We encourage you to <strong>walk in to the clinic</strong> and talk to our staff — "
                       . "they will be happy to help you book again and find a schedule that works better for you.";
+    } elseif ($cancels >= CANCEL_LIMIT) {
+        $pauseMessage = "<strong>Online booking is paused while the clinic reviews your account.</strong><br><br>"
+                      . "You have cancelled <strong>$cancels appointments</strong> recently. Our staff will look at your "
+                      . "bookings and contact you — or you can <strong>visit or call the clinic</strong> to book your next visit.";
     } elseif ($activeNow >= 3) {
         $pauseMessage = "<strong>You already have 3 upcoming appointments</strong>, which is the most an account may hold at once.<br><br>"
                       . "Once one of them is completed or cancelled, you can book another.";
@@ -166,8 +174,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
 
     [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
 
-    if ($phoneError !== '') {
+    [$healthForm, $healthError] = health_form_from_post($_POST);
+    $relationshipPosted = trim($_POST['relationship'] ?? '');
+    if ($relationshipPosted === 'Other relative') $relationshipPosted = trim($_POST['relationship_other'] ?? '');
+
+    if ($pauseMessage !== '') {
+        $bookError = $pauseMessage;
+    } elseif ($phoneError !== '') {
         $bookError = $phoneError;
+    } elseif (($_POST['for'] ?? 'myself') === 'other' && $relationshipPosted === '') {
+        $bookError = 'Please tell us your relationship to the patient.';
+    } elseif ($healthError !== '') {
+        $bookError = $healthError;
     } elseif ($_POST['date'] < $minBookDate) {
         $bookError = "Appointments must be booked at least a day in advance. Please pick "
                    . date('M j, Y', strtotime($minBookDate)) . " or a later date.";
@@ -209,10 +227,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         }
 
         $forWhom      = ($_POST['for'] ?? 'myself') === 'other' ? 'Someone else' : 'Myself';
-        $relationship = ($forWhom === 'Someone else') ? trim($_POST['relationship'] ?? '') : null;
+        $relationship = ($forWhom === 'Someone else') ? mb_substr($relationshipPosted, 0, 40) : null;
         $bookedBy     = ($forWhom === 'Someone else') ? $me['name'] : null;
-        $reason       = trim($_POST['reason'] ?? '');
-        $bookingNotes = trim($_POST['notes'] ?? '');
+        $reason       = null;                     // replaced by the health questionnaire
+        $bookingNotes = '';
 
         // When booking for someone else, record that person's birthday in the notes
         // so the dentist knows the patient's age (for yourself it is already on file).
@@ -232,8 +250,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
 
         $pdo->prepare("INSERT INTO appointments
                        (patient_id,patient_name,dentist,treatment,appointment_date,appointment_time,
-                        status,notes,booked_for,relationship,booked_by,reason_for_visit)
-                       VALUES (?,?,?,?,?,?, 'Pending', ?,?,?,?,?)")
+                        status,notes,booked_for,relationship,booked_by,reason_for_visit,health_form)
+                       VALUES (?,?,?,?,?,?, 'Pending', ?,?,?,?,?,?)")
             ->execute([
                 $apptPatientId, $patientName,
                 $bookDentist,
@@ -241,7 +259,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
                 $_POST['date'],
                 $_POST['time'],
                 $bookingNotes,
-                $forWhom, $relationship, $bookedBy, $reason
+                $forWhom, $relationship, $bookedBy, $reason,
+                json_encode($healthForm, JSON_UNESCAPED_UNICODE)
             ]);
 
         // Email the patient a "request received" confirmation (if email is set up).
@@ -275,7 +294,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     }
 }
 
-$treatments = ['Cleaning','Dental Filling','Tooth Extraction','Root Canal','Dental Crown','Consultation','Braces / Orthodontics'];
+// Treatments, each with a plain-language explanation for patients.
+$treatments = [
+    'Consultation'          => 'check-up and advice from the dentist',
+    'Cleaning'              => 'removing plaque and tartar to keep teeth and gums healthy',
+    'Dental Filling'        => 'filling a small hole or cavity in a tooth',
+    'Tooth Extraction'      => 'pulling out a damaged or painful tooth',
+    'Root Canal'            => 'cleaning an infected tooth from the inside to save it',
+    'Dental Crown'          => 'a cap placed over a weak or broken tooth',
+    'Braces / Orthodontics' => 'straightening crooked teeth',
+];
+
+// Health questionnaire: start from the answers this patient gave last time
+// (they only need to update what changed). After a failed submit, keep what
+// they just typed.
+$hfPrefill = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($healthForm)) {
+    $hfPrefill = $healthForm;
+} elseif ($me['id']) {
+    $lf = $pdo->prepare("SELECT health_form FROM appointments WHERE patient_id = ? AND health_form IS NOT NULL
+                          ORDER BY created_at DESC, id DESC LIMIT 1");
+    $lf->execute([$me['id']]);
+    $hfPrefill = json_decode((string)$lf->fetchColumn(), true) ?: [];
+}
 
 // ---- What the date & time pickers treat as unavailable ----
 // A booking goes to ANY free dentist, so a date or time is only blocked
@@ -461,27 +502,28 @@ include 'includes/head.php';
             <!-- STEP 2: Service -->
             <div class="wizard-step d-none" id="step-2">
                 <h3>Service</h3>
-                <p class="text-muted2">Select the treatment you need.</p>
+                <p class="text-muted2">Choose the treatment you would like, then tell us about your health.</p>
 
-                <label class="field-label">Treatment *</label>
+                <label class="field-label" for="sel-treatment">Preferred treatment *</label>
                 <select name="treatment" id="sel-treatment" class="form-select mb-1" required>
-                    <?php foreach ($treatments as $t): ?><option><?= $t ?></option><?php endforeach; ?>
+                    <?php foreach ($treatments as $t => $plain): ?>
+                        <option value="<?= e($t) ?>"><?= e($t) ?> (<?= e($plain) ?>)</option>
+                    <?php endforeach; ?>
                 </select>
                 <div class="text-muted2 mb-3" style="font-size:.8rem;">
+                    Not sure what you need? Choose <b>Consultation</b> — the dentist will check and confirm the right treatment.
                     Our clinic will assign an available dentist for your visit.
                 </div>
 
                 <input type="hidden" name="pref_dentist" value="">
 
-                <label class="field-label">Reason for Visit <span class="text-muted2">(optional)</span></label>
-                <input name="reason" class="form-control mb-3" placeholder="e.g. Routine cleaning, toothache on the lower right">
-
-                <label class="field-label">Notes / Concerns</label>
-                <textarea name="notes" class="form-control mb-3" rows="3"></textarea>
+                <?= health_form_styles() ?>
+                <div id="hf-wrap"><?= health_form_fields($hfPrefill) ?></div>
+                <div id="hf-warn" class="text-danger small mb-2" style="display:none;"></div>
 
                 <div class="flex-between">
                     <button type="button" class="btn btn-outline-teal" onclick="goStep(1)">← Back</button>
-                    <button type="button" class="btn btn-teal" onclick="goStep(3)">Continue →</button>
+                    <button type="button" class="btn btn-teal" onclick="validateStep2()">Continue →</button>
                 </div>
             </div>
 
@@ -511,7 +553,7 @@ include 'includes/head.php';
 
                 <div id="rel-wrap" style="display:none;">
                     <label class="field-label">Your relationship to the patient *</label>
-                    <select name="relationship" id="sel-rel" class="form-select mb-1">
+                    <select name="relationship" id="sel-rel" class="form-select mb-1" onchange="relOther()">
                         <option value="">— Please select —</option>
                         <option>Parent</option>
                         <option>Guardian</option>
@@ -521,6 +563,10 @@ include 'includes/head.php';
                         <option>Grandparent</option>
                         <option>Other relative</option>
                     </select>
+                    <div id="rel-other-wrap" style="display:none;">
+                        <input type="text" name="relationship_other" id="sel-rel-other" class="form-control mb-1" maxlength="40"
+                               placeholder="Please specify, e.g. Cousin, Aunt, Nephew">
+                    </div>
                     <div id="rel-warn" class="text-danger small mb-2" style="display:none;">Please choose your relationship to the patient.</div>
 
                     <label class="field-label">Patient's Date of Birth</label>
@@ -789,7 +835,15 @@ function validateStep3() {
     // When booking for someone else, the relationship AND their birthday are required.
     var forOther = document.querySelector('input[name="for"]:checked').value === 'other';
     if (forOther && document.getElementById('sel-rel').value === '') {
+        document.getElementById('rel-warn').textContent = 'Please choose your relationship to the patient.';
         document.getElementById('rel-warn').style.display = 'block';
+        return;
+    }
+    if (forOther && document.getElementById('sel-rel').value === 'Other relative'
+        && document.getElementById('sel-rel-other').value.trim() === '') {
+        document.getElementById('rel-warn').textContent = 'Please type your relationship to the patient (e.g. Cousin, Aunt).';
+        document.getElementById('rel-warn').style.display = 'block';
+        document.getElementById('sel-rel-other').focus();
         return;
     }
     document.getElementById('rel-warn').style.display = 'none';
@@ -808,6 +862,37 @@ function validateStep3() {
     }
     document.getElementById('phone-warn').style.display = 'none';
     goStep(4);
+}
+
+// "Other relative": ask which relative.
+function relOther() {
+    var other = document.getElementById('sel-rel').value === 'Other relative';
+    document.getElementById('rel-other-wrap').style.display = other ? '' : 'none';
+    if (other) document.getElementById('sel-rel-other').focus();
+}
+
+// Step 2: every required health question answered (the browser marks the first one missing).
+function validateStep2() {
+    var wrap = document.getElementById('hf-wrap');
+    var bad = [].slice.call(wrap.querySelectorAll('input[required]')).find(function (el) { return !el.checkValidity(); });
+    var warn = document.getElementById('hf-warn');
+    if (bad) {
+        warn.textContent = 'Please answer every question marked * in the health questionnaire.';
+        warn.style.display = 'block';
+        bad.scrollIntoView({ block: 'center' }); bad.focus();
+        return;
+    }
+    var need = [['allergy','which medicine or stuff you are allergic to'], ['anesthesia','what trouble you had with local anesthesia']];
+    for (var i = 0; i < need.length; i++) {
+        var yes = wrap.querySelector('[name="hf[' + need[i][0] + ']"][value="yes"]:checked');
+        var det = wrap.querySelector('[name="hf[' + need[i][0] + '_detail]"]');
+        if (yes && det && det.value.trim() === '') {
+            warn.textContent = 'Please tell us ' + need[i][1] + '.';
+            warn.style.display = 'block'; det.focus(); return;
+        }
+    }
+    warn.style.display = 'none';
+    goStep(3);
 }
 
 // Toggle between booking for "myself" (name locked) and "someone else" (name editable).

@@ -6,6 +6,7 @@ require_once 'config/auth.php';
 require_once 'includes/assign.php';   // dentist_match_sql() for role scoping
 require_once 'includes/mailer.php';     // confirmation / cancellation emails
 require_once 'includes/message_templates.php';  // editable message wording
+require_once 'includes/health_form.php';        // health questionnaire view
 require_login(['admin','dentist','staff']);
 
 // ---------- Remove an old, finished appointment ----------
@@ -354,6 +355,15 @@ $active = 'appointments';
                                     </form>
                                 <?php endif; ?>
 
+                                <?php if (current_role() !== 'staff' && !empty($a['health_form'])):
+                                    $hfA = json_decode($a['health_form'], true) ?: []; $hfFlag = health_form_flags($hfA); ?>
+                                    <button type="button" class="btn btn-sm icon-btn"
+                                            style="background:<?= $hfFlag ? '#fdecec' : '#eaf7ef' ?>;color:<?= $hfFlag ? '#c0392b' : '#1f8a54' ?>;"
+                                            title="Health questionnaire<?= $hfFlag ? ' — ' . e(implode(', ', $hfFlag)) : '' ?>"
+                                            onclick="showHealthForm(<?= (int)$a['id'] ?>)">🩺</button>
+                                    <template id="hf-<?= (int)$a['id'] ?>"><?= '<h6 class="mb-2">' . e($a['patient_name']) . '</h6>' . health_form_view($hfA) ?></template>
+                                <?php endif; ?>
+
                                 <?php if ($a['status'] !== 'Cancelled'): ?>
                                     <button class="btn btn-sm icon-btn" style="background:#e8f0fe;color:#185FA5;"
                                             title="Edit"
@@ -525,6 +535,14 @@ $active = 'appointments';
 startClock();
 
 // Fill and open the edit dialog with the appointment's current details.
+// Health questionnaire (admin / dentist): read-only view in a modal.
+function showHealthForm(id) {
+    var t = document.getElementById('hf-' + id);
+    if (!t) return;
+    document.getElementById('hfModalBody').innerHTML = t.innerHTML;
+    new bootstrap.Modal(document.getElementById('hfModal')).show();
+}
+
 function openEditAppt(a){
     document.getElementById('ea-id').value        = a.id;
     document.getElementById('ea-name').textContent= a.name || '';
@@ -555,5 +573,14 @@ function validateCancelAppt(){
     return true;
 }
 </script>
+<div class="modal fade" id="hfModal" tabindex="-1" aria-labelledby="hfModalTitle">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="hfModalTitle">🩺 Health Questionnaire</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body" id="hfModalBody"></div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

@@ -197,8 +197,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: patients"); exit;
         }
         $rid = (int)($_POST['id'] ?? 0);
-        $pdo->prepare("UPDATE patients SET noshow_reset_at = NOW(), noshow_reset_by = ? WHERE id = ?")
-            ->execute([$_SESSION['name'] ?? 'admin', $rid]);
+        // Restoring clears both reasons for a pause (missed visits and cancellations).
+        $pdo->prepare("UPDATE patients SET noshow_reset_at = NOW(), noshow_reset_by = ?,
+                                           cancel_reset_at = NOW(), cancel_reset_by = ? WHERE id = ?")
+            ->execute([$_SESSION['name'] ?? 'admin', $_SESSION['name'] ?? 'admin', $rid]);
 
         $nm = $pdo->prepare("SELECT name FROM patients WHERE id=?");
         $nm->execute([$rid]);
@@ -270,9 +272,10 @@ unset($pp);
 // ---- Who is blocked from booking online? ----
 // Same shared rule as the booking page: three missed visits inside the
 // rolling window (and only those after any staff reset) pauses booking.
-$blockedCounts = [];
+$blockedCounts = []; $cancelCounts = [];
 foreach ($patients as $p) {
     $blockedCounts[$p['id']] = patient_noshow_count($pdo, $p['id']);
+    $cancelCounts[$p['id']]  = patient_cancel_count($pdo, $p['id']);
 }
 
 // Active dentists (for the admin's manual "assign doctor" dropdown).
@@ -355,7 +358,7 @@ $active = 'patients';
                                     <div>
                                         <strong><?= e($p['name']) ?></strong><br>
                                         <small class="text-muted2"><?= e($p['email']) ?></small>
-                                        <?php $ns = $blockedCounts[$p['id']] ?? 0; ?>
+                                        <?php $ns = $blockedCounts[$p['id']] ?? 0; $nc = $cancelCounts[$p['id']] ?? 0; ?>
                                         <?php $manualBlock = !empty($p['booking_blocked']); ?>
 
                                         <?php if ($manualBlock): ?>
@@ -380,10 +383,10 @@ $active = 'patients';
                                                 </form>
                                             <?php endif; ?>
 
-                                        <?php elseif ($ns >= 3): ?>
+                                        <?php elseif ($ns >= 3 || $nc >= CANCEL_LIMIT): ?>
                                             <br>
                                             <span class="badge-pill b-cancelled" style="font-size:.68rem;">
-                                                🚫 Online booking paused · <?= $ns ?> missed
+                                                🚫 Online booking paused · <?= $ns >= 3 ? $ns . ' missed' : $nc . ' cancelled' ?>
                                             </span>
                                             <?php if (in_array(current_role(), ['admin','staff'])): ?>
                                                 <form method="POST" class="d-inline m-0"

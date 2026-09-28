@@ -39,6 +39,7 @@ ensure_activity_log_schema($pdo);                   // self-heals the activity_l
 ensure_patient_archive_schema($pdo);                // self-heals the patients table's archive columns
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
 ensure_dependents_schema($pdo);                     // family members booked by a patient get their own record (needs assign.php)
+ensure_booking_review_schema($pdo);                 // health questionnaire + cancellation review columns
 
 // ============================================================
 //  CSRF PROTECTION  (forged form submissions)
@@ -478,6 +479,18 @@ function ensure_dependents_schema($pdo) {
         }
         save_setting($pdo, 'dependents_migrated_v1', date('Y-m-d H:i:s'));
     } catch (Throwable $e) { /* try again on the next page load */ }
+}
+
+function ensure_booking_review_schema($pdo) {
+    try {
+        if (!$pdo->query("SHOW COLUMNS FROM appointments LIKE 'health_form'")->rowCount()) {
+            $pdo->exec("ALTER TABLE appointments ADD COLUMN health_form TEXT DEFAULT NULL");
+        }
+        if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'cancel_reset_at'")->rowCount()) {
+            $pdo->exec("ALTER TABLE patients ADD COLUMN cancel_reset_at DATETIME DEFAULT NULL");
+            $pdo->exec("ALTER TABLE patients ADD COLUMN cancel_reset_by VARCHAR(100) DEFAULT NULL");
+        }
+    } catch (Throwable $e) { /* ignore */ }
 }
 
 // "Maria  santos " and "maria Santos" are the same person.
