@@ -180,6 +180,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
         elseif ($wDob !== '' && !DateTimeImmutable::createFromFormat('!Y-m-d', $wDob)) $err = 'Please enter a valid date of birth.';
     }
 
+    [$sbHealth, $sbHealthErr] = health_form_from_post($_POST);
+    if ($err === '' && $sbHealthErr !== '') $err = $sbHealthErr;
+
     if ($err === '') {
         if (!$dateObj || $dateObj->format('Y-m-d') !== $date)               $err = 'Please choose a valid date.';
         elseif ($date < date('Y-m-d'))                                      $err = 'The date has already passed.';
@@ -234,9 +237,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
 
     $bookedNote = 'Booked by the clinic (' . ($_SESSION['name'] ?? 'staff') . ')' . ($notes !== '' ? ' — ' . $notes : '');
     $pdo->prepare("INSERT INTO appointments (patient_id, patient_name, dentist, treatment, appointment_date, appointment_time,
-                                             status, confirmed_at, notes, booked_for)
-                   VALUES (?, ?, ?, ?, ?, ?, 'Confirmed', NOW(), ?, 'Myself')")
-        ->execute([$patient['id'], $patient['name'], $dentist, $treat, $date, $time, $bookedNote]);
+                                             status, confirmed_at, notes, booked_for, health_form)
+                   VALUES (?, ?, ?, ?, ?, ?, 'Confirmed', NOW(), ?, 'Myself', ?)")
+        ->execute([$patient['id'], $patient['name'], $dentist, $treat, $date, $time, $bookedNote,
+                   json_encode($sbHealth, JSON_UNESCAPED_UNICODE)]);
+    save_patient_health($pdo, $patient['id'], $sbHealth);              // onto the patient's record too
     log_activity($pdo, 'Booked appointment for patient', $patient['name'] . ' — ' . $treat . ', ' . date('M j, Y', strtotime($date)) . " $time with $dentist");
 
     // Email the patient (or the family member's guardian) the confirmation.
@@ -434,6 +439,8 @@ $bookPatients = staff_bookable_patients($pdo);
 $bookDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
 $bookSlots    = clinic_time_slots($pdo);
 $bookPrefill  = (int)($_GET['book'] ?? 0);           // ?book=<patient id> opens the form with that patient chosen
+$bookHealth   = [];                                  // patient id => their latest questionnaire (prefill)
+foreach ($bookPatients as $bp) { [$ans] = patient_health($pdo, $bp['id']); if ($ans) $bookHealth[(int)$bp['id']] = $ans; }
 
 $page_title = "Appointments";
 include 'includes/head.php';
@@ -702,9 +709,10 @@ $active = 'appointments';
   </div>
 </div>
 
+<?= health_form_styles() ?>
 <!-- ===== The clinic books for a patient ===== -->
 <div class="modal fade" id="staffBookModal" tabindex="-1" aria-labelledby="sbTitle">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <form method="POST" class="modal-content" onsubmit="return sbValidate()">
       <input type="hidden" name="action" value="staff_book">
       <div class="modal-header">
@@ -719,7 +727,7 @@ $active = 'appointments';
 
         <div id="sb-existing">
           <input type="text" id="sb-search" class="form-control form-control-sm mb-1" placeholder="Search by name or phone..." oninput="sbFilter()">
-          <select name="patient_id" id="sb-patient" class="form-select" size="6">
+          <select name="patient_id" id="sb-patient" class="form-select" size="6" onchange="sbHealth()">
             <?php foreach ($bookPatients as $bp): ?>
               <option value="<?= (int)$bp['id'] ?>" data-dentist="<?= e($bp['primary_dentist']) ?>" <?= $bookPrefill === (int)$bp['id'] ? 'selected' : '' ?>>
                 <?= e($bp['name']) ?><?= $bp['phone'] ? ' · ' . e($bp['phone']) : '' ?> —
@@ -743,6 +751,10 @@ $active = 'appointments';
 
         <hr>
         <div class="row g-2">
+          <div class="col-12">
+            <div id="sb-hf-note" class="text-muted2 mb-1" style="font-size:.8rem;"></div>
+            <div id="sb-hf"><?= health_form_fields([], true) ?></div>
+          </div>
           <div class="col-md-6">
             <label class="field-label">Treatment *</label>
             <select name="treatment" class="form-select" required>
@@ -805,6 +817,17 @@ function sbMode() {
     var isNew = document.querySelector('[name="patient_mode"]:checked').value === 'new';
     document.getElementById('sb-existing').style.display = isNew ? 'none' : '';
     document.getElementById('sb-new').style.display      = isNew ? '' : 'none';
+    sbHealth();
+}
+// Health questionnaire: an existing patient's last answers are filled in to
+// review with them; a new walk-in starts blank.
+var SB_HEALTH = <?= json_encode((object)$bookHealth, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+function sbHealth() {
+    var isNew = document.querySelector('[name="patient_mode"]:checked').value === 'new';
+    var pid = document.getElementById('sb-patient').value, a = (!isNew && pid && SB_HEALTH[pid]) || null;
+    hfFill(document.getElementById('sb-hf'), a || {});
+    document.getElementById('sb-hf-note').textContent = isNew ? 'Fill in the health questionnaire with the patient.'
+        : (a ? 'Their last answers are filled in — please review them with the patient.' : (pid ? 'No questionnaire on file yet — please fill it in with the patient.' : ''));
 }
 function sbFilter() {
     var q = document.getElementById('sb-search').value.toLowerCase();
@@ -831,6 +854,10 @@ function sbValidate() {
         var p = document.querySelector('#sb-new [name="phone"]').value;
         if (!f || !l) msg = "Please enter the walk-in patient's first and last name.";
         else if (typeof phoneProblem === 'function' && phoneProblem(p, true)) msg = phoneProblem(p, true);
+    }
+    if (!msg) {
+        var bad = [].slice.call(document.querySelectorAll('#sb-hf input[required]')).find(function (el) { return !el.checkValidity(); });
+        if (bad) { msg = 'Please answer every question marked * in the health questionnaire.'; bad.scrollIntoView({ block: 'center' }); }
     }
     if (msg) { warn.textContent = msg; warn.style.display = 'block'; return false; }
     return true;

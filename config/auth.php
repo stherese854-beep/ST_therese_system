@@ -491,6 +491,18 @@ function ensure_booking_review_schema($pdo) {
             $pdo->exec("ALTER TABLE appointments MODIFY status ENUM('Pending','Confirmed','Cancelled','Completed',
                         'No-show','Rescheduled','Needs Review','Expired') DEFAULT 'Pending'");
         }
+        if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'health_form'")->rowCount()) {
+            $pdo->exec("ALTER TABLE patients ADD COLUMN health_form TEXT DEFAULT NULL");
+            $pdo->exec("ALTER TABLE patients ADD COLUMN health_form_at DATETIME DEFAULT NULL");
+            // Copy each patient's latest answers from their bookings onto their record.
+            $pdo->exec("UPDATE patients p JOIN (
+                            SELECT a.patient_id, a.health_form, a.created_at FROM appointments a
+                             WHERE a.health_form IS NOT NULL
+                               AND a.id = (SELECT a2.id FROM appointments a2 WHERE a2.patient_id = a.patient_id
+                                            AND a2.health_form IS NOT NULL ORDER BY a2.created_at DESC, a2.id DESC LIMIT 1)
+                        ) last ON last.patient_id = p.id
+                        SET p.health_form = last.health_form, p.health_form_at = last.created_at");
+        }
         if (!$pdo->query("SHOW COLUMNS FROM appointments LIKE 'arrived_at'")->rowCount()) {
             $pdo->exec("ALTER TABLE appointments ADD COLUMN patient_confirmed_at DATETIME DEFAULT NULL");
             $pdo->exec("ALTER TABLE appointments ADD COLUMN arrived_at DATETIME DEFAULT NULL");

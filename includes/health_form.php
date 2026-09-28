@@ -31,7 +31,7 @@ const HEALTH_YESNO = [
     'good_health'=> ['Are you in good health?', 'If not, please tell us more', 'no'],
 ];
 
-function health_form_fields($p = []) {
+function health_form_fields($p = [], $byStaff = false) {
     $v   = fn($k) => e($p[$k] ?? '');
     $chk = fn($k, $val) => (($p[$k] ?? '') === $val) ? 'checked' : '';
     ob_start(); ?>
@@ -104,7 +104,8 @@ function health_form_fields($p = []) {
       </div>
 
       <label class="hf-confirm"><input type="checkbox" name="hf[confirm]" value="1" required>
-        I confirm that the information above is true and complete to the best of my knowledge. *</label>
+        <?= $byStaff ? 'The patient confirmed that these answers are true and complete. *'
+                     : 'I confirm that the information above is true and complete to the best of my knowledge. *' ?></label>
     </div>
     <?php return ob_get_clean();
 }
@@ -148,6 +149,40 @@ function health_form_from_post($post) {
         return [$a, 'Please confirm that your health information is true and complete.'];
     }
     return [$a, ''];
+}
+
+// ---- The patient's record keeps their latest answers ----
+// Saved from every booking (online or by the clinic). If something is
+// flagged and the patient's Medical Alert is still empty, the flags fill it,
+// so they also show on reports. An alert typed by staff is never replaced.
+function save_patient_health($pdo, $patientId, $answers) {
+    $patientId = (int)$patientId;
+    if ($patientId <= 0 || !$answers) return;
+    try {
+        $pdo->prepare("UPDATE patients SET health_form = ?, health_form_at = NOW() WHERE id = ?")
+            ->execute([json_encode($answers, JSON_UNESCAPED_UNICODE), $patientId]);
+        $flags = health_form_flags($answers);
+        if ($flags) {
+            $pdo->prepare("UPDATE patients SET medical_alert = ? WHERE id = ? AND (medical_alert IS NULL OR TRIM(medical_alert) = '')")
+                ->execute([mb_substr(implode(' · ', $flags), 0, 250), $patientId]);
+        }
+    } catch (Throwable $e) { /* columns not added yet */ }
+}
+
+// [answers, when] — the patient's record first, else their latest booking.
+function patient_health($pdo, $patientId) {
+    try {
+        $st = $pdo->prepare("SELECT health_form, health_form_at FROM patients WHERE id = ?");
+        $st->execute([(int)$patientId]);
+        $r = $st->fetch();
+        if ($r && $r['health_form']) return [json_decode($r['health_form'], true) ?: [], $r['health_form_at']];
+        $st = $pdo->prepare("SELECT health_form, created_at FROM appointments WHERE patient_id = ? AND health_form IS NOT NULL
+                              ORDER BY created_at DESC, id DESC LIMIT 1");
+        $st->execute([(int)$patientId]);
+        $r = $st->fetch();
+        if ($r) return [json_decode($r['health_form'], true) ?: [], $r['created_at']];
+    } catch (Throwable $e) {}
+    return [[], null];
 }
 
 // Things the dentist should notice at a glance.
@@ -216,5 +251,19 @@ function hfToggle() {
     });
 }
 document.addEventListener('DOMContentLoaded', hfToggle);
+
+// Fill the form inside `root` with saved answers ({} clears it).
+function hfFill(root, a) {
+    a = a || {};
+    root.querySelectorAll('input').forEach(function (el) {
+        var m = (el.name || '').match(/^hf\[([a-z_]+)\](\[\])?$/);
+        if (!m) return;
+        var k = m[1];
+        if (el.type === 'radio')         el.checked = (a[k] === el.value);
+        else if (el.type === 'checkbox') el.checked = m[2] ? (a[k] || []).indexOf(el.value) !== -1 : (k === 'confirm' ? false : !!a[k]);
+        else                             el.value = a[k] || '';
+    });
+    hfToggle();
+}
 </script>
 CSS; }

@@ -232,15 +232,11 @@ $active = 'records';
 
         <?php elseif ($tab === 'overview'): ?>
             <!-- ===== OVERVIEW: editable patient info + dental chart + remarks ===== -->
-            <?php
-                $hq = $pdo->prepare("SELECT health_form, appointment_date FROM appointments
-                                      WHERE patient_id = ? AND health_form IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1");
-                $hq->execute([$pid]); $hqRow = $hq->fetch();
-            ?>
+            <?php [$hfAns, $hfAt] = patient_health($pdo, $pid); ?>
             <div class="card-box mb-3">
                 <h6 class="mb-2">🩺 Health Questionnaire
-                    <small class="text-muted2"><?= $hqRow ? '(latest, from the booking for ' . date('M j, Y', strtotime($hqRow['appointment_date'])) . ')' : '' ?></small></h6>
-                <?= health_form_view($hqRow ? (json_decode($hqRow['health_form'], true) ?: []) : []) ?>
+                    <small class="text-muted2"><?= $hfAt ? '(latest, updated ' . date('M j, Y', strtotime($hfAt)) . ')' : '' ?></small></h6>
+                <?= health_form_view($hfAns) ?>
             </div>
             <form method="POST">
                 <input type="hidden" name="action" value="update_patient_info">

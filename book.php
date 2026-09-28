@@ -263,6 +263,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
                 $forWhom, $relationship, $bookedBy, $reason,
                 json_encode($healthForm, JSON_UNESCAPED_UNICODE)
             ]);
+        // The answers also go onto the patient's record (the family member's own
+        // record when booking for someone else), where Records shows them.
+        save_patient_health($pdo, $apptPatientId, $healthForm);
 
         // Email the patient a "request received" confirmation (if email is set up).
         if (!empty($me['email'])) {
@@ -305,10 +308,7 @@ $hfPrefill = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($healthForm)) {
     $hfPrefill = $healthForm;
 } elseif ($me['id']) {
-    $lf = $pdo->prepare("SELECT health_form FROM appointments WHERE patient_id = ? AND health_form IS NOT NULL
-                          ORDER BY created_at DESC, id DESC LIMIT 1");
-    $lf->execute([$me['id']]);
-    $hfPrefill = json_decode((string)$lf->fetchColumn(), true) ?: [];
+    [$hfPrefill] = patient_health($pdo, $me['id']);          // their record's latest answers
 }
 
 // ---- What the date & time pickers treat as unavailable ----
