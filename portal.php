@@ -720,7 +720,7 @@ include 'includes/head.php';
                     <h5 class="mb-0">📅 Upcoming Appointments</h5>
                 </div>
                 <div class="text-muted2 mb-2" style="font-size:.85rem;">
-                    ⏳ <strong>Pending</strong> means the dentist has not approved it yet. It becomes final once it shows <strong>Confirmed</strong>.
+                    ⏳ <strong>Pending</strong> means the dentist has not approved it yet. It becomes final once it shows <strong>Approved</strong>.
                 </div>
                 <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
                 <table class="data" style="min-width:620px;">
@@ -741,7 +741,7 @@ include 'includes/head.php';
                             <td><?= date('M j, Y', strtotime($a['appointment_date'])) ?></td>
                             <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                             <td><?= e($a['dentist']) ?></td>
-                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span></td>
+                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span></td>
                             <td>
                                 <?php
                                     // Cancelling online is allowed up to 24 hours before the visit.
@@ -820,7 +820,7 @@ include 'includes/head.php';
                             <td><?= date('M j, Y', strtotime($a['appointment_date'])) ?></td>
                             <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                             <td><?= e($a['dentist']) ?></td>
-                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span></td>
+                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span></td>
                             <td class="text-end"><?= archive_button('appointment', $a['id']) ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -1141,7 +1141,7 @@ include 'includes/head.php';
                             <td><?= date('M j, Y', strtotime($a['appointment_date'])) ?></td>
                             <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                             <td><?= e($a['dentist']) ?></td>
-                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span></td>
+                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span></td>
                             <td class="text-end"><?= archive_button('appointment', $a['id'], true, 'archive') ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -1178,7 +1178,7 @@ include 'includes/head.php';
                                 <small><?= e($t['notes']) ?></small></div>
                         </div>
                         <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-                            <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':'progress' ?>"><?= e($t['status']) ?></span>
+                            <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':'progress' ?>"><?= e(status_label($t['status'])) ?></span>
                             <?= archive_button('treatment', $t['id']) ?>
                         </div>
                     </div>

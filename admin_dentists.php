@@ -215,7 +215,7 @@ $active = 'dentists';
                 <div><div class="field-label">Blood Type</div><?= e($patient['blood_type']) ?></div>
                 <div><div class="field-label">Phone</div><?= e($patient['phone']) ?></div>
                 <div><div class="field-label">Type</div><span class="badge-pill <?= badge_for($patient['patient_type']) ?>"><?= e($patient['patient_type']) ?></span></div>
-                <div><div class="field-label">Status</div><span class="badge-pill <?= badge_for($patient['status']) ?>"><?= e($patient['status']) ?></span></div>
+                <div><div class="field-label">Status</div><span class="badge-pill <?= badge_for($patient['status']) ?>"><?= e(status_label($patient['status'])) ?></span></div>
                 <?php if ($patient['medical_alert']): ?>
                     <div><div class="field-label">Medical Alert</div><span style="color:#c0392b;">⚠️ <?= e($patient['medical_alert']) ?></span></div>
                 <?php endif; ?>
@@ -285,7 +285,7 @@ $active = 'dentists';
                             <td><strong><?= e($t['treatment_name']) ?></strong></td>
                             <td><?= e($t['tooth']) ?></td>
                             <td><?= e($t['dentist']) ?></td>
-                            <td><span class="badge-pill <?= badge_for($t['status']) ?>"><?= e($t['status']) ?></span></td>
+                            <td><span class="badge-pill <?= badge_for($t['status']) ?>"><?= e(status_label($t['status'])) ?></span></td>
                             <td><?= e($t['notes']) ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -351,7 +351,7 @@ $active = 'dentists';
                             <td><span class="badge-pill <?= badge_for($pt['patient_type']) ?>"><?= e($pt['patient_type']) ?></span></td>
                             <td><?= e($pt['last_visit']) ?></td>
                             <td><?= e($pt['next_visit']) ?></td>
-                            <td><span class="badge-pill <?= badge_for($pt['status']) ?>"><?= e($pt['status']) ?></span></td>
+                            <td><span class="badge-pill <?= badge_for($pt['status']) ?>"><?= e(status_label($pt['status'])) ?></span></td>
                             <td><a href="admin_dentists?dentist=<?= $did ?>&patient=<?= $pt['id'] ?>" class="btn btn-sm btn-teal">View Chart &amp; Records →</a></td>
                         </tr>
                     <?php endforeach; ?>

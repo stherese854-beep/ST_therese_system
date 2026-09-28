@@ -422,7 +422,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $patientLabel = $ap['patient_name'] ?? ('#' . $id);
         log_activity($pdo, "Appointment $newStatus", $patientLabel . ($when ? " ($when)" : ''));
-        set_flash("Appointment marked as $newStatus." . $mailNote);
+        set_flash("Appointment marked as " . status_label($newStatus) . "." . $mailNote);
     } elseif (!$canEdit) {
         set_flash("You can only manage appointments for your own patients.", 'error');
     }
@@ -468,6 +468,24 @@ $appts = $stmt->fetchAll();
 
 $tabs = ['All','Confirmed','Pending','Arrived','Cancelled','Disapproved'];
 
+// How many appointments each tab holds — same dentist scope and search as the
+// list, just without the status filter — so every tab shows its total.
+$tabCounts = ['All' => 0];
+$cConds = []; $cParams = [];
+if ($search !== '') {
+    $cConds[] = "(a.patient_name LIKE ? OR a.dentist LIKE ? OR a.treatment LIKE ?)";
+    array_push($cParams, "%$search%", "%$search%", "%$search%");
+}
+if ($isDentist) {
+    $dp = [];
+    $cConds[] = "(" . dentist_match_sql('p.primary_dentist', $myName, $dp) . " OR " . dentist_match_sql('a.dentist', $myName, $dp) . ")";
+    $cParams = array_merge($cParams, $dp);
+}
+$cq = $pdo->prepare("SELECT a.status, COUNT(*) FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id"
+                    . ($cConds ? " WHERE " . implode(" AND ", $cConds) : "") . " GROUP BY a.status");
+$cq->execute($cParams);
+foreach ($cq->fetchAll(PDO::FETCH_KEY_PAIR) as $st => $n) { $tabCounts[$st] = (int)$n; $tabCounts['All'] += (int)$n; }
+
 // For the "+ Book" form.
 $bookPatients = staff_bookable_patients($pdo);
 $bookDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
@@ -494,8 +512,9 @@ $active = 'appointments';
         <!-- Filter tabs + search -->
         <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
             <?php foreach ($tabs as $t): ?>
-                <a href="appointments?filter=<?= $t ?><?= $search!==''?'&q='.urlencode($search):'' ?>"
-                   class="btn btn-sm <?= $filter===$t ? 'btn-dark-navy' : 'btn-light' ?>"><?= $t ?></a>
+                <a href="appointments?filter=<?= $t ?><?= $search!==''?'&q='.urlencode($search):'' ?>" data-keep-text
+                   class="btn btn-sm <?= $filter===$t ? 'btn-dark-navy' : 'btn-light' ?>"><?= e(status_label($t)) ?>
+                    <span class="tab-count"><?= (int)($tabCounts[$t] ?? 0) ?></span></a>
             <?php endforeach; ?>
             <form method="GET" class="d-flex gap-2 align-items-center ms-auto" style="flex:1;max-width:340px;min-width:200px;">
                 <input type="hidden" name="filter" value="<?= e($filter) ?>">
@@ -546,7 +565,7 @@ $active = 'appointments';
                                         <em><?= e($a['cancel_reason']) ?></em></small>
                                 <?php endif; ?>
                             </td>
-                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span>
+                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span>
                                 <?php if (!empty($a['arrived_at'])): ?>
                                     <br><small style="color:#138a4e;font-weight:600;" title="Marked by <?= e($a['arrived_by']) ?>">🟢 Arrived <?= date('g:i A', strtotime($a['arrived_at'])) ?></small>
                                 <?php elseif (!empty($a['patient_confirmed_at']) && in_array($a['status'], ['Pending','Confirmed'], true)): ?>
@@ -835,7 +854,7 @@ $active = 'appointments';
           </div>
         </div>
         <div id="sb-warn" class="text-danger small mt-2" style="display:none;"></div>
-        <div class="text-muted2 mt-2" style="font-size:.78rem;">Booked by the clinic, so it is <b>Confirmed</b> right away; the patient is emailed if they have an email.</div>
+        <div class="text-muted2 mt-2" style="font-size:.78rem;">Booked by the clinic, so it is <b>Approved</b> right away; the patient is emailed if they have an email.</div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>

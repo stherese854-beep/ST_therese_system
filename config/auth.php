@@ -995,6 +995,12 @@ function bulk_pick($formId, $value, $label = 'Select') {
          . ' title="' . e($label) . '" aria-label="' . e($label) . '">';
 }
 
+// How a status is SHOWN. The database keeps "Confirmed", but the clinic calls
+// an accepted booking "Approved" everywhere on screen.
+function status_label($status) {
+    return ['Confirmed' => 'Approved'][$status] ?? $status;
+}
+
 function save_setting($pdo, $key, $value) {
     $pdo->prepare(
         "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)

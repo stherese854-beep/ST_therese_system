@@ -475,7 +475,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                         <td><?= e($tr['treatment_name']) ?></td>
                                         <td><?= e($tr['tooth']) ?></td>
                                         <td><?= e($tr['dentist']) ?></td>
-                                        <td><span class="badge-pill <?= badge_for($tr['status']) ?>"><?= e($tr['status']) ?></span></td>
+                                        <td><span class="badge-pill <?= badge_for($tr['status']) ?>"><?= e(status_label($tr['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (empty($pTreatments)): ?><tr><td colspan="5" class="text-muted2 text-center">No treatments on record.</td></tr><?php endif; ?>
@@ -505,7 +505,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                         <td><?= e($ap['appointment_time']) ?></td>
                                         <td><?= e($ap['treatment']) ?></td>
                                         <td><?= e($ap['dentist']) ?></td>
-                                        <td><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e($ap['status']) ?></span></td>
+                                        <td><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e(status_label($ap['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (empty($pAppointments)): ?><tr><td colspan="5" class="text-muted2 text-center">No appointments on record.</td></tr><?php endif; ?>
@@ -525,7 +525,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                         <td><?= e($tr['treatment_name']) ?></td>
                                         <td><?= e($tr['tooth']) ?></td>
                                         <td><?= e($tr['dentist']) ?></td>
-                                        <td><span class="badge-pill <?= badge_for($tr['status']) ?>"><?= e($tr['status']) ?></span></td>
+                                        <td><span class="badge-pill <?= badge_for($tr['status']) ?>"><?= e(status_label($tr['status'])) ?></span></td>
                                         <td><?= e($tr['notes']) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -547,7 +547,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                         <td><?= e($ap['appointment_date']) ?></td>
                                         <td><?= e($ap['appointment_time']) ?></td>
                                         <td><?= e($ap['treatment']) ?></td>
-                                        <td><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e($ap['status']) ?></span></td>
+                                        <td><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e(status_label($ap['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 </tbody>
@@ -576,7 +576,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                         <td><?= e($p['phone']) ?></td>
                                         <td><?= e($p['patient_type']) ?></td>
                                         <td><?= e($p['primary_dentist']) ?></td>
-                                        <td><span class="badge-pill <?= badge_for($p['status']) ?>"><?= e($p['status']) ?></span></td>
+                                        <td><span class="badge-pill <?= badge_for($p['status']) ?>"><?= e(status_label($p['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (count($patients) === 0): ?>

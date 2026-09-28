@@ -68,7 +68,7 @@ $when = $appt ? date('l, F j, Y', strtotime($appt['appointment_date'])) . ' at '
         <p>This link is not valid. Please use the button from your latest reminder email, or contact the clinic.</p>
 
     <?php elseif ($state === 'closed'): ?>
-        <p>This appointment can no longer be changed here (status: <b><?= e($appt['status']) ?></b>).</p>
+        <p>This appointment can no longer be changed here (status: <b><?= e(status_label($appt['status'])) ?></b>).</p>
         <p class="text-muted2">If you need help, please contact the clinic.</p>
 
     <?php elseif ($state === 'ask' && $do === 'confirm'): ?>

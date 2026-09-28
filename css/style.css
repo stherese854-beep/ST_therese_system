@@ -147,6 +147,11 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .b-inactive, .b-cancelled, .b-noshow { background: #fbdcdc; color: #c0392b; }
 .b-disapproved { background: #fde6d3; color: #b4531a; }
 
+/* ---- Count on a filter tab, e.g. "Pending 3" ---- */
+.tab-count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px;
+             background: rgba(15,118,110,.12); color: inherit; font-size: .72rem; font-weight: 700; line-height: 18px; text-align: center; }
+.btn-dark-navy .tab-count { background: rgba(255,255,255,.22); }
+
 /* ---- Dashboard calendar (js/app.js buildCalendar) ---- */
 #calendar td.cal-day { position: relative; padding: 7px 0; color: #475569; border-radius: 8px; }
 #calendar td.cal-day.pickable { cursor: pointer; }

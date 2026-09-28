@@ -471,7 +471,7 @@ function tabLink($key, $label, $count, $current) {
                                     <td><?= e($r['appointment_time']) ?></td>
                                     <td><?= e($r['dentist']) ?></td>
                                     <td><?= e($r['treatment']) ?></td>
-                                    <td><span class="badge-pill <?= statusBadge($r['status']) ?>"><?= e($r['status']) ?></span></td>
+                                    <td><span class="badge-pill <?= statusBadge(status_label($r['status'])) ?>"><?= e(status_label($r['status'])) ?></span></td>
                                     <td>
                                         <?php if ($r['status'] === 'Needs Review'): ?>
                                             <div class="d-flex gap-1 flex-wrap">

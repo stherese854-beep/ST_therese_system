@@ -338,7 +338,7 @@ $active = 'dashboard';
                                         <td><?= e($a['appointment_date']) ?></td>
                                         <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                                         <td><?= e($a['treatment']) ?></td>
-                                        <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e($a['status']) ?></span></td>
+                                        <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>
@@ -372,7 +372,7 @@ $active = 'dashboard';
                                     <small class="text-muted2">Age <?= e($p['age']) ?> • <?= e($p['last_visit']) ?></small>
                                 </div>
                             </div>
-                            <span class="badge-pill b-<?= strtolower($p['status']) ?>"><?= e($p['status']) ?></span>
+                            <span class="badge-pill b-<?= strtolower($p['status']) ?>"><?= e(status_label($p['status'])) ?></span>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -447,7 +447,7 @@ $active = 'dashboard';
             rows.innerHTML = list.map(function (a) {
                 return '<tr><td><strong>' + dashEsc(a.patient_name) + '</strong></td><td>' + dashEsc(a.appointment_date) + '</td>'
                      + '<td class="date-blue">' + dashEsc(a.appointment_time) + '</td><td>' + dashEsc(a.treatment) + '</td>'
-                     + '<td><span class="badge-pill b-' + dashEsc(String(a.status).toLowerCase()) + '">' + dashEsc(a.status) + '</span></td></tr>';
+                     + '<td><span class="badge-pill b-' + dashEsc(String(a.status).toLowerCase()) + '">' + dashEsc(a.status === 'Confirmed' ? 'Approved' : a.status) + '</span></td></tr>';
             }).join('');
         }).catch(function () { rows.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Could not load that day. Please try again.</td></tr>'; });
     };

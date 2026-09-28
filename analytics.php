@@ -134,7 +134,7 @@ foreach ($STATUS_COLORS as $name => $col) {
 foreach ($byStatus as $name => $n) if (!isset($STATUS_COLORS[$name]) && $n > 0) $other[] = "$name $n";
 if ($other) { $st['Other'] = array_sum(array_map(fn($x) => (int)preg_replace('/.* /', '', $x), $other)); $stColors[] = '#a8a7a0'; }
 $charts['status'] = ['Appointments by status', 'Share of booked appointments' . ($other ? ' · Other = ' . implode(', ', $other) : ''),
-    array_keys($st), array_values($st), 'appointment', 'donut', $stColors];
+    array_map('status_label', array_keys($st)), array_values($st), 'appointment', 'donut', $stColors];
 
 // A booking can list up to 3 treatments ("Cleaning, Dental Filling"): count each.
 $tr = [];
