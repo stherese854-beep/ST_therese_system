@@ -368,7 +368,12 @@ $active = 'dashboard';
                             <div class="d-flex align-items-center gap-2">
                                 <span class="avatar" style="background:<?= $avatarColors[$i % 5] ?>"><?= strtoupper(substr($p['name'],0,1)) ?></span>
                                 <div>
-                                    <strong><?= e($p['name']) ?></strong><br>
+                                    <?php // Clicking the name opens their treatment record (clinical: admin and dentists);
+                                          // front-desk staff, who have no Records access, get the patient's row instead.
+                                          $recentLink = in_array($role, ['admin','dentist'], true)
+                                              ? 'records?patient=' . (int)$p['id'] . '&tab=treatments'
+                                              : 'patients?q=' . urlencode($p['name']); ?>
+                                    <a href="<?= e($recentLink) ?>" class="recent-name" title="Open <?= e($p['name']) ?>’s <?= $role === 'staff' ? 'details' : 'treatment record' ?>"><strong><?= e($p['name']) ?></strong></a><br>
                                     <small class="text-muted2">Age <?= e($p['age']) ?> • <?= e($p['last_visit']) ?></small>
                                 </div>
                             </div>
