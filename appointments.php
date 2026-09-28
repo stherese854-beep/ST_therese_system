@@ -79,8 +79,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
     $note    = trim($_POST['edit_note'] ?? '');
 
     $cur = $pdo->prepare(
-        "SELECT a.*, p.email AS patient_email
+        "SELECT a.*, COALESCE(NULLIF(p.email,''), g.email) AS patient_email
            FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id
+      LEFT JOIN patients g ON g.id = p.guardian_patient_id
           WHERE a.id = ?"
     );
     $cur->execute([$id]);
@@ -158,9 +159,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($id && in_array($newStatus, $allowed) && $canEdit) {
         // Load the appointment + the patient's email so we can write to them.
         $info = $pdo->prepare(
-            "SELECT a.*, p.email AS patient_email
+            "SELECT a.*, COALESCE(NULLIF(p.email,''), g.email) AS patient_email
                FROM appointments a
           LEFT JOIN patients p ON a.patient_id = p.id
+          LEFT JOIN patients g ON g.id = p.guardian_patient_id
               WHERE a.id = ?"
         );
         $info->execute([$id]);

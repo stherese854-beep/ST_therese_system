@@ -138,9 +138,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $chk = $pdo->prepare(
             "SELECT id, appointment_date, appointment_time, treatment, dentist, patient_name, status
-               FROM appointments WHERE id = ? AND patient_id = ?"
+               FROM appointments WHERE id = ? AND patient_id IN (" . in_placeholders(family_patient_ids($pdo, $pid)) . ")"
         );
-        $chk->execute([$aid, $pid]);
+        $chk->execute(array_merge([$aid], family_patient_ids($pdo, $pid)));
         $appt = $chk->fetch();
 
         if (!$appt) {
@@ -192,9 +192,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $chk = $pdo->prepare(
             "SELECT id, appointment_date, appointment_time, treatment, dentist, patient_name, status
                FROM appointments
-              WHERE id = ? AND patient_id = ?"
+              WHERE id = ? AND patient_id IN (" . in_placeholders(family_patient_ids($pdo, $pid)) . ")"
         );
-        $chk->execute([$aid, $pid]);
+        $chk->execute(array_merge([$aid], family_patient_ids($pdo, $pid)));
         $appt = $chk->fetch();
 
         if (!$appt) {
@@ -309,8 +309,11 @@ if ($pid) {
     $t = $pdo->prepare("SELECT * FROM treatments WHERE patient_id=? ORDER BY treatment_date DESC");
     $t->execute([$pid]); $myTreatments = $t->fetchAll();
 
-    $a = $pdo->prepare("SELECT * FROM appointments WHERE patient_id=? ORDER BY appointment_date DESC, appointment_time ASC");
-    $a->execute([$pid]); $myAppts = $a->fetchAll();
+    // Their own appointments AND those of family members they booked for.
+    $famIds = family_patient_ids($pdo, $pid);
+    $a = $pdo->prepare("SELECT * FROM appointments WHERE patient_id IN (" . in_placeholders($famIds) . ")
+                        ORDER BY appointment_date DESC, appointment_time ASC");
+    $a->execute($famIds); $myAppts = $a->fetchAll();
 
     // Separate into "upcoming" and "past history" so the patient can see their
     // full visit history in one place (continuity of care).

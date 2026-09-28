@@ -252,6 +252,22 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $patients = $stmt->fetchAll();
 
+// ---- Family links (for the View window) ----
+// A family member booked by another patient shows who booked them; a
+// patient who books for family shows their family members.
+$pNames = array_column($pdo->query("SELECT id, name FROM patients")->fetchAll(), 'name', 'id');
+$familyOf = [];
+foreach ($pdo->query("SELECT id, name, relationship, guardian_patient_id FROM patients
+                       WHERE guardian_patient_id IS NOT NULL AND status <> 'Archived' ORDER BY name") as $f) {
+    $familyOf[(int)$f['guardian_patient_id']][] = $f['name'] . ($f['relationship'] ? ' (' . $f['relationship'] . ')' : '');
+}
+foreach ($patients as &$pp) {
+    $g = (int)($pp['guardian_patient_id'] ?? 0);
+    $pp['booked_by_name'] = $g ? ($pNames[$g] ?? '') : '';
+    $pp['family_members'] = $familyOf[(int)$pp['id']] ?? [];
+}
+unset($pp);
+
 // ---- Who is blocked from booking online? ----
 // Same shared rule as the booking page: three missed visits inside the
 // rolling window (and only those after any staff reset) pauses booking.
@@ -698,6 +714,8 @@ function validatePauseBooking(){
           +     '<p><b>Email:</b> '+esc(p.email||'-')+'</p>'
           +     '<p><b>Phone:</b> '+esc(p.phone||'-')+'</p>'
           +     '<p><b>Age:</b> '+(p.age||'-')+'</p>'
+          +     (p.booked_by_name ? '<p><b>Booked by:</b> '+esc(p.booked_by_name)+(p.relationship ? ' <span class="text-muted2">('+esc(p.relationship)+')</span>' : '')+'</p>' : '')
+          +     (p.family_members && p.family_members.length ? '<p><b>Family members:</b> '+p.family_members.map(esc).join(', ')+'</p>' : '')
           +   '</div>'
           +   '<div class="col-md-6">'
           +     '<p><b>Blood Type:</b> '+esc(p.blood_type||'-')+'</p>'

@@ -38,6 +38,7 @@ ensure_archive_schema($pdo);                        // self-heals the archive co
 ensure_activity_log_schema($pdo);                   // self-heals the activity_log table
 ensure_patient_archive_schema($pdo);                // self-heals the patients table's archive columns
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
+ensure_dependents_schema($pdo);                     // family members booked by a patient get their own record (needs assign.php)
 
 // ============================================================
 //  CSRF PROTECTION  (forged form submissions)
@@ -434,6 +435,99 @@ function format_announcement($text) {
     $html = preg_replace('/(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])/s', '<em>$1</em>', $html);
     return $html;
 }
+
+// ============================================================
+//  FAMILY MEMBERS ("Someone else" bookings)
+// ============================================================
+//  A patient can book for someone else (a child, a parent ...). That
+//  person gets their OWN patient record — so they appear in the patient
+//  list, odontogram and records with their own dentist — linked to the
+//  booking patient through patients.guardian_patient_id. They have no
+//  login: the guardian manages their appointments from the portal, and
+//  clinic emails for them go to the guardian's address.
+// ============================================================
+function ensure_dependents_schema($pdo) {
+    try {
+        $has = $pdo->query("SHOW COLUMNS FROM patients LIKE 'guardian_patient_id'")->rowCount();
+        if (!$has) {
+            $pdo->exec("ALTER TABLE patients ADD COLUMN guardian_patient_id INT DEFAULT NULL");
+            $pdo->exec("ALTER TABLE patients ADD COLUMN relationship VARCHAR(40) DEFAULT NULL");
+            $pdo->exec("ALTER TABLE patients ADD INDEX idx_guardian (guardian_patient_id)");
+        }
+    } catch (Throwable $e) { return; }
+
+    // One-time: older "Someone else" bookings were filed under the booking
+    // patient's own record. Give each of those people a record of their own.
+    try {
+        $done = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='dependents_migrated_v1'")->fetchColumn();
+        if ($done) return;
+        $rows = $pdo->query(
+            "SELECT a.id, a.patient_id, a.patient_name, a.relationship, a.dentist, a.notes, a.created_at,
+                    p.name AS owner_name, p.phone AS owner_phone
+               FROM appointments a JOIN patients p ON p.id = a.patient_id
+              WHERE a.booked_for = 'Someone else' AND p.guardian_patient_id IS NULL
+              ORDER BY a.appointment_date DESC, a.id DESC"
+        )->fetchAll();
+        foreach ($rows as $r) {
+            if (person_name_key($r['patient_name']) === person_name_key($r['owner_name'])) continue;
+            $dob = preg_match('/Patient DOB:\s*(\d{4}-\d{2}-\d{2})/', (string)$r['notes'], $m) ? $m[1] : null;
+            $depId = find_or_create_dependent($pdo, (int)$r['patient_id'], $r['patient_name'],
+                                              $r['relationship'], $dob, canonical_dentist_name($pdo, $r['dentist']),
+                                              $r['owner_phone'], $r['created_at']);
+            if ($depId) $pdo->prepare("UPDATE appointments SET patient_id=? WHERE id=?")->execute([$depId, $r['id']]);
+        }
+        save_setting($pdo, 'dependents_migrated_v1', date('Y-m-d H:i:s'));
+    } catch (Throwable $e) { /* try again on the next page load */ }
+}
+
+// "Maria  santos " and "maria Santos" are the same person.
+function person_name_key($name) {
+    return strtolower(preg_replace('/\s+/', ' ', trim((string)$name)));
+}
+
+// "Dr. Santos" (short form on old appointments) -> "Dr. Ana Santos" when that dentist exists.
+function canonical_dentist_name($pdo, $name) {
+    if (!$name) return null;
+    foreach ($pdo->query("SELECT name FROM users WHERE role='dentist'")->fetchAll(PDO::FETCH_COLUMN) as $d) {
+        if (in_array($name, dentist_name_variants($d), true)) return $d;
+    }
+    return $name;
+}
+
+// The family member's record under this guardian (matched by name), created
+// the first time. Returns the patient id.
+function find_or_create_dependent($pdo, $guardianPid, $name, $relationship = null, $dob = null,
+                                  $dentist = null, $phone = null, $createdAt = null) {
+    $name = trim(preg_replace('/\s+/', ' ', (string)$name));
+    if ($name === '' || (int)$guardianPid <= 0) return null;
+    $st = $pdo->prepare("SELECT id, name FROM patients WHERE guardian_patient_id = ?");
+    $st->execute([(int)$guardianPid]);
+    foreach ($st->fetchAll() as $r) {
+        if (person_name_key($r['name']) === person_name_key($name)) {
+            if ($dob) $pdo->prepare("UPDATE patients SET date_of_birth = COALESCE(date_of_birth, ?) WHERE id = ?")->execute([$dob, $r['id']]);
+            return (int)$r['id'];
+        }
+    }
+    $age = null;
+    if ($dob && strtotime($dob)) $age = (int)(new DateTime($dob))->diff(new DateTime())->y;
+    $pdo->prepare("INSERT INTO patients (name, phone, age, date_of_birth, patient_type, status, primary_dentist,
+                                         guardian_patient_id, relationship, created_at)
+                   VALUES (?, ?, ?, ?, 'New', 'Active', ?, ?, ?, COALESCE(?, NOW()))")
+        ->execute([ucwords($name), $phone, $age, $dob ?: null, $dentist, (int)$guardianPid,
+                   $relationship ?: null, $createdAt]);
+    return (int)$pdo->lastInsertId();
+}
+
+// The patient's own record + every family member they book for.
+function family_patient_ids($pdo, $pid) {
+    $pid = (int)$pid;
+    if ($pid <= 0) return [];
+    $st = $pdo->prepare("SELECT id FROM patients WHERE guardian_patient_id = ?");
+    $st->execute([$pid]);
+    return array_merge([$pid], array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN)));
+}
+// "?,?,?" for an IN (...) list of that many ids.
+function in_placeholders($ids) { return implode(',', array_fill(0, max(1, count($ids)), '?')); }
 
 // ============================================================
 //  "MY ACTIVITY" — the logged-in person's own entries only

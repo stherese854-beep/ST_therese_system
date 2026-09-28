@@ -50,9 +50,10 @@ if (!mail_is_ready($pdo)) {
 
 // Appointments tomorrow that are still active and have NOT been reminded yet.
 $stmt = $pdo->prepare(
-    "SELECT a.*, p.email AS patient_email, p.name AS account_name
+    "SELECT a.*, COALESCE(NULLIF(p.email,''), g.email) AS patient_email, COALESCE(g.name, p.name) AS account_name
      FROM appointments a
      LEFT JOIN patients p ON a.patient_id = p.id
+     LEFT JOIN patients g ON g.id = p.guardian_patient_id
      WHERE a.appointment_date = ?
        AND a.status IN ('Pending','Confirmed')
        AND (a.reminder_sent = 0 OR a.reminder_sent IS NULL)"

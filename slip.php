@@ -36,7 +36,7 @@ if ($role === 'admin' || $role === 'staff') {
     $pst = $pdo->prepare("SELECT id FROM patients WHERE user_id = ?");
     $pst->execute([$_SESSION['user_id'] ?? 0]);
     $mypid = (int)$pst->fetchColumn();
-    $allowed = ($mypid && (int)$appt['patient_id'] === $mypid);
+    $allowed = ($mypid && in_array((int)$appt['patient_id'], family_patient_ids($pdo, $mypid), true));
 } elseif ($role === 'dentist') {
     // The assigned dentist of this patient may view it.
     $myName = $_SESSION['name'] ?? '';

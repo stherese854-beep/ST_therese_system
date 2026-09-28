@@ -90,9 +90,10 @@ try {
             $seenAt = $seenStmt->fetchColumn();
 
             // Unread = confirmed after the last time they opened the bell.
+            $famIds = family_patient_ids($pdo, $mypid);   // their own + family members' appointments
             $sqlUnread = "SELECT COUNT(*) FROM appointments
-                          WHERE patient_id = ? AND status='Confirmed'";
-            $prm = [(int)$mypid];
+                          WHERE patient_id IN (" . in_placeholders($famIds) . ") AND status='Confirmed'";
+            $prm = $famIds;
             if ($seenAt) { $sqlUnread .= " AND (confirmed_at IS NULL OR confirmed_at > ?)"; $prm[] = $seenAt; }
             $uStmt = $pdo->prepare($sqlUnread);
             $uStmt->execute($prm);
@@ -100,7 +101,9 @@ try {
 
             // The dropdown always lists their confirmed appointments; only the
             // red badge depends on whether they are unread.
-            $tot = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE patient_id=" . (int)$mypid . " AND status='Confirmed'")->fetchColumn();
+            $tq = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id IN (" . in_placeholders($famIds) . ") AND status='Confirmed'");
+            $tq->execute($famIds);
+            $tot = (int)$tq->fetchColumn();
             if ($tot > 0) {
                 $notifs[] = ['icon'=>'✅','text'=>"$tot confirmed appointment".($tot>1?'s':''),'link'=>'portal?view=appointments'];
             }

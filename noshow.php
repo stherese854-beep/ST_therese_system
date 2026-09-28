@@ -27,9 +27,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Look up the patient so we can email them.
         $q = $pdo->prepare(
             "SELECT a.patient_name, a.appointment_date, a.appointment_time, a.treatment,
-                    p.id AS pid, p.email
+                    p.id AS pid, COALESCE(NULLIF(p.email,''), g.email) AS email
                FROM appointments a
           LEFT JOIN patients p ON a.patient_id = p.id
+          LEFT JOIN patients g ON g.id = p.guardian_patient_id
               WHERE a.id = ?"
         );
         $q->execute([$id]);

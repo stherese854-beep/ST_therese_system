@@ -36,12 +36,13 @@ $myDentist = $me['primary_dentist'] ?? '';
 // hold only one Pending/Confirmed appointment at a time. Names are compared
 // ignoring case and extra spaces.
 function person_key($name) { return strtolower(preg_replace('/\s+/', ' ', trim((string)$name))); }
+$familyIds  = $me['id'] ? family_patient_ids($pdo, $me['id']) : [];   // this patient + family members
 $busyPeople = [];   // person_key => date of their active appointment
 if ($me['id']) {
     $bp = $pdo->prepare("SELECT patient_name, appointment_date FROM appointments
-                          WHERE patient_id=? AND status IN ('Pending','Confirmed')
+                          WHERE patient_id IN (" . in_placeholders($familyIds) . ") AND status IN ('Pending','Confirmed')
                           ORDER BY appointment_date");
-    $bp->execute([$me['id']]);
+    $bp->execute($familyIds);
     foreach ($bp->fetchAll() as $b) {
         $k = person_key($b['patient_name']);
         if ($k !== '' && !isset($busyPeople[$k])) $busyPeople[$k] = $b['appointment_date'];
@@ -58,9 +59,10 @@ if ($me['id']) {
     $mb = $pdo->prepare("SELECT booking_blocked, booking_block_reason FROM patients WHERE id=?");
     $mb->execute([$me['id']]);
     $mbRow = $mb->fetch();
-    $missed = patient_noshow_count($pdo, $me['id']);
-    $pc = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id=? AND status IN ('Pending','Confirmed')");
-    $pc->execute([$me['id']]);
+    $missed = 0;
+    foreach ($familyIds as $fid) $missed += patient_noshow_count($pdo, $fid);   // the whole family's missed visits
+    $pc = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id IN (" . in_placeholders($familyIds) . ") AND status IN ('Pending','Confirmed')");
+    $pc->execute($familyIds);
     $activeNow = (int)$pc->fetchColumn();
 
     if ($mbRow && !empty($mbRow['booking_blocked'])) {
@@ -97,6 +99,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     // dentist (fewest patients, random on a tie). See pick_dentist_for_slot().
     $chosen          = trim($_POST['pref_dentist'] ?? '');
     $ownDentist      = $chosen !== '' ? $chosen : ($me['primary_dentist'] ?? '');
+    if (($_POST['for'] ?? 'myself') === 'other' && $me['id']) {
+        // Someone else: their own dentist if they are already a patient here.
+        $depName = trim(($_POST['fname'] ?? '') . ' ' . ($_POST['lname'] ?? ''));
+        $dq = $pdo->prepare("SELECT name, primary_dentist FROM patients WHERE guardian_patient_id = ?");
+        $dq->execute([$me['id']]);
+        foreach ($dq->fetchAll() as $dr) {
+            if (person_name_key($dr['name']) === person_name_key($depName) && $dr['primary_dentist']) {
+                $ownDentist = $dr['primary_dentist']; break;
+            }
+        }
+    }
     $bookDentist     = pick_dentist_for_slot($pdo, $_POST['date'] ?? '', $_POST['time'] ?? '', $ownDentist);
     $noDentistFree   = ($bookDentist === null);
     $reassignedFrom  = (!$noDentistFree && $ownDentist !== ''
@@ -118,14 +131,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     $activeCount = 0;
     if ($me['id']) {
         $pc = $pdo->prepare("SELECT COUNT(*) FROM appointments
-                              WHERE patient_id=? AND status IN ('Pending','Confirmed')");
-        $pc->execute([$me['id']]);
+                              WHERE patient_id IN (" . in_placeholders($familyIds) . ") AND status IN ('Pending','Confirmed')");
+        $pc->execute($familyIds);
         $activeCount = (int)$pc->fetchColumn();
     }
     // (a2) How many appointments has this patient missed RECENTLY?
     // Uses the shared rule: only confirmed no-shows inside the rolling
     // window, and only those after any staff reset. See noshow_check.php.
-    $noShowCount = $me['id'] ? patient_noshow_count($pdo, $me['id']) : 0;
+    $noShowCount = 0;
+    foreach ($familyIds as $fid) $noShowCount += patient_noshow_count($pdo, $fid);   // whole family
     // (a3) Has a staff member paused this patient's online booking by hand?
     $manualBlockReason = '';
     if ($me['id']) {
@@ -204,12 +218,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
             $bookingNotes = $bookingNotes === '' ? $dobNote : ($dobNote . ' — ' . $bookingNotes);
         }
 
+        // Booking for someone else: they get (or already have) their own patient
+        // record, linked to this account, and the appointment is filed under it.
+        $apptPatientId = $me['id'];
+        if ($forWhom === 'Someone else' && $me['id']) {
+            $apptPatientId = find_or_create_dependent($pdo, $me['id'], $patientName, $relationship,
+                                                      trim($_POST['patient_dob'] ?? '') ?: null,
+                                                      $bookDentist, $me['phone'] ?? null) ?: $me['id'];
+        }
+
         $pdo->prepare("INSERT INTO appointments
                        (patient_id,patient_name,dentist,treatment,appointment_date,appointment_time,
                         status,notes,booked_for,relationship,booked_by,reason_for_visit)
                        VALUES (?,?,?,?,?,?, 'Pending', ?,?,?,?,?)")
             ->execute([
-                $me['id'], $patientName,
+                $apptPatientId, $patientName,
                 $bookDentist,
                 $_POST['treatment'],
                 $_POST['date'],
