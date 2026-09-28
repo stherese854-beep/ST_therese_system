@@ -54,6 +54,10 @@ $isDentistUser = (current_role() === 'dentist');
 $myDentistName = $_SESSION['name'] ?? '';
 $filterDentist = $isDentistUser ? $myDentistName : trim($_GET['dentist'] ?? '');
 
+// Appointments List: optionally only one status (e.g. only Approved, only Cancelled).
+$reportStatuses = ['Confirmed','Pending','Arrived','Completed','Rescheduled','Cancelled','Disapproved','No-show','Expired','Needs Review'];
+$filterStatus   = in_array($_GET['status'] ?? '', $reportStatuses, true) ? $_GET['status'] : '';
+
 // The list of dentists for the filter dropdown.
 $dentistOptions = $pdo->query(
     "SELECT name FROM users WHERE role='dentist' ORDER BY name"
@@ -245,6 +249,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                     <?php if (!$isDentistUser && count($dentistOptions) > 0): ?>
                     <form method="GET">
                         <input type="hidden" name="type" value="<?= e($type) ?>">
+                        <?php if ($filterStatus !== ''): ?><input type="hidden" name="status" value="<?= e($filterStatus) ?>"><?php endif; ?>
                         <label class="field-label">Dentist</label>
                         <select name="dentist" class="form-select mb-1" onchange="this.form.submit()">
                             <option value="">All dentists</option>
@@ -256,6 +261,24 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             Pick a dentist to work with only that dentist's patients.
                         </div>
                     </form>
+                    <?php endif; ?>
+
+                    <?php if ($type === 'appointments'): ?>
+                        <!-- Appointments List: only one status (reloads the preview) -->
+                        <form method="GET">
+                            <input type="hidden" name="type" value="appointments">
+                            <input type="hidden" name="dentist" value="<?= e($filterDentist) ?>">
+                            <label class="field-label">Status</label>
+                            <select name="status" class="form-select mb-1" onchange="this.form.submit()">
+                                <option value="">All statuses</option>
+                                <?php foreach ($reportStatuses as $st): ?>
+                                    <option value="<?= e($st) ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= e(status_label($st)) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                                Print only Approved, Pending, Cancelled, Rescheduled… appointments.
+                            </div>
+                        </form>
                     <?php endif; ?>
 
                     <?php if ($type === 'profile' || $type === 'treatment'): ?>
@@ -535,8 +558,22 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
 
                         <?php elseif ($type === 'appointments'): ?>
                             <!-- ===== APPOINTMENTS LIST ===== -->
-                            <h6>All Appointments</h6>
-                            <?php $allAppts = $pdo->query("SELECT * FROM appointments ORDER BY appointment_date DESC")->fetchAll(); ?>
+                            <?php
+                            // Only the chosen dentist's appointments (a dentist is always
+                            // limited to their own) and, if picked, only one status.
+                            $apSql = "SELECT * FROM appointments WHERE 1=1"; $apPrm = [];
+                            if ($filterDentist !== '') $apSql .= " AND " . dentist_match_sql('dentist', $filterDentist, $apPrm);
+                            if ($filterStatus !== '') { $apSql .= " AND status = ?"; $apPrm[] = $filterStatus; }
+                            $apStmt = $pdo->prepare($apSql . " ORDER BY appointment_date DESC, STR_TO_DATE(REPLACE(appointment_time, ' ', ''), '%h:%i%p')");
+                            $apStmt->execute($apPrm);
+                            $allAppts = $apStmt->fetchAll();
+                            ?>
+                            <h6><?= $filterStatus !== '' ? e(status_label($filterStatus)) . ' Appointments' : 'All Appointments' ?></h6>
+                            <div style="font-size:.85rem;margin-bottom:8px;">
+                                <strong><?= $filterDentist !== '' ? 'Dentist: ' . e($filterDentist) : 'All dentists' ?></strong>
+                                · <?= $filterStatus !== '' ? e(status_label($filterStatus)) . ' only' : 'all statuses' ?>
+                                · <?= count($allAppts) ?> appointment<?= count($allAppts) === 1 ? '' : 's' ?>
+                            </div>
                             <table class="data" style="font-size:.85rem;">
                                 <thead><tr><th>Patient</th><th>Dentist</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th></tr></thead>
                                 <tbody>
@@ -550,6 +587,9 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                         <td><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e(status_label($ap['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
+                                <?php if (!$allAppts): ?>
+                                    <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No appointments match these choices.</td></tr>
+                                <?php endif; ?>
                                 </tbody>
                             </table>
 
