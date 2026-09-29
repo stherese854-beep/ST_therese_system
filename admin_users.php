@@ -102,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ---------- Stats ----------
 $totalUsers = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-$doctors    = $pdo->query("SELECT COUNT(*) FROM users WHERE role='dentist'")->fetchColumn();
+$doctors    = $pdo->query("SELECT COUNT(*) FROM users WHERE role='dentist' AND status <> 'archived'")->fetchColumn();
 $staff      = $pdo->query("SELECT COUNT(*) FROM users WHERE role='admin'")->fetchColumn();
 $patientsU  = $pdo->query("SELECT COUNT(*) FROM users WHERE role='patient'")->fetchColumn();
 
@@ -159,7 +159,7 @@ $active = 'users';
                                 <div><strong><?= e($u['name']) ?></strong><br><small class="text-muted2"><?= e($u['email']) ?></small></div>
                             </div></td>
                             <td><span class="badge-pill <?= $roleBadge ?>"><?= ucfirst($u['role']) ?></span></td>
-                            <td><?= e($u['specialty'] ?: $u['position'] ?: '-') ?></td>
+                            <td><?= e($u['specialty'] ?: $u['position'] ?: 'N/A') ?></td>
                             <td><?= e($u['contact']) ?></td>
                             <td><span class="badge-pill b-<?= $u['status'] ?>"><?= ucfirst($u['status']) ?></span></td>
                             <td><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : '-' ?></small></td>

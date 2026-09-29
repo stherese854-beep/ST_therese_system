@@ -993,7 +993,7 @@ include 'includes/head.php';
                             <strong><?= !empty($account['google_id']) ? 'Google' : 'Email + password' ?></strong></div>
                         <div class="flex-between py-2 border-bottom"><span>Patient type</span><strong><?= e($me['patient_type']) ?></strong></div>
                         <div class="flex-between py-2 border-bottom"><span>Primary dentist</span><strong><?= e($me['primary_dentist'] ?: 'Not assigned') ?></strong></div>
-                        <div class="flex-between py-2"><span>Last visit</span><strong><?= e($me['last_visit'] ?: '—') ?></strong></div>
+                        <div class="flex-between py-2"><span>Last visit</span><strong><?= e($me['last_visit'] ?: 'N/A') ?></strong></div>
                     </div>
 
                     <!-- Password -->

@@ -60,7 +60,7 @@ $filterStatus   = in_array($_GET['status'] ?? '', $reportStatuses, true) ? $_GET
 
 // The list of dentists for the filter dropdown.
 $dentistOptions = $pdo->query(
-    "SELECT name FROM users WHERE role='dentist' ORDER BY name"
+    "SELECT name FROM users WHERE role='dentist' AND status <> 'archived' ORDER BY name"
 )->fetchAll(PDO::FETCH_COLUMN);
 
 // All patients (used for the dropdown and the "List of Patients" report).

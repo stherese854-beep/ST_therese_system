@@ -16,7 +16,7 @@ $role = current_role();
 // ---------- Which dentist are we managing? ----------
 if ($role === 'admin') {
     // Admin can choose any dentist from a dropdown.
-    $allDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+    $allDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status <> 'archived' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
     $selectedDentist = $_GET['dentist'] ?? ($allDentists[0] ?? '');
 } else {
     // A dentist manages their own schedule only.

@@ -337,7 +337,7 @@ $active = 'odontogram';
                         </div>
                         <div class="flex-between py-1">
                             <span class="text-muted2">Label</span>
-                            <strong><?= e($session['title'] ?: '—') ?></strong>
+                            <strong><?= e($session['title'] ?: 'N/A') ?></strong>
                         </div>
                         <?php if (trim($session['notes'] ?? '') !== ''): ?>
                         <div class="py-1">
@@ -397,7 +397,7 @@ $active = 'odontogram';
                     </div>
 
                     <div class="text-muted2 mt-2" style="font-size:.76rem;">
-                        Recorded by <?= e($session['created_by'] ?: '—') ?>
+                        Recorded by <?= e($session['created_by'] ?: 'N/A') ?>
                     </div>
                 </div>
                 <?php endif; ?>

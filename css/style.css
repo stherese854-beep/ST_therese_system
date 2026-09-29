@@ -501,3 +501,6 @@ td.td-actions .bulk-pick { margin: 0 4px; }
 /* Dashboard "Recent Patients": the name opens their record */
 a.recent-name { color: inherit; text-decoration: none; }
 a.recent-name:hover strong { color: var(--teal, #0f766e); text-decoration: underline; }
+
+/* "N/A" shown wherever a piece of information is missing (includes/head.php) */
+.na { color: #9aa7a7; font-style: italic; font-size: .92em; }

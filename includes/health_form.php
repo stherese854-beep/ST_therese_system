@@ -214,9 +214,9 @@ function health_form_view($a) {
     }
     $conds = array_merge($a['conditions'] ?? [], !empty($a['other_disease']) ? ['Other: ' . $a['other_disease']] : []);
     $h .= $row('Diseases / symptoms', $conds ? e(implode(', ', $conds)) : 'None ticked');
-    $h .= $row('Regular medication', !empty($a['no_medication']) ? 'No regular medication' : e($a['medication'] ?: '—'));
-    $h .= $row('Attending physician', e($a['physician'] ?: '—'));
-    $h .= $row('Further information', e($a['further'] ?: '—'));
+    $h .= $row('Regular medication', !empty($a['no_medication']) ? 'No regular medication' : e($a['medication'] ?: 'N/A'));
+    $h .= $row('Attending physician', e($a['physician'] ?: 'N/A'));
+    $h .= $row('Further information', e($a['further'] ?: 'N/A'));
     $h .= $row('May share info with other providers', e($yn($a['share_consent'] ?? '')));
     $h .= $row('Filled in', e(!empty($a['filled_at']) ? date('M j, Y g:i A', strtotime($a['filled_at'])) : '—'));
     return $h . '</table>';

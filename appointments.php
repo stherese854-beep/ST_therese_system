@@ -756,7 +756,7 @@ $active = 'appointments';
         <label class="field-label">Dentist</label>
         <select name="dentist" id="ea-dentist" class="form-select mb-3">
           <option value="">To be assigned</option>
-          <?php foreach ($pdo->query("SELECT name FROM users WHERE role='dentist' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN) as $dn): ?>
+          <?php foreach ($pdo->query("SELECT name FROM users WHERE role='dentist' AND status <> 'archived' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN) as $dn): ?>
             <option value="<?= e($dn) ?>"><?= e($dn) ?></option>
           <?php endforeach; ?>
         </select>
@@ -949,7 +949,7 @@ function openEditAppt(a){
     document.getElementById('ea-time').value      = a.time || '';
     // Tick the appointment's current treatments (up to 3), then apply the limit.
     var now = (a.treatment || '').split(',').map(function (t) { return t.trim(); });
-    document.getElementById('ea-treatment-now').textContent = a.treatment || '—';
+    document.getElementById('ea-treatment-now').textContent = a.treatment || 'N/A';
     document.querySelectorAll('#ea-list input').forEach(function (b) { b.checked = now.indexOf(b.value) !== -1; b.disabled = false; });
     var first = document.querySelector('#ea-list input'); if (first) tpLimit(first);
     document.getElementById('ea-dentist').value   = a.dentist || '';

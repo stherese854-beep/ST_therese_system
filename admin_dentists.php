@@ -113,13 +113,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $totalRemoved = 0; $totalMoved = 0;
       foreach (bulk_ids() as $delDentistId) {    // one dentist, or several ticked ones
         // Get the dentist's name first (needed to find their patients).
-        $d = $pdo->prepare("SELECT name FROM users WHERE id=? AND role='dentist'");
+        $d = $pdo->prepare("SELECT name FROM users WHERE id=? AND role='dentist' AND status <> 'archived'");
         $d->execute([$delDentistId]);
         $dname = $d->fetchColumn();
         if (!$dname) continue;
 
-        // Delete the dentist account.
-        $pdo->prepare("DELETE FROM users WHERE id=? AND role='dentist'")->execute([$delDentistId]);
+        // Move the dentist to the Archive first (not deleted for good) — the
+        // admin can restore them, or delete them permanently, from Archive.
+        archive_user($pdo, $delDentistId, $_SESSION['name'] ?? null);
         $totalRemoved++;
 
         // Auto-transfer this dentist's patients to the REMAINING dentists.
@@ -136,11 +137,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        log_activity($pdo, 'Deleted dentist', $dname . ($moved ? " ($moved patient(s) reassigned)" : ''));
+        log_activity($pdo, 'Archived dentist', $dname . ($moved ? " ($moved patient(s) reassigned)" : ''));
         $totalMoved += $moved;
       }
 
-        $what = $totalRemoved === 1 ? 'Dentist removed.' : "$totalRemoved dentists removed.";
+        $what = $totalRemoved === 1 ? 'Dentist moved to Archive.' : "$totalRemoved dentists moved to Archive.";
         if ($totalMoved > 0) {
             set_flash("$what $totalMoved patient(s) transferred to another dentist.", 'info');
         } else {
@@ -368,7 +369,7 @@ $active = 'dentists';
     //  LEVEL 1 : list of all dentists
     // ==========================================================
     else:
-        $dentists = $pdo->query("SELECT * FROM users WHERE role='dentist' ORDER BY name")->fetchAll();
+        $dentists = $pdo->query("SELECT * FROM users WHERE role='dentist' AND status <> 'archived' ORDER BY name")->fetchAll();
     ?>
         <div class="page-head">
             <div><h1>Dentists</h1><div class="sub">View each dentist's profile and the patients assigned to them</div></div>
@@ -379,7 +380,7 @@ $active = 'dentists';
         </div>
 
         <div class="row g-3">
-            <div class="col-12"><?= bulk_bar('bulk-dentists', 'delete_dentist', 'dentists', [], '🗑 Delete selected', 'Their patients will be transferred to the remaining dentists.') ?></div>
+            <div class="col-12"><?= bulk_bar('bulk-dentists', 'delete_dentist', 'dentists to the Archive', [], '🗑 Move selected to Archive', 'Their patients will be transferred to the remaining dentists. They can be restored from the Archive.', 'Move') ?></div>
             <?php foreach ($dentists as $doc):
                 // how many patients are assigned to this dentist?
                 $cnt = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE primary_dentist = ?");
@@ -401,7 +402,7 @@ $active = 'dentists';
                         </div>
                         <div class="text-muted2 mb-1" style="font-size:.85rem;">🦷 <?= e($doc['specialty'] ?: 'General Dentistry') ?></div>
                         <div class="text-muted2 mb-1" style="font-size:.85rem;">📧 <?= e($doc['email']) ?></div>
-                        <div class="text-muted2 mb-3" style="font-size:.85rem;">📞 <?= e($doc['contact'] ?: '—') ?></div>
+                        <div class="text-muted2 mb-3" style="font-size:.85rem;">📞 <?= e($doc['contact'] ?: 'N/A') ?></div>
 
                         <form method="POST" enctype="multipart/form-data" class="mb-3">
                             <input type="hidden" name="action" value="upload_photo">
@@ -418,7 +419,7 @@ $active = 'dentists';
                             <div class="d-flex gap-1 align-items-center">
                                 <?= bulk_pick('bulk-dentists', $doc['id'], 'Select ' . $doc['name']) ?>
                                 <a href="admin_dentists?dentist=<?= $doc['id'] ?>" class="btn btn-sm btn-teal">View →</a>
-                                <form method="POST" onsubmit="return confirm('Delete <?= e(addslashes($doc['name'])) ?>? Their patients will be transferred to another dentist.')">
+                                <form method="POST" onsubmit="return confirm('Move <?= e(addslashes($doc['name'])) ?> to the Archive? Their patients will be transferred to another dentist. You can restore them from the Archive.')">
                                     <input type="hidden" name="action" value="delete_dentist">
                                     <input type="hidden" name="id" value="<?= $doc['id'] ?>">
                                     <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;">🗑</button>

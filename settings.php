@@ -374,7 +374,7 @@ $active = 'settings';
                 <div class="col-md-4">
                     <div class="p-3 border rounded">
                         <div style="font-size:1.6rem;">💾</div>
-                        <div class="fw-bold mt-1"><?= $dbSize ?: '—' ?></div>
+                        <div class="fw-bold mt-1"><?= $dbSize ?: 'N/A' ?></div>
                         <div class="text-muted2" style="font-size:.8rem;">Database Size</div>
                     </div>
                 </div>

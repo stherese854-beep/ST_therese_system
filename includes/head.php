@@ -135,6 +135,32 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         document.addEventListener('click', hide);
     })();
 
+    // ---- No blank information: empty table cells say "N/A" ----
+    // Any data-table cell with nothing in it (or just "-" / "—") shows a grey
+    // "N/A" instead, including tables filled in later by a script. Cells that
+    // hold buttons, inputs, pictures, the calendar, etc. are left alone.
+    (function () {
+        function fill(root) {
+            if (!root.querySelectorAll) return;
+            root.querySelectorAll('table.data td, table.table td, .hf-view td').forEach(function (td) {
+                if (td.closest('#calendar, [data-no-na]') || td.dataset.na) return;
+                if (td.querySelector('button, input, select, textarea, img, svg, canvas, a, form, .badge-pill')) return;
+                var t = td.textContent.replace(/\s+/g, ' ').trim();
+                if (t === '' || t === '-' || t === '—' || t === '–') {
+                    td.dataset.na = '1';
+                    td.innerHTML = '<span class="na">N/A</span>';
+                }
+            });
+        }
+        function start() {
+            fill(document);
+            new MutationObserver(function (list) {
+                list.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) fill(n.tagName === 'TD' ? n.parentNode : n); }); });
+            }).observe(document.body, { childList: true, subtree: true });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+    })();
+
     // ---- Delete several at once: tick boxes + "Delete selected" bar ----
     function bulkPicks(id) { return Array.prototype.slice.call(document.querySelectorAll('.bulk-pick[form="' + id + '"]')); }
     function bulkSync(id) {

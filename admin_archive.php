@@ -177,7 +177,7 @@ $active = 'archive';
                                 <div><strong><?= e($u['name']) ?></strong><br><small class="text-muted2"><?= e($u['email'] ?: 'No login account') ?></small></div>
                             </div></td>
                             <td><span class="badge-pill <?= $roleBadge ?>"><?= ucfirst($u['role']) ?></span></td>
-                            <td><?= e($u['archived_by'] ?: '-') ?></td>
+                            <td><?= e($u['archived_by'] ?: 'N/A') ?></td>
                             <td><small class="text-muted2"><?= $u['archived_at'] ? date('M j, Y g:i A', strtotime($u['archived_at'])) : '-' ?></small></td>
                             <td>
                                 <div class="d-flex gap-1 align-items-center">
