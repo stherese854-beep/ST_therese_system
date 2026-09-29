@@ -265,6 +265,10 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
 @media(max-width:560px){
     .pw-name{display:none;}
     #pwBtn{padding:5px;}
+    /* Phones: the bell / profile menus open under the top bar, with a small gap
+       on both sides, so they can never run off the edge of a narrow screen. */
+    #notifMenu, #pwMenu{position:fixed;top:68px;left:12px;right:12px;width:auto;max-width:none;}
+    #notifMenu .notif-item{padding:12px 14px;}
 }
 </style>
 

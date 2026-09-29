@@ -485,16 +485,32 @@ if ($__flash):
     $__toastColors = ['success'=>'#138a4e','error'=>'#c0392b','danger'=>'#c0392b','info'=>'#0f766e','warning'=>'#c79a5c'];
     $__bg = $__toastColors[$__flash['type']] ?? '#138a4e';
 ?>
-<div id="app-toast" style="position:fixed;top:26px;left:50%;transform:translate(-50%,-18px);z-index:99999;background:<?= $__bg ?>;color:#fff;padding:18px 34px;border-radius:14px;box-shadow:0 12px 34px rgba(0,0,0,.28);font-size:1.05rem;font-weight:600;text-align:center;max-width:90%;opacity:0;transition:opacity .3s,transform .3s;">
+<!-- Centred with left/right + margin:auto (NOT left:50%), so on a phone it can use
+     the full width instead of being squeezed into a tall, narrow box. Tap to close. -->
+<div id="app-toast" role="status" title="Tap to close" onclick="this.style.opacity='0';var t=this;setTimeout(function(){t.remove()},300)"
+     style="background:<?= $__bg ?>;">
     <?= e($__flash['msg']) ?>
 </div>
+<style>
+#app-toast { position: fixed; top: 22px; left: 0; right: 0; margin: 0 auto; width: fit-content;
+             max-width: min(560px, calc(100% - 24px)); z-index: 99999; color: #fff; padding: 14px 26px;
+             border-radius: 14px; box-shadow: 0 12px 34px rgba(0,0,0,.28); font-size: 1rem; font-weight: 600;
+             line-height: 1.4; text-align: center; cursor: pointer; opacity: 0; transform: translateY(-18px);
+             transition: opacity .3s, transform .3s; box-sizing: border-box; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+    #app-toast { top: 10px; width: auto; left: 12px; right: 12px; max-width: none; padding: 12px 16px;
+                 font-size: .92rem; border-radius: 12px; }
+}
+</style>
 <script>
 (function(){
     var t = document.getElementById('app-toast');
     if (!t) return;
-    setTimeout(function(){ t.style.opacity='1'; t.style.transform='translate(-50%,0)'; }, 80);
-    setTimeout(function(){ t.style.opacity='0'; t.style.transform='translate(-50%,-18px)'; }, 3800);
-    setTimeout(function(){ if (t.parentNode) t.parentNode.removeChild(t); }, 4200);
+    // Longer messages stay a little longer (about 4–9 seconds).
+    var ms = Math.min(9000, Math.max(4000, t.textContent.trim().length * 55));
+    setTimeout(function(){ t.style.opacity='1'; t.style.transform='translateY(0)'; }, 80);
+    setTimeout(function(){ t.style.opacity='0'; t.style.transform='translateY(-18px)'; }, ms);
+    setTimeout(function(){ if (t.parentNode) t.parentNode.removeChild(t); }, ms + 400);
 })();
 </script>
 <?php endif; ?>

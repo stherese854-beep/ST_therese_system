@@ -966,7 +966,7 @@ section{scroll-margin-top:88px}
 <!-- ===== Privacy Policy / Terms & Conditions (same content as the booking page) ===== -->
 <div id="landingPolicy" style="display:none;position:fixed;inset:0;z-index:9999;">
   <div onclick="closeLandingPolicy()" style="position:absolute;inset:0;background:rgba(6,28,27,.55);"></div>
-  <div style="position:relative;max-width:680px;margin:5vh auto;background:#fff;border-radius:16px;
+  <div style="position:relative;max-width:680px;width:calc(100% - 24px);margin:5vh auto;background:#fff;border-radius:16px;
               max-height:90vh;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.35);">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 26px;
                 border-bottom:1px solid #e6efee;">
