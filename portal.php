@@ -618,8 +618,22 @@ include 'includes/head.php';
         })();
         </script>
         <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal?view=news">
-            📣 Announcements <?php if ($news): ?><span class="badge-pill b-pending" style="font-size:.65rem;"><?= count($news) ?></span><?php endif; ?>
+            📣 Announcements <?php if ($news): ?><span id="ann-badge" class="badge-pill b-pending" style="font-size:.65rem;display:none;"
+                  data-ids="<?= e(json_encode(array_map(fn($n) => (int)$n['id'], $news))) ?>" data-key="annSeen_<?= (int)$_SESSION['user_id'] ?>" title="New announcements"></span><?php endif; ?>
         </a>
+        <script>
+        // Counts only announcements posted since the patient last opened
+        // Announcements, and disappears once they open it (remembered per browser).
+        (function () {
+            var b = document.getElementById('ann-badge'); if (!b) return;
+            var ids = JSON.parse(b.dataset.ids || '[]'), k = b.dataset.key, seen = 0;
+            try { seen = +(localStorage.getItem(k) || 0); } catch (e) {}
+            var newest = Math.max.apply(null, ids.concat([0]));
+            <?php if ($view === 'news'): ?>try { localStorage.setItem(k, newest); } catch (e) {} seen = newest;<?php endif; ?>
+            var fresh = ids.filter(function (id) { return id > seen; }).length;
+            if (fresh > 0) { b.textContent = fresh; b.style.display = ''; }
+        })();
+        </script>
         <div class="spacer"></div>
     </aside>
 

@@ -46,6 +46,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($pid, $allowedPids, true)) {
         deny_access("Changed dental chart of patient #$pid");
     }
+    // Only the DENTIST changes a dental chart. The admin can look, not edit.
+    if (current_role() !== 'dentist') {
+        set_flash('Only the dentist can change a dental chart. The admin can view it.', 'error');
+        header("Location: odontogram?patient=$pid"); exit;
+    }
 
     // ---------- Save a tooth's condition (into ONE visit's chart) ----------
     if ($action === 'save_tooth') {
@@ -114,24 +119,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         odo_back($pid, $sid);
     }
 
-    // ---------- Delete a whole visit chart ----------
+    // ---------- Delete a visit chart → moves it to the Archive ----------
+    // One visit, or several ticked ones — but the patient always keeps at least one
+    // chart. Nothing is erased: the admin can restore it (or delete it for good)
+    // from the Archive page.
     if ($action === 'delete_session') {
-        // One visit, or several ticked ones — but the patient always keeps at least one chart.
-        $cnt = $pdo->prepare("SELECT COUNT(*) FROM chart_sessions WHERE patient_id=?");
+        $cnt = $pdo->prepare("SELECT COUNT(*) FROM chart_sessions WHERE patient_id=? AND archived_at IS NULL");
         $cnt->execute([$pid]);
         $left = (int)$cnt->fetchColumn();
         $done = 0;
         foreach (bulk_ids('session_id') as $sid) {
             if ($left <= 1) break;
-            $del = $pdo->prepare("DELETE FROM chart_sessions WHERE id=? AND patient_id=?");
-            $del->execute([$sid, $pid]);
-            if (!$del->rowCount()) continue;
-            $pdo->prepare("DELETE FROM odontogram WHERE patient_id=? AND session_id=?")->execute([$pid, $sid]);
+            $arc = $pdo->prepare("UPDATE chart_sessions SET archived_at = NOW(), archived_by = ?
+                                   WHERE id=? AND patient_id=? AND archived_at IS NULL");
+            $arc->execute([$_SESSION['name'] ?? '', $sid, $pid]);
+            if (!$arc->rowCount()) continue;
             $left--; $done++;
         }
-        if ($done) log_activity($pdo, 'Deleted visit chart', patient_name_of($pdo, $pid) . ($done > 1 ? " ($done visits)" : ''));
-        set_flash($done === 1 ? 'That visit chart was deleted.'
-                 : ($done ? "$done visit charts were deleted." : 'A patient must keep at least one visit chart.'),
+        if ($done) log_activity($pdo, 'Archived visit chart', patient_name_of($pdo, $pid) . ($done > 1 ? " ($done visits)" : ''));
+        set_flash($done === 1 ? 'That visit chart was moved to the Archive.'
+                 : ($done ? "$done visit charts were moved to the Archive." : 'A patient must keep at least one visit chart.'),
                   $done ? 'info' : 'error');
         header("Location: odontogram?patient=$pid"); exit;
     }
@@ -151,6 +158,7 @@ if ($pid) ensure_chart_session($pdo, $pid, $_SESSION['name'] ?? 'System');
 
 // All of this patient's visits (newest first).
 $sessions = $pid ? get_chart_sessions($pdo, $pid) : [];
+$canEditChart = (current_role() === 'dentist');   // the admin can view, only the dentist edits
 
 // Which visit are we looking at? Default = the newest one.
 $sid = (int)($_GET['session'] ?? 0);
@@ -245,11 +253,13 @@ $active = 'odontogram';
                 <div class="card-box">
                     <div class="flex-between">
                         <h5 class="mb-0">Dental Chart
-                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;">Click a tooth to set its condition</small>
+                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= $canEditChart ? 'Click a tooth to set its condition' : 'View only — only the dentist can change this chart' ?></small>
                         </h5>
                         <div class="d-flex gap-2">
+                            <?php if ($canEditChart): ?>
                             <button type="button" id="odo-edit-btn" class="btn btn-outline-teal btn-sm" onclick="toggleOdoEdit(true)">✏️ Edit Chart</button>
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;" onclick="toggleOdoEdit(false)">✔ Done</button>
+                            <?php endif; ?>
                             <!-- Prints this chart (choose "Save as PDF" in the print window for a PDF) -->
                             <button type="button" class="btn btn-gold btn-sm" onclick="window.print()" title="Print / Save as PDF">🖨 Print / PDF</button>
                         </div>
@@ -277,9 +287,21 @@ $active = 'odontogram';
                             </a>
                         <?php endforeach; ?>
 
-                        <button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#newSessionModal">
+                        <?php if ($canEditChart): ?>
+                        <button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#newSessionModal" title="Add a chart for a new visit">
                             + New Chart
                         </button>
+                        <?php if (count($sessions) > 1 && $session): ?>
+                            <!-- Move the visit being viewed to the Archive (at least one visit always stays) -->
+                            <form method="POST" class="d-inline m-0"
+                                  onsubmit="return confirm('Move this visit (<?= e(date('M j, Y', strtotime($session['visit_date']))) ?>) to the Archive? It disappears from the chart history, but the admin can restore it from the Archive.')">
+                                <input type="hidden" name="action" value="delete_session">
+                                <input type="hidden" name="patient_id" value="<?= $pid ?>">
+                                <input type="hidden" name="session_id" value="<?= $sid ?>">
+                                <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;" title="Delete this visit (moves it to the Archive)" data-keep-text>🗄 Archive this visit</button>
+                            </form>
+                        <?php endif; ?>
+                        <?php endif; ?>
                     </div>
                     <div class="text-muted2 mb-3 no-print" style="font-size:.78rem;">
                         Each visit keeps its own chart. Older visits stay editable — nothing gets overwritten.
@@ -417,18 +439,18 @@ $active = 'odontogram';
                         </form>
 
                         <?php if (count($sessions) > 1): ?>
-                            <form method="POST" onsubmit="return confirm('⚠️ WARNING: Delete this whole visit chart?\n\nEvery tooth recorded on this visit will be permanently removed. This cannot be undone.')">
+                            <form method="POST" onsubmit="return confirm('Move this visit chart to the Archive? It disappears from the chart history, but the admin can restore it from the Archive.')">
                                 <input type="hidden" name="action" value="delete_session">
                                 <input type="hidden" name="patient_id" value="<?= $pid ?>">
                                 <input type="hidden" name="session_id" value="<?= $sid ?>">
-                                <button class="btn btn-light w-100" style="color:#c0392b;">🗑 Delete This Visit</button>
+                                <button class="btn btn-light w-100" style="color:#c0392b;">🗄 Archive This Visit</button>
                             </form>
                             <!-- Delete several visits at once (at least one always stays) -->
                             <details class="mt-2">
-                                <summary class="text-muted2" style="font-size:.82rem;cursor:pointer;">Delete several visits…</summary>
+                                <summary class="text-muted2" style="font-size:.82rem;cursor:pointer;">Archive several visits…</summary>
                                 <div class="mt-2">
-                                    <?= bulk_bar('bulk-visits', 'delete_session', 'visit charts', ['patient_id' => $pid], '🗑 Delete selected',
-                                                 'Every tooth recorded on those visits is permanently removed. At least one visit always stays.') ?>
+                                    <?= bulk_bar('bulk-visits', 'delete_session', 'visit charts', ['patient_id' => $pid], '🗄 Archive selected',
+                                                 'They move to the Archive, where the admin can restore them. At least one visit always stays.') ?>
                                     <?php foreach (array_reverse($sessions) as $vi => $vs): ?>
                                         <label class="d-flex align-items-center gap-2 py-1" style="font-size:.85rem;cursor:pointer;">
                                             <?= bulk_pick('bulk-visits', $vs['id']) ?>

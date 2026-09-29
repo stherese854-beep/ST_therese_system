@@ -42,7 +42,7 @@ function render_tooth($num, $status) {
 /** All of a patient's chart sessions, newest visit first. */
 function get_chart_sessions($pdo, $patient_id) {
     $stmt = $pdo->prepare(
-        "SELECT * FROM chart_sessions WHERE patient_id=?
+        "SELECT * FROM chart_sessions WHERE patient_id=? AND archived_at IS NULL   -- archived visits live in the Archive
          ORDER BY visit_date DESC, id DESC"
     );
     $stmt->execute([$patient_id]);
@@ -52,7 +52,7 @@ function get_chart_sessions($pdo, $patient_id) {
 /** The patient's CURRENT chart (their most recent visit). Null if they have none. */
 function latest_session_id($pdo, $patient_id) {
     $stmt = $pdo->prepare(
-        "SELECT id FROM chart_sessions WHERE patient_id=?
+        "SELECT id FROM chart_sessions WHERE patient_id=? AND archived_at IS NULL
          ORDER BY visit_date DESC, id DESC LIMIT 1"
     );
     $stmt->execute([$patient_id]);

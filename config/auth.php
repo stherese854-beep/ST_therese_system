@@ -520,6 +520,10 @@ function ensure_booking_review_schema($pdo) {
             $pdo->exec("ALTER TABLE appointments MODIFY status ENUM('Pending','Confirmed','Cancelled','Completed',
                         'No-show','Rescheduled','Needs Review','Expired','Arrived','Disapproved') DEFAULT 'Pending'");
         }
+        // Odontogram: a deleted visit chart goes to the Archive (restorable), not the bin.
+        if (!$pdo->query("SHOW COLUMNS FROM chart_sessions LIKE 'archived_at'")->rowCount()) {
+            $pdo->exec("ALTER TABLE chart_sessions ADD COLUMN archived_at DATETIME DEFAULT NULL, ADD COLUMN archived_by VARCHAR(100) DEFAULT NULL");
+        }
         // Notification bell: the newest item of each kind this user has seen.
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'notif_seen_map'")->rowCount()) {
             $pdo->exec("ALTER TABLE users ADD COLUMN notif_seen_map TEXT DEFAULT NULL");

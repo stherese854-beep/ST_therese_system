@@ -18,6 +18,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     //             archived straight from the Patients page.
     $type   = ($_POST['type'] ?? 'user') === 'patient' ? 'patient' : 'user';
 
+    // ---- Archived dental chart visits (from the Odontogram) ----
+    if (in_array($action, ['restore_visit', 'permadelete_visit'], true) && $id > 0) {
+        $v = $pdo->prepare("SELECT cs.*, p.name AS patient_name FROM chart_sessions cs
+                              LEFT JOIN patients p ON p.id = cs.patient_id
+                             WHERE cs.id = ? AND cs.archived_at IS NOT NULL");
+        $v->execute([$id]);
+        $visit = $v->fetch();
+        if (!$visit) {
+            set_flash('That visit is no longer in the Archive.', 'error');
+        } elseif ($action === 'restore_visit') {
+            $pdo->prepare("UPDATE chart_sessions SET archived_at = NULL, archived_by = NULL WHERE id = ?")->execute([$id]);
+            log_activity($pdo, 'Restored visit chart', ($visit['patient_name'] ?: '#' . $visit['patient_id']) . ' — ' . $visit['visit_date']);
+            set_flash('Visit restored to ' . ($visit['patient_name'] ?: 'the patient') . '’s chart.');
+        } else {
+            $pdo->prepare("DELETE FROM odontogram WHERE patient_id = ? AND session_id = ?")->execute([$visit['patient_id'], $id]);
+            $pdo->prepare("DELETE FROM chart_sessions WHERE id = ?")->execute([$id]);
+            log_activity($pdo, 'Permanently deleted visit chart', ($visit['patient_name'] ?: '#' . $visit['patient_id']) . ' — ' . $visit['visit_date']);
+            set_flash('Visit chart permanently deleted.', 'info');
+        }
+        header("Location: admin_archive"); exit;
+    }
+
     if ($action === 'restore' && $id > 0) {
         if ($type === 'patient') {
             $info = $pdo->prepare("SELECT name FROM patients WHERE id = ? AND status = 'Archived'");
@@ -130,6 +152,17 @@ foreach ($archivedPatientsOnly as $p) {
 }
 usort($archived, fn($a, $b) => strcmp($b['archived_at'] ?? '', $a['archived_at'] ?? ''));
 
+// Dental chart visits a dentist moved to the Archive (newest first).
+$archivedVisits = [];
+try {
+    $archivedVisits = $pdo->query(
+        "SELECT cs.*, p.name AS patient_name,
+                (SELECT COUNT(*) FROM odontogram o WHERE o.session_id = cs.id) AS teeth
+           FROM chart_sessions cs LEFT JOIN patients p ON p.id = cs.patient_id
+          WHERE cs.archived_at IS NOT NULL ORDER BY cs.archived_at DESC"
+    )->fetchAll();
+} catch (Throwable $e) {}
+
 $page_title = "Archive";
 include 'includes/head.php';
 $active = 'archive';
@@ -192,6 +225,46 @@ $active = 'archive';
                                         <input type="hidden" name="action" value="permadelete">
                                         <input type="hidden" name="type" value="<?= e($u['type']) ?>">
                                         <input type="hidden" name="id" value="<?= $u['id'] ?>">
+                                        <button type="submit" class="icon-btn icon-btn-delete" title="Delete Permanently">🗑</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- ===== Archived dental chart visits (from the Odontogram) ===== -->
+        <div class="card-box mt-3">
+            <h5 class="mb-1">🦷 Archived dental chart visits</h5>
+            <div class="text-muted2 mb-3" style="font-size:.8rem;">Visits a dentist removed from a patient's chart. Restore puts the visit back in the chart history.</div>
+            <?php if (!$archivedVisits): ?>
+                <div class="text-center text-muted2 py-3">No archived visits.</div>
+            <?php else: ?>
+            <div class="table-responsive">
+                <table class="data">
+                    <thead><tr><th>Patient</th><th>Visit</th><th>Archived By</th><th>Archived On</th><th class="no-print">Actions</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($archivedVisits as $v): ?>
+                        <tr>
+                            <td><strong><?= e($v['patient_name'] ?: 'N/A') ?></strong></td>
+                            <td><?= date('M j, Y', strtotime($v['visit_date'])) ?><?= $v['title'] ? ' · ' . e($v['title']) : '' ?>
+                                <br><small class="text-muted2"><?= (int)$v['teeth'] ?> tooth record<?= (int)$v['teeth'] === 1 ? '' : 's' ?></small></td>
+                            <td><?= e($v['archived_by'] ?: 'N/A') ?></td>
+                            <td><small class="text-muted2"><?= date('M j, Y g:i A', strtotime($v['archived_at'])) ?></small></td>
+                            <td class="no-print">
+                                <div class="d-flex gap-1">
+                                    <form method="POST" onsubmit="return confirmDelete('Restore this visit to the patient\'s chart?')">
+                                        <input type="hidden" name="action" value="restore_visit">
+                                        <input type="hidden" name="id" value="<?= (int)$v['id'] ?>">
+                                        <button type="submit" class="icon-btn icon-btn-restore" title="Restore">↩</button>
+                                    </form>
+                                    <form method="POST" onsubmit="return confirmDelete('Permanently delete this visit chart? Every tooth recorded on it is removed. This cannot be undone.')">
+                                        <input type="hidden" name="action" value="permadelete_visit">
+                                        <input type="hidden" name="id" value="<?= (int)$v['id'] ?>">
                                         <button type="submit" class="icon-btn icon-btn-delete" title="Delete Permanently">🗑</button>
                                     </form>
                                 </div>

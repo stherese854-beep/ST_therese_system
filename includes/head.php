@@ -586,6 +586,14 @@ document.addEventListener('DOMContentLoaded', function(){
     sidebar.querySelectorAll('a.nav-item').forEach(function(a){
         a.addEventListener('click', closeSidebar);
     });
+
+    // Tapping the profile or the bell (top right) while the menu is open closes
+    // the menu first, so the dropdown is not hidden behind it on a phone.
+    ['pwBtn', 'notifBtn'].forEach(function (id) {
+        var b = document.getElementById(id);
+        if (b) b.addEventListener('click', function () { if (sidebar.classList.contains('open')) closeSidebar(); });
+    });
+    window.closeSidebar = closeSidebar;
 });
 </script>
 <?php endif; ?>
