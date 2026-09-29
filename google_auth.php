@@ -133,6 +133,14 @@ $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
 $stmt->execute([$gEmail]);
 $user = $stmt->fetch();
 
+if ($user && $user['status'] !== 'active') {
+    // Archived or inactive accounts cannot sign in with Google either.
+    set_flash($user['status'] === 'archived'
+        ? 'This account has been archived. Please contact the clinic to restore it.'
+        : 'This account is inactive. Please contact the clinic.', 'error');
+    header("Location: login"); exit;
+}
+
 if ($user) {
     // Existing account -> just log in. Google has already verified the email.
     $pdo->prepare("UPDATE users SET google_id=?, email_verified=1, last_login=NOW() WHERE id=?")
@@ -147,25 +155,17 @@ if ($user) {
     exit;
 }
 
-// New user -> create a patient account. There is no password (they use Google),
-// so we store a random one they will never need.
-$randomPass = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
-$pdo->prepare("INSERT INTO users (name,email,password,role,status,email_verified,google_id)
-               VALUES (?,?,?,'patient','active',1,?)")
-    ->execute([$gName, $gEmail, $randomPass, $gId]);
-$newId = $pdo->lastInsertId();
-
-$assignedDentist = pick_dentist_for_new_patient($pdo);
-$pdo->prepare("INSERT INTO patients (user_id,name,email,patient_type,status,primary_dentist)
-               VALUES (?,?,?,'New','Active',?)")
-    ->execute([$newId, $gName, $gEmail, $assignedDentist]);
-
-session_regenerate_id(true);   // fresh session ID on sign-in
-
-$_SESSION['user_id'] = $newId;
-$_SESSION['name']    = $gName;
-$_SESSION['role']    = 'patient';
-log_activity($pdo, 'Created account', $gName . ' (patient, Google sign-up)');
-set_flash('Account created with Google — welcome, ' . $gName . '!');
-header("Location: portal");
+// New user -> the account is NOT created yet. Google gave us their name and a
+// verified email; they still need to add a phone number and date of birth
+// (18+) like everyone else. login.php?mode=google shows that short form and
+// creates the account (see the 'google_finish' action there).
+$_SESSION['google_pending'] = [
+    'email'   => $gEmail,
+    'name'    => $gName,
+    'first'   => $profile['given_name']  ?? '',
+    'last'    => $profile['family_name'] ?? '',
+    'gid'     => $gId,
+    'expires' => time() + 1800,
+];
+header("Location: login?mode=google");
 exit;

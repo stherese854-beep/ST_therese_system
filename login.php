@@ -38,8 +38,69 @@ try {
     }
 } catch (Throwable $e) {}
 
+// ---------- Google sign-up: finish the account (phone + date of birth) ----------
+$gp = $_SESSION['google_pending'] ?? null;
+if ($gp && time() > ($gp['expires'] ?? 0)) { unset($_SESSION['google_pending']); $gp = null; }
+if ($mode === 'google' && !$gp) $mode = 'register';   // nothing waiting — show the normal form
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'google_finish') {
+    $mode = 'google';
+    if (!$gp) {
+        $error = 'Your Google sign-up expired. Please click “Continue with Google” again.';
+        $mode  = 'register';
+    } else {
+        $first = trim($_POST['first_name'] ?? '');
+        $last  = trim($_POST['last_name'] ?? '');
+        $name  = trim(preg_replace('/\s+/', ' ', "$first $last"));
+        [$phone, $phoneError] = validate_phone($_POST['contact'] ?? '');
+        $dob   = trim($_POST['dob'] ?? '');
+        $birth = DateTimeImmutable::createFromFormat('!Y-m-d', $dob);
+        $age   = ($birth && $birth->format('Y-m-d') === $dob) ? (int)$birth->diff(new DateTimeImmutable('today'))->y : null;
+
+        if ($first === '' || $last === '')               $error = 'Please enter your first and last name.';
+        elseif ($phoneError !== '')                      $error = $phoneError;
+        elseif ($dob === '')                             $error = 'Please enter your date of birth.';
+        elseif ($age === null || $dob > date('Y-m-d'))   $error = 'Please enter a valid date of birth.';
+        elseif ($age < 18)                               $error = 'You must be at least 18 years old to create an account. '
+                                                                 . 'If you are under 18, please ask a parent or guardian to make the account and book for you.';
+        else {
+            $taken = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+            $taken->execute([$gp['email']]);
+            if ($taken->fetch()) {
+                unset($_SESSION['google_pending']);
+                $error = 'An account with this email already exists. Please sign in.';
+                $mode  = 'signin';
+            } else {
+                // No password (they sign in with Google) — a random one they never need.
+                $randomPass = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+                $pdo->prepare("INSERT INTO users (name,email,password,role,status,email_verified,google_id,contact)
+                               VALUES (?,?,?,'patient','active',1,?,?)")
+                    ->execute([$name, $gp['email'], $randomPass, $gp['gid'], $phone]);
+                $newId = $pdo->lastInsertId();
+                $assignedDentist = pick_dentist_for_new_patient($pdo);
+                $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,patient_type,status,primary_dentist,date_of_birth,age)
+                               VALUES (?,?,?,?,'New','Active',?,?,?)")
+                    ->execute([$newId, $name, $gp['email'], $phone, $assignedDentist, $dob, $age]);
+
+                unset($_SESSION['google_pending']);
+                session_regenerate_id(true);   // fresh session ID on sign-in
+                $_SESSION['user_id'] = $newId;
+                $_SESSION['name']    = $name;
+                $_SESSION['role']    = 'patient';
+                $_SESSION['just_registered']    = true;
+                $_SESSION['show_welcome_popup'] = true;
+                log_activity($pdo, 'Created account', $name . ' (patient, Google sign-up)');
+                set_flash('Account created with Google — welcome, ' . $name . '!');
+                header("Location: portal");
+                exit;
+            }
+        }
+    }
+}
+if (($_GET['mode'] ?? '') === 'cancel_google') { unset($_SESSION['google_pending']); header("Location: login?mode=register"); exit; }
+
 // ---------- Handle the form when it is submitted ----------
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'google_finish') {
 
     // ===== SIGN IN =====
     if (($_POST['action'] ?? '') === 'signin' && rate_limited($pdo, 'login_fail', 10, 900)) {
@@ -313,7 +374,35 @@ include 'includes/head.php';
                 <div class="alert alert-danger py-2"><?= e($error) ?></div>
             <?php endif; ?>
 
-            <?php if ($mode === 'signin'): ?>
+            <?php if ($mode === 'google' && $gp): ?>
+                <!-- ============ FINISH A GOOGLE SIGN-UP ============ -->
+                <h2>Finish creating your account</h2>
+                <p class="muted">Signed in with Google as <strong><?= e($gp['email']) ?></strong>. Just a few more details.</p>
+                <form method="POST" action="login?mode=google">
+                    <input type="hidden" name="action" value="google_finish">
+                    <div class="row">
+                        <div class="col"><label class="field-label">First name</label>
+                            <input name="first_name" class="form-control mb-3" required maxlength="60"
+                                   value="<?= e($_POST['first_name'] ?? ($gp['first'] ?: explode(' ', $gp['name'])[0])) ?>"></div>
+                        <div class="col"><label class="field-label">Last name</label>
+                            <input name="last_name" class="form-control mb-3" required maxlength="60"
+                                   value="<?= e($_POST['last_name'] ?? $gp['last']) ?>"></div>
+                    </div>
+                    <label class="field-label">Email address</label>
+                    <input class="form-control mb-3" value="<?= e($gp['email']) ?>" readonly disabled style="background:#eef3f3;">
+                    <label class="field-label">Phone number</label>
+                    <input name="contact" class="form-control mb-3" placeholder="09XX XXX XXXX" required
+                           value="<?= e($_POST['contact'] ?? '') ?>" <?= phone_input_attrs() ?>>
+                    <label class="field-label">Date of birth</label>
+                    <input type="date" name="dob" class="form-control mb-1" required value="<?= e($_POST['dob'] ?? '') ?>"
+                           min="1900-01-01" max="<?= date('Y-m-d', strtotime('-18 years')) ?>">
+                    <div class="text-muted2 mb-3" style="font-size:.8rem;">You must be <strong>18 or older</strong> to create an account.
+                        Under 18? A parent or guardian can make the account and book for you.</div>
+                    <button type="submit" class="btn btn-teal w-100 py-2">Create My Account →</button>
+                </form>
+                <p class="text-center mt-3 muted"><a href="login?mode=cancel_google" style="color:var(--teal);">← Cancel</a></p>
+
+            <?php elseif ($mode === 'signin'): ?>
                 <!-- ============ LOGIN FORM ============ -->
                 <h2>Welcome back</h2>
                 <p class="muted">Enter your credentials to continue.</p>
