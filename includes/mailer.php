@@ -324,6 +324,49 @@ function mail_template($title, $bodyHtml, $buttonText = '', $buttonLink = '') {
 //  notice. This emails the clinic so the freed-up slot can be reused.
 //  It never blocks the cancellation — if mail is off, it just returns.
 // ============================================================
+/**
+ * After a PATIENT cancels (portal or reminder link): email the account holder how
+ * many of the allowed cancellations they have used. The count covers the whole
+ * account (their own + family members'), the same way booking is paused.
+ * Wording: Message Templates → "Cancellation warning" / "Cancellation limit reached".
+ */
+function send_cancellation_warning($pdo, $appt, $reason = '') {
+    if (!mail_is_ready($pdo)) return false;
+    try {
+        if (!function_exists('patient_cancel_count')) require_once __DIR__ . '/noshow_check.php';
+        $pq = $pdo->prepare("SELECT p.id, p.name, p.guardian_patient_id FROM patients p WHERE p.id = ?");
+        $pq->execute([(int)$appt['patient_id']]);
+        $pat = $pq->fetch();
+        if (!$pat) return false;
+        $holderId = (int)($pat['guardian_patient_id'] ?: $pat['id']);        // the account holder
+        $hq = $pdo->prepare("SELECT p.name, COALESCE(NULLIF(p.email,''), u.email) AS email
+                               FROM patients p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?");
+        $hq->execute([$holderId]);
+        $holder = $hq->fetch();
+        if (!$holder || empty($holder['email'])) return false;
+
+        $used = 0;
+        foreach (family_patient_ids($pdo, $holderId) as $fid) $used += patient_cancel_count($pdo, $fid);
+        $limit = CANCEL_LIMIT;
+        $kind  = $used >= $limit ? 'cancel_limit' : 'cancel_warning';
+        $cat   = message_catalogue()[$kind];
+        [$subj, $body] = tpl_message($pdo, $kind, $cat['subject'], $cat['body'], [
+            'patient'   => $holder['name'],
+            'for'       => (int)$pat['id'] !== $holderId ? ' for ' . $pat['name'] : '',
+            'date'      => date('l, F j, Y', strtotime($appt['appointment_date'])),
+            'time'      => $appt['appointment_time'],
+            'treatment' => $appt['treatment'],
+            'reason'    => $reason !== '' ? $reason : 'N/A',
+            'used'      => $used,
+            'limit'     => $limit,
+            'left'      => max(0, $limit - $used),
+            'clinic'    => clinic_name($pdo),
+        ]);
+        $err = '';
+        return send_mail($pdo, $holder['email'], $subj, $body, $err, $kind);
+    } catch (Throwable $e) { return false; }
+}
+
 function notify_clinic_of_cancellation($pdo, $appt, $patientName, $reason = '') {
     if (!mail_is_ready($pdo)) return false;
 

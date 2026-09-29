@@ -122,6 +122,34 @@ function message_catalogue() {
                    . "penalty — we just want to make sure the next visit works out.",
     ],
 
+    'cancel_warning' => [
+        'group'   => 'To the patient',
+        'label'   => 'Cancellation warning',
+        'when'    => 'Sent each time a patient cancels online (portal or reminder link) while they still have cancellations left.',
+        'vars'    => ['patient','for','date','time','treatment','reason','used','limit','left','clinic'],
+        'subject' => 'Your appointment was cancelled ({used} of {limit} cancellations used)',
+        'body'    => "Hello {patient},\n\n"
+                   . "As you requested, the appointment{for} on {date} at {time} ({treatment}) has been cancelled.\n"
+                   . "Reason given: {reason}\n\n"
+                   . "Please note: this is cancellation {used} of {limit}. You can cancel {left} more time(s). "
+                   . "After {limit} cancellations, online booking is paused until the clinic reviews your account.\n\n"
+                   . "If you only need a different time, please use Reschedule in your patient portal instead of cancelling.",
+    ],
+
+    'cancel_limit' => [
+        'group'   => 'To the patient',
+        'label'   => 'Cancellation limit reached — booking paused',
+        'when'    => 'Sent instead of the warning above when a patient reaches the cancellation limit.',
+        'vars'    => ['patient','for','date','time','treatment','reason','used','limit','clinic'],
+        'subject' => 'Online booking paused — cancellation limit reached',
+        'body'    => "Hello {patient},\n\n"
+                   . "As you requested, the appointment{for} on {date} at {time} ({treatment}) has been cancelled.\n"
+                   . "Reason given: {reason}\n\n"
+                   . "You have now cancelled {used} appointments, which is the limit of {limit}. Online booking is "
+                   . "paused on your account until our staff review it.\n\n"
+                   . "To book your next visit, please call or visit the clinic — we will be happy to help you.",
+    ],
+
     'password_reset' => [
         'group'   => 'To the patient',
         'label'   => 'Password reset code',

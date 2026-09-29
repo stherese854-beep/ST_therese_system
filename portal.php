@@ -244,7 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $reason  = trim($_POST['reschedule_reason'] ?? '');
 
         $chk = $pdo->prepare(
-            "SELECT id, appointment_date, appointment_time, treatment, dentist, patient_name, status
+            "SELECT id, patient_id, appointment_date, appointment_time, treatment, dentist, patient_name, status
                FROM appointments WHERE id = ? AND patient_id IN (" . in_placeholders(family_patient_ids($pdo, $pid)) . ")"
         );
         $chk->execute(array_merge([$aid], family_patient_ids($pdo, $pid)));
@@ -297,7 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // It must be THIS patient's appointment, and still cancellable.
         $chk = $pdo->prepare(
-            "SELECT id, appointment_date, appointment_time, treatment, dentist, patient_name, status
+            "SELECT id, patient_id, appointment_date, appointment_time, treatment, dentist, patient_name, status
                FROM appointments
               WHERE id = ? AND patient_id IN (" . in_placeholders(family_patient_ids($pdo, $pid)) . ")"
         );
@@ -331,7 +331,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 notify_clinic_of_cancellation($pdo, $appt, $me['name'] ?? 'A patient', $reason);
 
                 log_activity($pdo, 'Cancelled appointment', date('M j, Y', strtotime($appt['appointment_date'])) . ' ' . $appt['appointment_time'] . ($reason !== '' ? ' — ' . $reason : ''));
-                set_flash('Your appointment was cancelled. The clinic has been notified.');
+
+                // Warn the patient how many cancellations they have left (on screen + by email).
+                if (!function_exists('patient_cancel_count')) require_once 'includes/noshow_check.php';
+                $usedCancels = 0;
+                foreach (family_patient_ids($pdo, $pid) as $fid) $usedCancels += patient_cancel_count($pdo, $fid);
+                send_cancellation_warning($pdo, $appt, $reason);
+                $leftCancels = max(0, CANCEL_LIMIT - $usedCancels);
+                set_flash($leftCancels > 0
+                    ? "Your appointment was cancelled and the clinic has been notified. You have used $usedCancels of "
+                      . CANCEL_LIMIT . " cancellations — $leftCancels left before online booking is paused."
+                    : 'Your appointment was cancelled and the clinic has been notified. You have reached the limit of '
+                      . CANCEL_LIMIT . ' cancellations, so online booking is now paused until the clinic reviews your account.',
+                    $leftCancels > 0 ? 'success' : 'warning');
             }
         }
         header("Location: portal?view=appointments"); exit;

@@ -48,6 +48,7 @@ if ($state === 'ask' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE appointments SET status='Cancelled', cancelled_at=NOW(), cancelled_by='patient', cancel_reason=?
                         WHERE id = ? AND status IN ('Pending','Confirmed')")->execute([$reason, $id]);
         try { notify_clinic_of_cancellation($pdo, $appt, $appt['account_name'] ?: $appt['patient_name'], $reason); } catch (Throwable $e) {}
+        send_cancellation_warning($pdo, $appt, $reason);   // "you have used N of 3 cancellations" email
         log_activity($pdo, 'Cancelled appointment', $appt['patient_name'] . ' — '
                      . date('M j, Y', strtotime($appt['appointment_date'])) . ' ' . $appt['appointment_time'] . ' (reminder email) — ' . $reason);
         $state = 'cancelled';
