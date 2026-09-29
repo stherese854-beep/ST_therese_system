@@ -39,12 +39,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash('The passwords do not match. Please type the same password twice.', 'error');
             header("Location: patients"); exit;
         }
+        // Birthday / age: only admin and staff may set them (the age follows the birthday).
+        $canDob = in_array(current_role(), ['admin','staff'], true);
+        $dob    = $canDob ? trim($_POST['dob'] ?? '') : '';
+        if ($canDob && ($de = birth_date_error($dob)) !== '') {
+            set_flash($de, 'error');
+            header("Location: patients"); exit;
+        }
+        $ageIn  = trim($_POST['age'] ?? '');
+        $age    = $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null);
 
         if ($id) {
             // UPDATE the patient record.
             // Age and blood type are left alone here — they are edited in Records.
             $pdo->prepare("UPDATE patients SET name=?, email=?, phone=?, status=?, patient_type=?, visit_reason=? WHERE id=?")
                 ->execute([$name, $email, $phone, $status, $ptype, $vreason, $id]);
+            if ($canDob) {
+                $pdo->prepare("UPDATE patients SET date_of_birth=?, age=? WHERE id=?")->execute([$dob ?: null, $age, $id]);
+            }
 
             // If this patient has a LOGIN account, keep it in sync (name + email),
             // and change the password if a new one was typed.
@@ -85,8 +97,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $assignedDentist = (current_role() === 'dentist')
                 ? ($_SESSION['name'] ?? null)
                 : pick_dentist_for_new_patient($pdo);
-            $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,status,patient_type,primary_dentist) VALUES (?,?,?,?,?,'New',?)")
-                ->execute([$newUserId, $name, $email, $phone, $status, $assignedDentist]);
+            $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,status,patient_type,primary_dentist,date_of_birth,age) VALUES (?,?,?,?,?,'New',?,?,?)")
+                ->execute([$newUserId, $name, $email, $phone, $status, $assignedDentist, $dob ?: null, $age]);
 
             // Message that explains whether an account was created.
             if ($newUserId) {
@@ -513,7 +525,16 @@ $active = 'patients';
             </div>
             <label class="field-label">Email</label>
             <input type="email" name="email" id="f-email" class="form-control mb-3">
-            <!-- Age and blood type are clinical details: they are edited in Records. -->
+            <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
+            <!-- Birthday and age: only admin and staff can set them. The age fills in from the birthday. -->
+            <div class="row">
+                <div class="col"><label class="field-label">Date of Birth</label>
+                    <input type="date" name="dob" id="f-dob" class="form-control mb-3" min="1900-01-01" max="<?= birth_date_max() ?>"
+                           onchange="var a=document.getElementById('f-age'); if(this.value){var b=new Date(this.value+'T00:00:00'),n=new Date(),y=n.getFullYear()-b.getFullYear(); if(n.getMonth()<b.getMonth()||(n.getMonth()===b.getMonth()&&n.getDate()<b.getDate()))y--; a.value=y;}"></div>
+                <div class="col"><label class="field-label">Age</label>
+                    <input type="number" name="age" id="f-age" class="form-control mb-3" min="0" max="120" step="1" data-digits></div>
+            </div>
+            <?php endif; ?>
             <div class="row">
                 <div class="col"><label class="field-label">Phone</label>
                     <input name="phone" id="f-phone" class="form-control mb-3" placeholder="09XX XXX XXXX"
@@ -665,6 +686,7 @@ function validatePauseBooking(){
         document.getElementById('f-reason').value = '';
         document.getElementById('f-pass').value = '';
         document.getElementById('f-pass2').value = '';
+        if (document.getElementById('f-dob')) { document.getElementById('f-dob').value = ''; document.getElementById('f-age').value = ''; }
         toggleReason();
     }
 
@@ -683,6 +705,10 @@ function validatePauseBooking(){
         document.getElementById('f-reason').value = p.visit_reason || '';
         document.getElementById('f-pass').value = '';
         document.getElementById('f-pass2').value = '';
+        if (document.getElementById('f-dob')) {           // admin / staff only
+            document.getElementById('f-dob').value = p.date_of_birth || '';
+            document.getElementById('f-age').value = (p.age === null || p.age === undefined) ? '' : p.age;
+        }
         toggleReason();
     }
 

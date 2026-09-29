@@ -650,6 +650,90 @@ function birth_date_error($v, $required = false) {
     return '';
 }
 
+// Age in whole years from a birth date ("2008-09-08" -> 18), or null.
+function age_from_dob($dob) {
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', trim((string)$dob));
+    return $d ? (int)$d->diff(new DateTimeImmutable('today'))->y : null;
+}
+
+// ============================================================
+//  CHANGE PASSWORD WITH A CODE (every role)
+// ============================================================
+//  Step 1 (pw_change_start): check the current password and the new
+//  one, then send a 6-digit code to the account's email. If email is
+//  not set up, the code is shown on screen instead ("demo mode"), the
+//  same as when creating an account.
+//  Step 2 (pw_change_finish): the right code changes the password.
+//  Nothing changes until the code is entered. A code lasts 15 minutes
+//  and 5 wrong tries cancel it.
+// ============================================================
+function pw_change_start($pdo, $current, $new, $confirm) {
+    $u = $pdo->prepare("SELECT name, email, password FROM users WHERE id = ?");
+    $u->execute([$_SESSION['user_id'] ?? 0]);
+    $row = $u->fetch();
+    if (!$row || !password_verify($current, $row['password'])) return 'Your current password is incorrect.';
+    if (($pwp = password_problem($new)) !== '')                  return $pwp;
+    if ($new !== $confirm)                                         return 'The new passwords do not match.';
+    if (password_verify($new, $row['password']))                   return 'The new password must be different from the current one.';
+
+    $code = (string)random_int(100000, 999999);
+    $_SESSION['pw_change'] = ['hash' => password_hash($new, PASSWORD_DEFAULT), 'code' => $code,
+                              'email' => $row['email'], 'expires' => time() + 900, 'tries' => 0, 'sent' => false];
+    try {
+        require_once __DIR__ . '/../includes/mailer.php';
+        $body = mail_template('Confirm your new password',
+            'Hi ' . e(explode(' ', (string)$row['name'])[0]) . ', someone asked to change the password of your St. Therese Dental Clinic account.<br><br>
+             Your confirmation code is:
+             <div style="font-size:30px;font-weight:700;letter-spacing:8px;color:#0f766e;background:#eef7f6;border-radius:10px;padding:14px;text-align:center;margin:14px 0;">'
+             . $code . '</div>
+             Enter it to finish changing your password. If this was not you, ignore this email — your password stays the same.');
+        $err = '';
+        if ($row['email'] && send_mail($pdo, $row['email'], 'Your password change code: ' . $code, $body, $err)) {
+            $_SESSION['pw_change']['sent'] = true;
+        }
+    } catch (Throwable $e) {}
+    return '';
+}
+function pw_change_finish($pdo, $code) {
+    $pc = $_SESSION['pw_change'] ?? null;
+    if (!$pc || time() > $pc['expires']) { unset($_SESSION['pw_change']); return 'That code has expired. Please start again.'; }
+    if (!hash_equals($pc['code'], trim((string)$code))) {
+        $_SESSION['pw_change']['tries']++;
+        if ($_SESSION['pw_change']['tries'] >= 5) { unset($_SESSION['pw_change']); return 'Too many wrong codes. Please start again.'; }
+        return 'Incorrect code. Please try again.';
+    }
+    $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([$pc['hash'], $_SESSION['user_id']]);
+    unset($_SESSION['pw_change']);
+    log_activity($pdo, 'Changed password', 'Own account (confirmed with a code)');
+    return '';
+}
+// The "enter your code" box shown in place of the password form while a change is waiting.
+function pw_change_box() {
+    $pc = $_SESSION['pw_change'] ?? [];
+    ob_start(); ?>
+    <p class="text-muted2 mb-2" style="font-size:.85rem;">Enter the 6-digit code we sent to <strong><?= e($pc['email'] ?? 'your email') ?></strong> to finish changing your password.</p>
+    <?php if (!empty($pc['sent'])): ?>
+        <div class="alert alert-success py-2" style="font-size:.85rem;">📧 Code emailed. Check your inbox (and the spam folder).</div>
+    <?php else: ?>
+        <div class="alert" style="background:#fff6e0;border:1px solid #e0b64a;color:#8a6d2f;font-size:.83rem;">
+            🧪 <strong>Demo mode:</strong> your code is <strong style="font-size:1.1rem;letter-spacing:2px;"><?= e($pc['code'] ?? '------') ?></strong>.
+            Email is not set up yet, so it is shown here. An admin can turn on real email in <em>Messaging Config</em>.
+        </div>
+    <?php endif; ?>
+    <form method="POST" style="max-width:420px;">
+        <input type="hidden" name="action" value="verify_password_code">
+        <label class="field-label">Confirmation Code</label>
+        <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" data-digits required autofocus
+               style="letter-spacing:6px;font-size:1.2rem;text-align:center;">
+        <button class="btn btn-teal">✓ Confirm &amp; Change Password</button>
+    </form>
+    <form method="POST" class="mt-2">
+        <input type="hidden" name="action" value="cancel_password_change">
+        <button class="btn btn-link p-0" style="font-size:.85rem;" data-keep-text>Cancel — keep my current password</button>
+    </form>
+    <?php return ob_get_clean();
+}
+
 // "Maria  santos " and "maria Santos" are the same person.
 function person_name_key($name) {
     return strtolower(preg_replace('/\s+/', ' ', trim((string)$name)));

@@ -138,29 +138,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: settings"); exit;
     }
 
+    // Step 1: check the passwords, then send a code (see pw_change_start()).
     if ($action === 'change_password') {
-        $uid     = $_SESSION['user_id'];
-        $current = $_POST['current_password'] ?? '';
-        $new     = $_POST['new_password'] ?? '';
-        $confirm = $_POST['confirm_password'] ?? '';
-
-        $u = $pdo->prepare("SELECT password FROM users WHERE id=?");
-        $u->execute([$uid]);
-        $row = $u->fetch();
-
-        if (!$row || !password_verify($current, $row['password'])) {
-            $pwError = 'Your current password is incorrect.';
-        } elseif (($pwp = password_problem($new)) !== '') {
-            $pwError = $pwp;
-        } elseif ($new !== $confirm) {
-            $pwError = 'The new passwords do not match.';
-        } else {
-            $pdo->prepare("UPDATE users SET password=? WHERE id=?")
-                ->execute([password_hash($new, PASSWORD_DEFAULT), $uid]);
-            log_activity($pdo, 'Changed password', 'Own account');
-            set_flash('Your password has been changed.'); header("Location: settings"); exit;
-        }
-        // if we reach here, there was an error -> fall through and show it below
+        $pwError = pw_change_start($pdo, $_POST['current_password'] ?? '', $_POST['new_password'] ?? '', $_POST['confirm_password'] ?? '');
+        if ($pwError === '') { header("Location: settings#pw-card"); exit; }
+        // otherwise fall through and show the error below
+    }
+    // Step 2: the right code changes the password.
+    if ($action === 'verify_password_code') {
+        $pwError = pw_change_finish($pdo, $_POST['code'] ?? '');
+        if ($pwError === '') { set_flash('Your password has been changed.'); header("Location: settings"); exit; }
+    }
+    if ($action === 'cancel_password_change') {
+        unset($_SESSION['pw_change']);
+        set_flash('Password change cancelled. Your password stays the same.', 'info');
+        header("Location: settings"); exit;
     }
 }
 
@@ -492,10 +484,13 @@ $active = 'settings';
         <?php endif; ?>
 
         <!-- ===== Change My Password (any logged-in user) ===== -->
-        <div class="card-box mt-3">
+        <div class="card-box mt-3" id="pw-card">
             <h5 class="mb-1">🔑 Change My Password</h5>
             <div class="text-muted2 mb-3" style="font-size:.85rem;">Update the password for your own account (<?= e($_SESSION['name'] ?? '') ?>).</div>
             <?php if ($pwError): ?><div class="alert alert-danger py-2"><?= e($pwError) ?></div><?php endif; ?>
+            <?php if (!empty($_SESSION['pw_change'])): ?>
+                <?= pw_change_box() ?>
+            <?php else: ?>
             <form method="POST" style="max-width:420px;">
                 <input type="hidden" name="action" value="change_password">
 
@@ -516,7 +511,7 @@ $active = 'settings';
                         <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                     </button>
                 </div>
-                <div class="text-muted2 mb-3" style="font-size:.78rem;">At least 6 characters.</div>
+                <div class="text-muted2 mb-3" style="font-size:.78rem;">Strong: 8+ characters with upper- &amp; lower-case letters, a number and a symbol.</div>
 
                 <label class="field-label">Confirm New Password</label>
 <div class="pw-wrap mb-3">
@@ -528,7 +523,9 @@ $active = 'settings';
                 </div>
 
                 <button class="btn btn-teal">🔑 Update Password</button>
+                <div class="text-muted2 mt-2" style="font-size:.78rem;">We'll send a code to your email to confirm the change.</div>
             </form>
+            <?php endif; ?>
         </div>
     </main>
 </div>

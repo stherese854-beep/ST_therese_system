@@ -83,13 +83,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $keep->execute([$pid]);
             $_POST['primary_dentist'] = (string)$keep->fetchColumn();
         }
+        // Birthday / age: only admin and staff may change them.
+        if (in_array(current_role(), ['admin','staff'], true)) {
+            $dob = trim($_POST['dob'] ?? '');
+            if (($de = birth_date_error($dob)) !== '') { set_flash($de, 'error'); header("Location: records?patient=$pid&tab=overview"); exit; }
+            $ageIn = trim($_POST['age'] ?? '');
+            $pdo->prepare("UPDATE patients SET date_of_birth=?, age=? WHERE id=?")
+                ->execute([$dob ?: null, $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null), $pid]);
+        }
         $pdo->prepare(
-            "UPDATE patients SET name=?, age=?, blood_type=?, phone=?, email=?, patient_type=?,
+            "UPDATE patients SET name=?, blood_type=?, phone=?, email=?, patient_type=?,
              primary_dentist=?, last_visit=?, next_visit=?, medical_alert=?, chart_remarks=?
              WHERE id=?"
         )->execute([
             trim($_POST['name']),
-            ($_POST['age'] !== '' ? (int)$_POST['age'] : null),
             trim($_POST['blood_type']),
             $cleanPhone,
             trim($_POST['email']),
@@ -303,8 +310,18 @@ $active = 'records';
                     <div class="row g-3">
                         <div class="col-md-4"><label class="field-label">Full Name</label>
                             <input name="name" class="form-control" value="<?= e($patientRow['name']) ?>" required></div>
-                        <div class="col-md-4"><label class="field-label">Age</label>
-                            <input type="number" name="age" class="form-control" min="0" max="120" step="1" data-digits value="<?= e($patientRow['age']) ?>"></div>
+                        <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
+                            <div class="col-md-4"><label class="field-label">Date of Birth / Age</label>
+                                <div class="d-flex gap-2">
+                                    <input type="date" name="dob" class="form-control" value="<?= e($patientRow['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>">
+                                    <input type="number" name="age" class="form-control" style="max-width:90px;" min="0" max="120" step="1" data-digits value="<?= e($patientRow['age']) ?>" title="Filled in from the date of birth">
+                                </div></div>
+                        <?php else: ?>
+                            <!-- Only admin and staff can change the birthday / age. -->
+                            <div class="col-md-4"><label class="field-label">Date of Birth / Age</label>
+                                <input class="form-control" readonly style="background:#eef3f3;" title="Only the admin or staff can change this"
+                                       value="<?= e(trim(($patientRow['date_of_birth'] ? date('M j, Y', strtotime($patientRow['date_of_birth'])) . ' · ' : '') . ($patientRow['age'] !== null && $patientRow['age'] !== '' ? $patientRow['age'] . ' yrs' : ''))) ?>"></div>
+                        <?php endif; ?>
                         <div class="col-md-4"><label class="field-label">Blood Type</label>
                             <select name="blood_type" class="form-select">
                                 <option value="">Unknown</option>

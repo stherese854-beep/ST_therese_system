@@ -121,7 +121,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'save_profile' && $pid) {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
-        if ($phoneError === '') $phoneError = birth_date_error($_POST['dob'] ?? '');   // at least 2 years old
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
             header("Location: portal?view=profile"); exit;
@@ -130,13 +129,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim("$first $last");
 
-        $pdo->prepare("UPDATE patients SET name=?, phone=?, age=?, date_of_birth=?, blood_type=?,
+        // Date of birth and age are NOT saved here — only admin / staff may change them.
+        $pdo->prepare("UPDATE patients SET name=?, phone=?, blood_type=?,
                        address=?, medical_history=?, medical_alert=? WHERE id=?")
             ->execute([
                 $name,
                 $cleanPhone,
-                ($_POST['age'] !== '' ? (int)$_POST['age'] : null),
-                ($_POST['dob'] ?: null),
                 trim($_POST['blood_type']),
                 trim($_POST['address']),
                 trim($_POST['medical_history']),
@@ -334,24 +332,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // Patient changes their own password.
+    // Step 1: check the passwords, then send a code (see pw_change_start()).
     if ($action === 'change_password') {
-        $current = $_POST['current_password'] ?? '';
-        $new     = $_POST['new_password'] ?? '';
-        $confirm = $_POST['confirm_password'] ?? '';
-
-        if (!password_verify($current, $account['password'])) {
-            $pwError = 'Your current password is incorrect.';
-        } elseif (($pwp = password_problem($new)) !== '') {
-            $pwError = $pwp;
-        } elseif ($new !== $confirm) {
-            $pwError = 'The new passwords do not match.';
-        } else {
-            $pdo->prepare("UPDATE users SET password=? WHERE id=?")
-                ->execute([password_hash($new, PASSWORD_DEFAULT), $_SESSION['user_id']]);
-            log_activity($pdo, 'Changed password', 'Own account');
-            set_flash('Your password has been changed.');
-            header("Location: portal?view=profile"); exit;
-        }
+        $pwError = pw_change_start($pdo, $_POST['current_password'] ?? '', $_POST['new_password'] ?? '', $_POST['confirm_password'] ?? '');
+        if ($pwError === '') { header("Location: portal?view=profile#pw-card"); exit; }
+    }
+    // Step 2: the right code changes the password.
+    if ($action === 'verify_password_code') {
+        $pwError = pw_change_finish($pdo, $_POST['code'] ?? '');
+        if ($pwError === '') { set_flash('Your password has been changed.'); header("Location: portal?view=profile"); exit; }
+    }
+    if ($action === 'cancel_password_change') {
+        unset($_SESSION['pw_change']);
+        set_flash('Password change cancelled. Your password stays the same.', 'info');
+        header("Location: portal?view=profile"); exit;
     }
 }
 
@@ -953,10 +947,13 @@ include 'includes/head.php';
                                 <div class="col-md-6"><label class="field-label">Contact Number</label>
                                     <input name="phone" class="form-control" value="<?= e($me['phone']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?> required></div>
 
+                                <?php /* Birthday and age can only be changed by the clinic (admin / staff). */ ?>
                                 <div class="col-md-4"><label class="field-label">Date of Birth</label>
-                                    <input type="date" name="dob" class="form-control" value="<?= e($me['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>"></div>
+                                    <input type="date" class="form-control" value="<?= e($me['date_of_birth']) ?>" readonly disabled
+                                           style="background:#eef3f3;" title="Only the clinic can change your date of birth"></div>
                                 <div class="col-md-4"><label class="field-label">Age</label>
-                                    <input type="number" name="age" class="form-control" min="0" max="120" step="1" data-digits value="<?= e($me['age']) ?>"></div>
+                                    <input class="form-control" value="<?= e($me['age']) ?>" readonly disabled
+                                           style="background:#eef3f3;" title="Only the clinic can change your age"></div>
                                 <div class="col-md-4"><label class="field-label">Blood Type</label>
                                     <select name="blood_type" class="form-select">
                                         <option value="">Unknown</option>
@@ -1000,7 +997,7 @@ include 'includes/head.php';
                     </div>
 
                     <!-- Password -->
-                    <div class="card-box">
+                    <div class="card-box" id="pw-card">
                         <h5 class="mb-3">🔑 Change Password</h5>
                         <?php if (!empty($account['google_id'])): ?>
                             <div class="alert alert-light border py-2" style="font-size:.85rem;">
@@ -1008,6 +1005,9 @@ include 'includes/head.php';
                             </div>
                         <?php endif; ?>
                         <?php if ($pwError): ?><div class="alert alert-danger py-2"><?= e($pwError) ?></div><?php endif; ?>
+                        <?php if (!empty($_SESSION['pw_change'])): ?>
+                            <?= pw_change_box() ?>
+                        <?php else: ?>
                         <form method="POST">
                             <input type="hidden" name="action" value="change_password">
                             <label class="field-label">Current Password</label>
@@ -1026,7 +1026,7 @@ include 'includes/head.php';
                         <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                     </button>
                 </div>
-                            <div class="text-muted2 mb-3" style="font-size:.78rem;">At least 6 characters.</div>
+                            <div class="text-muted2 mb-3" style="font-size:.78rem;">Strong: 8+ characters with upper- &amp; lower-case letters, a number and a symbol.</div>
                             <label class="field-label">Confirm New Password</label>
 <div class="pw-wrap mb-3">
                     <input type="password" name="confirm_password" class="form-control" required>
@@ -1036,7 +1036,9 @@ include 'includes/head.php';
                     </button>
                 </div>
                             <button class="btn btn-teal">🔑 Update Password</button>
+                            <div class="text-muted2 mt-2" style="font-size:.78rem;">We'll send a code to your email to confirm the change.</div>
                         </form>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
