@@ -127,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $own->execute([$mid, $pid]);
         $member = $own->fetch();
         if (!$member) {
-            set_flash('That family member could not be found.', 'error');
+            set_flash('That person could not be found.', 'error');
         } elseif ($action === 'save_family_member') {
             $rel = trim($_POST['relationship'] ?? '');
             if ($rel === 'Other') $rel = trim($_POST['relationship_other'] ?? '');
@@ -137,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             else {
                 $pdo->prepare("UPDATE patients SET relationship = ?, phone = ? WHERE id = ?")
                     ->execute([mb_substr($rel, 0, 40), $mPhone ?: null, $mid]);
-                log_activity($pdo, 'Updated family member', $member['name']);
+                log_activity($pdo, 'Updated booked-for person', $member['name']);
                 set_flash($member['name'] . '’s details were updated.');
             }
         } else {
@@ -145,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($hfErr !== '') set_flash($hfErr, 'error');
             else {
                 save_patient_health($pdo, $mid, $hfNew);
-                log_activity($pdo, 'Updated health questionnaire', $member['name'] . ' (family member)');
+                log_activity($pdo, 'Updated health questionnaire', $member['name'] . ' (booked by account holder)');
                 set_flash($member['name'] . '’s health questionnaire was updated.');
             }
         }
@@ -603,8 +603,20 @@ include 'includes/head.php';
         <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">📅 Appointments</a>
         <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">🦷 My Dental Chart</a>
         <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">📋 My Records</a>
-        <a class="nav-item <?= $view==='family'?'active':'' ?>" href="portal?view=family">👨‍👩‍👧 My Family
-            <?php if ($family): ?><span class="badge-pill b-confirmed" style="font-size:.65rem;"><?= count($family) ?></span><?php endif; ?></a>
+        <a class="nav-item <?= $view==='family'?'active':'' ?>" href="portal?view=family">👥 People I Book For
+            <?php if ($family): ?><span id="book-for-badge" class="badge-pill b-confirmed" style="font-size:.65rem;display:none;"
+                  data-count="<?= count($family) ?>" data-key="bookForSeen_<?= (int)$_SESSION['user_id'] ?>" title="New person added"><?= count($family) ?></span><?php endif; ?></a>
+        <script>
+        // The number only shows when someone NEW was added since the patient last
+        // opened this page, and disappears once they open it (remembered per browser).
+        (function () {
+            var b = document.getElementById('book-for-badge'); if (!b) return;
+            var n = +b.dataset.count, k = b.dataset.key, seen = 0;
+            try { seen = +(localStorage.getItem(k) || 0); } catch (e) {}
+            <?php if ($view === 'family'): ?>try { localStorage.setItem(k, n); } catch (e) {} seen = n;<?php endif; ?>
+            if (n > seen) b.style.display = '';
+        })();
+        </script>
         <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal?view=news">
             📣 Announcements <?php if ($news): ?><span class="badge-pill b-pending" style="font-size:.65rem;"><?= count($news) ?></span><?php endif; ?>
         </a>
@@ -1136,9 +1148,9 @@ include 'includes/head.php';
             <!-- ===== MY FAMILY: relatives this account books for ===== -->
             <?= health_form_styles() ?>
             <div class="card-box mb-3">
-                <h5 class="mb-1">👨‍👩‍👧 My Family</h5>
+                <h5 class="mb-1">👥 People I Book For</h5>
                 <div class="text-muted2" style="font-size:.85rem;">
-                    Relatives you book appointments for. You can update how they are related to you, their phone number
+                    People you book appointments for — family, a child in your care, or anyone else you help. You can update how they are related to you, their phone number
                     and their health questionnaire, and view or print their dental chart.
                     Their <b>name, birthday and age</b> can only be changed by the clinic.
                     To add someone, book for them — choose <b>“Someone else”</b> on the booking page.
@@ -1148,12 +1160,12 @@ include 'includes/head.php';
             <?php if (!$family): ?>
                 <div class="card-box text-center text-muted2 py-4">
                     <div style="font-size:2rem;">👨‍👩‍👧</div>
-                    No family members yet. When you book an appointment for someone else, they appear here.
+                    No one yet. When you book an appointment for someone else — a family member, a child in your care, or a friend — they appear here.
                     <div class="mt-2"><a href="book" class="btn btn-teal btn-sm" data-keep-text>+ Book for someone else</a></div>
                 </div>
             <?php endif; ?>
 
-            <?php $relChoices = ['Parent','Guardian','Spouse','Child','Sibling','Grandparent']; ?>
+            <?php $relChoices = ['Parent','Guardian','Spouse','Child','Sibling','Grandparent','Friend']; ?>
             <?php foreach ($family as $fm):
                 $fmId = (int)$fm['id'];
                 [$fmHealth] = patient_health($pdo, $fmId);
@@ -1168,7 +1180,7 @@ include 'includes/head.php';
                     <div class="d-flex align-items-center gap-2">
                         <span class="avatar" style="background:#7fb4ad;"><?= e(strtoupper(substr($fm['name'], 0, 1))) ?></span>
                         <div><strong><?= e($fm['name']) ?></strong>
-                            <div class="text-muted2" style="font-size:.8rem;"><?= e($fm['relationship'] ?: 'Family member') ?>
+                            <div class="text-muted2" style="font-size:.8rem;"><?= e($fm['relationship'] ?: 'Booked by you') ?>
                                 · Born <?= $fm['date_of_birth'] ? date('M j, Y', strtotime($fm['date_of_birth'])) : 'N/A' ?>
                                 · Age <?= !empty($fm['age']) ? e($fm['age']) : 'N/A' ?></div></div>
                     </div>
@@ -1187,9 +1199,9 @@ include 'includes/head.php';
                                 <?php foreach ($relChoices as $rc): ?>
                                     <option <?= $fm['relationship'] === $rc ? 'selected' : '' ?>><?= $rc ?></option>
                                 <?php endforeach; ?>
-                                <option value="Other" <?= $relIsOther ? 'selected' : '' ?>>Other relative</option>
+                                <option value="Other" <?= $relIsOther ? 'selected' : '' ?>>Other (please specify)</option>
                             </select>
-                            <input type="text" name="relationship_other" class="form-control mb-2" maxlength="40" placeholder="e.g. Niece, Cousin"
+                            <input type="text" name="relationship_other" class="form-control mb-2" maxlength="40" placeholder="e.g. Cousin, Neighbor, Godchild, Caregiver"
                                    value="<?= $relIsOther ? e($fm['relationship']) : '' ?>" style="<?= $relIsOther ? '' : 'display:none;' ?>">
                             <label class="field-label">Phone number <span class="text-muted2">(optional)</span></label>
                             <input name="phone" class="form-control mb-2" placeholder="09XX XXX XXXX" value="<?= e($fm['phone'] ?? '') ?>" <?= phone_input_attrs() ?>>

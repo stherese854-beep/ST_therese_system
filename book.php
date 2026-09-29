@@ -623,11 +623,13 @@ include 'includes/head.php';
                         <option>Child</option>
                         <option>Sibling</option>
                         <option>Grandparent</option>
-                        <option>Other relative</option>
+                        <option>Friend</option>
+                        <!-- value kept as "Other relative" so saved bookings still match; shown as "Other" -->
+                        <option value="Other relative">Other (please specify)</option>
                     </select>
                     <div id="rel-other-wrap" style="display:none;">
                         <input type="text" name="relationship_other" id="sel-rel-other" class="form-control mb-1" maxlength="40"
-                               placeholder="Please specify, e.g. Cousin, Aunt, Nephew">
+                               placeholder="Please specify, e.g. Cousin, Neighbor, Godchild, Caregiver">
                     </div>
                     <div id="rel-warn" class="text-danger small mb-2" style="display:none;">Please choose your relationship to the patient.</div>
 
@@ -862,7 +864,7 @@ function validateStep3() {
     }
     if (forOther && document.getElementById('sel-rel').value === 'Other relative'
         && document.getElementById('sel-rel-other').value.trim() === '') {
-        document.getElementById('rel-warn').textContent = 'Please type your relationship to the patient (e.g. Cousin, Aunt).';
+        document.getElementById('rel-warn').textContent = 'Please type your relationship to the patient (e.g. Cousin, Neighbor, Caregiver).';
         document.getElementById('rel-warn').style.display = 'block';
         document.getElementById('sel-rel-other').focus();
         return;
@@ -891,7 +893,7 @@ function validateStep3() {
     goStep(3);
 }
 
-// "Other relative": ask which relative.
+// "Other": ask what the relationship is.
 function relOther() {
     var other = document.getElementById('sel-rel').value === 'Other relative';
     document.getElementById('rel-other-wrap').style.display = other ? '' : 'none';
