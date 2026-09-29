@@ -794,8 +794,15 @@ $active = 'appointments';
         </div>
 
         <div id="sb-existing">
-          <input type="text" id="sb-search" class="form-control form-control-sm mb-1" placeholder="Search by name or phone..." oninput="sbFilter()">
-          <select name="patient_id" id="sb-patient" class="form-select" size="6" onchange="sbHealth()">
+          <!-- Patient picker: type to search, or ▾ to open the whole list. The chosen
+               patient's name goes into the box and the list folds away. -->
+          <div id="sb-combo">
+          <div class="input-group input-group-sm mb-1">
+            <input type="text" id="sb-search" class="form-control" placeholder="Search by name or phone..." autocomplete="off"
+                   oninput="sbFilter()" onfocus="sbOpen(false)">
+            <button type="button" class="btn btn-outline-secondary" data-keep-text title="Show all patients" onclick="sbToggle()">▾</button>
+          </div>
+          <select name="patient_id" id="sb-patient" class="form-select" size="6" style="display:none;" onchange="sbPick()" onclick="sbPick()">
             <?php foreach ($bookPatients as $bp): ?>
               <option value="<?= (int)$bp['id'] ?>" data-dentist="<?= e($bp['primary_dentist']) ?>" <?= $bookPrefill === (int)$bp['id'] ? 'selected' : '' ?>>
                 <?= e($bp['name']) ?><?= $bp['phone'] ? ' · ' . e($bp['phone']) : '' ?> —
@@ -803,6 +810,7 @@ $active = 'appointments';
               </option>
             <?php endforeach; ?>
           </select>
+          </div>
           <div class="text-muted2 mt-1" style="font-size:.78rem;">Patients without an account are fine — the clinic manages their bookings.</div>
         </div>
 
@@ -872,13 +880,37 @@ startClock();
 // ---- "+ Book Appointment" (the clinic books for a patient) ----
 function openStaffBook() {
     sbMode(); sbTimes();
-    var m = document.getElementById('staffBookModal');
-    m.addEventListener('shown.bs.modal', function () {       // bring a pre-chosen patient into view
-        var s = document.getElementById('sb-patient');
-        if (s.selectedIndex >= 0) s.scrollTop = s.options[s.selectedIndex].offsetTop - s.clientHeight / 2;
-    }, { once: true });
-    new bootstrap.Modal(m).show();
+    sbShowChosen();                                           // a pre-chosen patient (?book=<id>) shows in the box
+    new bootstrap.Modal(document.getElementById('staffBookModal')).show();
 }
+
+// ---- Patient picker (search box + fold-away list) ----
+function sbList()    { return document.getElementById('sb-patient'); }
+function sbLabel(o)  { return o.text.replace(/\s+/g, ' ').split(' — ')[0].trim(); }   // "Name · phone"
+function sbOpen(showAll) {
+    var s = sbList();
+    if (showAll) [].forEach.call(s.options, function (o) { o.hidden = false; });
+    s.style.display = '';
+    if (s.selectedIndex >= 0) s.scrollTop = s.options[s.selectedIndex].offsetTop - s.clientHeight / 2;
+}
+function sbClose()  { sbList().style.display = 'none'; }
+function sbToggle() { sbList().style.display === 'none' ? sbOpen(true) : sbClose(); }
+// Picking a patient: their name goes into the box and the list folds away.
+function sbPick() {
+    var s = sbList();
+    if (s.selectedIndex < 0) return;
+    sbShowChosen();
+    sbClose();
+    sbHealth();
+}
+function sbShowChosen() {
+    var s = sbList();
+    document.getElementById('sb-search').value = s.selectedIndex >= 0 ? sbLabel(s.options[s.selectedIndex]) : '';
+}
+// Clicking anywhere outside the picker folds the list away.
+document.addEventListener('click', function (e) {
+    if (!e.target.closest || !e.target.closest('#sb-combo')) { var s = document.getElementById('sb-patient'); if (s) s.style.display = 'none'; }
+});
 function sbMode() {
     var isNew = document.querySelector('[name="patient_mode"]:checked').value === 'new';
     document.getElementById('sb-existing').style.display = isNew ? 'none' : '';
@@ -895,9 +927,12 @@ function sbHealth() {
     document.getElementById('sb-hf-note').textContent = isNew ? 'Fill in the health questionnaire with the patient.'
         : (a ? 'Their last answers are filled in — please review them with the patient.' : (pid ? 'No questionnaire on file yet — please fill it in with the patient.' : ''));
 }
+// Typing searches the list (and un-chooses the patient if the text no longer matches them).
 function sbFilter() {
-    var q = document.getElementById('sb-search').value.toLowerCase();
-    [].forEach.call(document.getElementById('sb-patient').options, function (o) { o.hidden = q !== '' && o.text.toLowerCase().indexOf(q) === -1; });
+    var s = sbList(), q = document.getElementById('sb-search').value.toLowerCase().trim();
+    if (s.selectedIndex >= 0 && q !== sbLabel(s.options[s.selectedIndex]).toLowerCase()) { s.selectedIndex = -1; sbHealth(); }
+    [].forEach.call(s.options, function (o) { o.hidden = q !== '' && o.text.toLowerCase().indexOf(q) === -1; });
+    sbOpen(false);
 }
 // Today: times that have already passed are not offered.
 function sbTimes() {
