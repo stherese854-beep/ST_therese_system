@@ -702,6 +702,12 @@ include 'includes/head.php';
                 </div>
             </div>
 
+            <!-- Only on paper / PDF: a patient's own printout is a reference copy, not the clinic's signed record -->
+            <div class="print-only" style="display:none;margin-top:14px;padding-top:8px;border-top:1px dashed #999;font-size:11px;color:#555;text-align:center;">
+                <strong>Patient copy — for reference only.</strong>
+                For an official, signed record, please request one from the clinic.
+            </div>
+
         <?php elseif ($view === 'appointments'): ?>
             <!-- ===== MY APPOINTMENTS: upcoming + full history ===== -->
 
