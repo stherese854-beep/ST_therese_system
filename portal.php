@@ -628,6 +628,8 @@ include 'includes/head.php';
                         <?= $mySession['title'] ? ' · ' . e($mySession['title']) : '' ?>
                         <?= $mySession['created_by'] ? ' · ' . e($mySession['created_by']) : '' ?>
                     </div>
+                <?php else: ?>
+                    <div style="font-size:.85rem;color:#555;">No dental chart recorded yet — all teeth are shown as healthy (the starting chart).</div>
                 <?php endif; ?>
                 <div style="font-size:.78rem;color:#888;">Printed <?= date('M j, Y g:i A') ?></div>
             </div>
@@ -637,12 +639,11 @@ include 'includes/head.php';
                     <div class="card-box">
                         <div class="flex-between mb-1">
                             <h5 class="mb-0"><?= $chartMember ? e($chartMember['name']) . '’s Dental Chart' : 'My Dental Chart' ?></h5>
-                            <?php if ($mySessions): ?>
-                                <button class="btn btn-sm btn-outline-teal no-print" onclick="printChart()"
-                                        title="Print this visit's chart, or save it as a PDF">
-                                    🖨 Print this chart
-                                </button>
-                            <?php endif; ?>
+                            <!-- Always printable — even before the dentist has recorded any changes -->
+                            <button class="btn btn-sm btn-outline-teal no-print" onclick="printChart()"
+                                    title="Print this chart, or save it as a PDF">
+                                🖨 Print this chart
+                            </button>
                         </div>
 
                         <?php if ($family): ?>
