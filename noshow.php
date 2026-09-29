@@ -415,7 +415,7 @@ function tabLink($key, $label, $count, $current) {
                     </div>
                     <div class="table-responsive">
                         <table class="data">
-                            <thead><tr><th>Patient</th><th>Cancellations</th><th>Recent cancellations (reason)</th><th>Dentist</th><th>Actions</th></tr></thead>
+                            <thead><tr><th>Patient</th><th>Cancellations</th><th>Recent cancellations (reason)</th><th>Dentist</th><th class="no-print">Actions</th></tr></thead>
                             <tbody>
                             <?php foreach ($cancelReview as $cp): ?>
                                 <tr>
@@ -430,7 +430,7 @@ function tabLink($key, $label, $count, $current) {
                                         <?php endforeach; ?>
                                     </td>
                                     <td><?= e($cp['primary_dentist'] ?: 'N/A') ?></td>
-                                    <td>
+                                    <td class="no-print">
                                         <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
                                             <form method="POST" class="m-0" onsubmit="return confirm('Mark <?= e(addslashes($cp['name'])) ?> as reviewed and let them book online again?')">
                                                 <input type="hidden" name="action" value="restore_cancel">
@@ -457,7 +457,7 @@ function tabLink($key, $label, $count, $current) {
                 <div class="card-box">
                     <div class="table-responsive">
                         <table class="data">
-                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Dentist</th><th>Procedure</th><th>Status</th><th>Actions</th></tr></thead>
+                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Dentist</th><th>Procedure</th><th>Status</th><th class="no-print">Actions</th></tr></thead>
                             <tbody>
                             <?php foreach ($rows as $r):
                                 $initials = strtoupper(substr($r['patient_name'],0,1) . (strpos($r['patient_name'],' ') ? substr(strstr($r['patient_name'],' '),1,1) : ''));
@@ -472,7 +472,7 @@ function tabLink($key, $label, $count, $current) {
                                     <td><?= e($r['dentist']) ?></td>
                                     <td><?= e($r['treatment']) ?></td>
                                     <td><span class="badge-pill <?= statusBadge(status_label($r['status'])) ?>"><?= e(status_label($r['status'])) ?></span></td>
-                                    <td>
+                                    <td class="no-print">
                                         <?php if ($r['status'] === 'Needs Review'): ?>
                                             <div class="d-flex gap-1 flex-wrap">
                                                 <form method="POST" class="m-0"

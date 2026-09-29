@@ -520,3 +520,20 @@ a.recent-name:hover strong { color: var(--teal, #0f766e); text-decoration: under
     .odo-print-findings { display: block !important; }
     .odo-print-head { display: block !important; }
 }
+
+/* Printing: summary cards always sit side by side in one row (the phone
+   "swipe strip" must never apply on paper, or cards get cut off). */
+@media print {
+    .stat-grid, .stat-grid.stat-scroll {
+        display: grid !important; grid-auto-flow: row !important; overflow: visible !important;
+        grid-template-columns: repeat(auto-fit, minmax(0, 1fr)) !important; gap: 8px !important;
+        scroll-snap-type: none !important; margin-bottom: 12px !important;
+    }
+    .stat-grid > .stat-card, .stat-grid.stat-scroll > .stat-card {
+        min-width: 0 !important; width: auto !important; flex: none !important;
+        padding: 8px 10px !important; border: 1px solid #ddd !important; box-shadow: none !important;
+        break-inside: avoid;
+    }
+    .stat-card .value { font-size: 1.25rem !important; }
+    .stat-card .label { font-size: .6rem !important; letter-spacing: .5px !important; }
+}
