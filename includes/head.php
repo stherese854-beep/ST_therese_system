@@ -468,6 +468,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
     </script>
 </head>
 <body>
+<?php include __DIR__ . '/inapp_banner.php';   // "open in your browser" notice inside Messenger/Facebook/etc. ?>
 <?php
 // ---- Toast pop-up (shows a one-time flash message, or a ?toast= URL message) ----
 $__flash = function_exists('take_flash') ? take_flash() : null;

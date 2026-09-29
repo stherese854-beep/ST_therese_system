@@ -419,6 +419,7 @@ section{scroll-margin-top:88px}
 </style>
 </head>
 <body>
+<?php include __DIR__ . '/includes/inapp_banner.php';   // "open in your browser" notice inside Messenger/Facebook/etc. ?>
 
 <!-- ============ NAV ============ -->
 <nav class="nav" id="nav">
