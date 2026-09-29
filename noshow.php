@@ -382,15 +382,38 @@ function tabLink($key, $label, $count, $current) {
             </form>
         </div>
 
-        <!-- ===== Stat cards ===== -->
-        <div class="stat-grid stat-scroll" style="grid-template-columns:repeat(5,1fr);">
-            <div class="stat-card"><div class="value">📅 <?= $totalAppts ?></div><div class="label">Total Appts</div></div>
-            <div class="stat-card"><div class="value" style="color:#c0392b;">🚫 <?= $countNoshow ?></div><div class="label">No-Shows</div></div>
-            <div class="stat-card"><div class="value">❌ <?= $countCancelled ?></div><div class="label">Cancelled</div></div>
-            <div class="stat-card"><div class="value">🔁 <?= $countRescheduled ?></div><div class="label">Rescheduled</div></div>
-            <div class="stat-card" title="No-shows ÷ (completed + no-shows) in this period"><div class="value" style="color:#c0392b;"><?= $noShowRate ?>%</div><div class="label">No-Show Rate</div>
-                <div class="change"><?= $noShowsDue ?> of <?= $completedDue + $noShowsDue ?> due visits</div></div>
+        <!-- ===== Summary cards — one container, Bootstrap grid:
+             2 per row on phones (the rate gets a full row), 3 on tablets, all 5 on wide screens ===== -->
+        <div class="card-box ns-summary mb-3">
+            <div class="row g-3">
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value">📅 <?= $totalAppts ?></div><div class="label">Total Appts</div></div></div>
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value" style="color:#c0392b;">🚫 <?= $countNoshow ?></div><div class="label">No-Shows</div></div></div>
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value">❌ <?= $countCancelled ?></div><div class="label">Cancelled</div></div></div>
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value">🔁 <?= $countRescheduled ?></div><div class="label">Rescheduled</div></div></div>
+                <div class="col-12 col-md-4 col-xl"><div class="ns-stat" title="No-shows ÷ (completed + no-shows) in this period">
+                    <div class="value" style="color:#c0392b;"><?= $noShowRate ?>%</div><div class="label">No-Show Rate</div>
+                    <div class="change"><?= $noShowsDue ?> of <?= $completedDue + $noShowsDue ?> due visits</div></div></div>
+            </div>
         </div>
+        <style>
+        .ns-stat { height: 100%; padding: 14px 16px; border: 1px solid #e3e9ee; border-radius: 14px; background: #fbfdfd; }
+        .ns-stat .value { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
+        .ns-stat .label { font-size: .7rem; letter-spacing: 1px; color: var(--muted, #6b7a86); text-transform: uppercase; margin-top: 4px; }
+        .ns-stat .change { font-size: .78rem; color: var(--muted, #6b7a86); margin-top: 2px; }
+        @media (max-width: 575.98px) { .ns-stat { padding: 12px; } .ns-stat .value { font-size: 1.35rem; } }
+        /* On paper: all five side by side, compact */
+        @media print {
+            .ns-summary { padding: 0 !important; border: none !important; }
+            .ns-summary .row > [class*="col"] { flex: 0 0 20% !important; max-width: 20% !important; }
+            .ns-stat { padding: 8px 10px !important; }
+            .ns-stat .value { font-size: 1.15rem !important; }
+            .ns-stat .label { font-size: .58rem !important; letter-spacing: .4px !important; }
+        }
+        </style>
 
         <div class="row g-3">
             <!-- ===== Table + tabs ===== -->
