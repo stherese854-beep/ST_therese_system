@@ -23,6 +23,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'save_email') {
         save_setting($pdo, 'email_enabled',   isset($_POST['email_enabled']) ? '1':'0');
+        $method = in_array($_POST['mail_method'] ?? '', ['smtp','resend','brevo'], true) ? $_POST['mail_method'] : 'smtp';
+        save_setting($pdo, 'mail_method', $method);
+        // Resend / Brevo API key: only replaced when a new one is typed (blank = keep).
+        if (trim($_POST['mail_api_key'] ?? '') !== '') save_setting($pdo, 'mail_api_key', trim($_POST['mail_api_key']));
         save_setting($pdo, 'smtp_host',       trim($_POST['smtp_host']));
         save_setting($pdo, 'smtp_port',       trim($_POST['smtp_port']));
         save_setting($pdo, 'smtp_encryption', strtolower(trim($_POST['smtp_encryption'])));
@@ -122,6 +126,45 @@ $active = 'messaging';
                         </div>
                         <div class="text-muted2 mb-3" style="font-size:.8rem;">Turn the switch on to send real email (verification codes, confirmations, reminders).</div>
 
+                        <?php $mc = mail_config($pdo); ?>
+                        <label class="field-label">Sending method</label>
+                        <select name="mail_method" id="mail-method" class="form-select mb-2" onchange="mailMethod()">
+                            <option value="resend" <?= $mc['method']==='resend'?'selected':'' ?>>Resend (recommended on Railway — uses your domain)</option>
+                            <option value="brevo"  <?= $mc['method']==='brevo' ?'selected':'' ?>>Brevo</option>
+                            <option value="smtp"   <?= $mc['method']==='smtp'  ?'selected':'' ?>>Gmail / SMTP (works on XAMPP; blocked on Railway's cheaper plans)</option>
+                        </select>
+
+                        <!-- Resend / Brevo -->
+                        <div id="mail-api-box">
+                            <div class="alert" style="background:#eef7f6;border:1px solid #bfe0da;color:#1d5b52;font-size:.8rem;">
+                                <strong>Set-up (one time):</strong>
+                                <ol class="mb-1 ps-3 mt-1">
+                                    <li>Create a free account at <strong>resend.com</strong> (or brevo.com).</li>
+                                    <li>Add your domain there and copy the <strong>DNS records</strong> it shows into
+                                        <strong>Hostinger → Domains → DNS records</strong>. Wait until it says <strong>Verified</strong>.</li>
+                                    <li>Create an <strong>API key</strong>. Best: put it in <strong>Railway → your service → Variables</strong>
+                                        as <code>RESEND_API_KEY</code> (or <code>BREVO_API_KEY</code>) — or paste it below.</li>
+                                    <li>Set <strong>From Email</strong> to an address at your domain, e.g. <code>appointments@yourdomain.com</code>.</li>
+                                </ol>
+                            </div>
+                            <label class="field-label">API key</label>
+                            <?php if ($mc['key_from_env']): ?>
+                                <div class="mb-3" style="font-size:.85rem;color:#1f8a54;font-weight:600;">
+                                    ✅ Using the key from the Railway Variable (<?= $mc['method'] === 'brevo' ? 'BREVO_API_KEY' : 'RESEND_API_KEY' ?>).</div>
+                            <?php else: ?>
+                                <input type="password" name="mail_api_key" class="form-control mb-3" autocomplete="off"
+                                       placeholder="<?= cfg($cfg,'mail_api_key','')!=='' ? 'Saved — leave blank to keep it' : 're_xxxxxxxx… (Resend) or xkeysib-… (Brevo)' ?>">
+                            <?php endif; ?>
+                        </div>
+
+                        <label class="field-label">From Email</label>
+                        <input name="from_email" class="form-control mb-3" value="<?= e(cfg($cfg,'smtp_from_email','')) ?>" placeholder="appointments@yourdomain.com">
+
+                        <label class="field-label">From Name</label>
+                        <input name="from_name" class="form-control mb-3" value="<?= e(cfg($cfg,'smtp_from_name','St. Therese Dental Clinic')) ?>">
+
+                        <!-- Gmail / SMTP only -->
+                        <div id="mail-smtp-box">
                         <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.8rem;">
                             <strong>Gmail setup (one time):</strong>
                             <ol class="mb-1 ps-3 mt-1">
@@ -154,12 +197,6 @@ $active = 'messaging';
                             </div>
                         </div>
 
-                        <label class="field-label">From Email</label>
-                        <input name="from_email" class="form-control mb-3" value="<?= e(cfg($cfg,'smtp_from_email','')) ?>" placeholder="same as your Gmail address">
-
-                        <label class="field-label">From Name</label>
-                        <input name="from_name" class="form-control mb-3" value="<?= e(cfg($cfg,'smtp_from_name','St. Therese Dental Clinic')) ?>">
-
                         <label class="field-label">Username (your Gmail address)</label>
                         <input name="smtp_username" class="form-control mb-3" value="<?= e(cfg($cfg,'smtp_username','')) ?>" placeholder="yourclinic@gmail.com">
 
@@ -167,8 +204,11 @@ $active = 'messaging';
                         <input type="password" name="smtp_password" class="form-control mb-1"
                                placeholder="<?= cfg($cfg,'smtp_password','')!=='' ? 'Saved — leave blank to keep it' : 'e.g. abcd efgh ijkl mnop' ?>">
 
+                        </div><!-- /mail-smtp-box -->
+
                         <?php
-                            $hasPass  = cfg($cfg,'smtp_password','') !== '';
+                            // "Has a key/password" depends on the sending method.
+                            $hasPass  = $mc['method'] === 'smtp' ? cfg($cfg,'smtp_password','') !== '' : $mc['api_key'] !== '';
                             $verified = cfg($cfg,'smtp_verified','0') === '1';
                             $when     = cfg($cfg,'smtp_verified_at','');
                         ?>
@@ -180,14 +220,14 @@ $active = 'messaging';
                                 </span>
                             <?php elseif ($hasPass): ?>
                                 <span style="color:#b8860b;font-weight:600;">
-                                    ⚠️ A password is saved, but it has <u>not been proven to work</u> yet.
+                                    ⚠️ A <?= $mc['method'] === 'smtp' ? 'password' : 'key' ?> is saved, but it has <u>not been proven to work</u> yet.
                                 </span><br>
                                 <span class="text-muted2">
-                                    Saving does not check the password — Gmail only checks it when we actually send.
+                                    Saving does not check it — it is only checked when we actually send.
                                     Press <strong>Send Test</strong> below to find out if it is correct.
                                 </span>
                             <?php else: ?>
-                                <span style="color:#c0392b;font-weight:600;">🚫 No password saved — email cannot send.</span>
+                                <span style="color:#c0392b;font-weight:600;">🚫 No <?= $mc['method'] === 'smtp' ? 'password' : 'API key' ?> saved — email cannot send.</span>
                             <?php endif; ?>
                         </div>
 
@@ -256,4 +296,13 @@ $active = 'messaging';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<script>
+// Show the Resend/Brevo box or the Gmail/SMTP box, depending on the sending method.
+function mailMethod() {
+    var m = document.getElementById('mail-method').value;
+    document.getElementById('mail-api-box').style.display  = m === 'smtp' ? 'none' : '';
+    document.getElementById('mail-smtp-box').style.display = m === 'smtp' ? '' : 'none';
+}
+mailMethod();
+</script>
 </body></html>

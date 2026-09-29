@@ -41,8 +41,25 @@ function mail_config($pdo) {
         }
     } catch (Throwable $e) { /* database not ready - treat as "not configured" */ }
 
+    // HOW mail leaves the server:
+    //   'smtp'   - Gmail / any SMTP server (works on XAMPP; Railway blocks SMTP on its cheaper plans)
+    //   'resend' - Resend's web API over HTTPS (works on Railway; needs your own domain verified)
+    //   'brevo'  - Brevo's web API over HTTPS (works on Railway)
+    // The API key comes from a Railway Variable (RESEND_API_KEY / BREVO_API_KEY)
+    // when there is one, so it never has to live in the code or on GitHub;
+    // otherwise from the key saved in Messaging Config.
+    $envKey = ['resend' => getenv('RESEND_API_KEY') ?: '', 'brevo' => getenv('BREVO_API_KEY') ?: ''];
+    $method = $cfg['mail_method'] ?? '';
+    if (!in_array($method, ['smtp', 'resend', 'brevo'], true)) {
+        $method = $envKey['resend'] !== '' ? 'resend' : ($envKey['brevo'] !== '' ? 'brevo' : 'smtp');
+    }
+    $apiKey  = $method === 'smtp' ? '' : ($envKey[$method] ?: ($cfg['mail_api_key'] ?? ''));
+
     return [
         'enabled'    => ($cfg['email_enabled'] ?? '0') === '1',
+        'method'     => $method,
+        'api_key'    => $apiKey,
+        'key_from_env' => $method !== 'smtp' && $envKey[$method] !== '',
         'host'       => $cfg['smtp_host']       ?? 'smtp.gmail.com',
         'port'       => (int)($cfg['smtp_port'] ?? 587),
         'encryption' => strtolower($cfg['smtp_encryption'] ?? 'tls'),   // tls | ssl | none
@@ -58,7 +75,55 @@ function mail_config($pdo) {
  */
 function mail_is_ready($pdo) {
     $c = mail_config($pdo);
-    return $c['enabled'] && $c['host'] !== '' && $c['username'] !== '' && $c['password'] !== '';
+    if (!$c['enabled']) return false;
+    if ($c['method'] !== 'smtp') return $c['api_key'] !== '' && $c['from_email'] !== '';
+    return $c['host'] !== '' && $c['username'] !== '' && $c['password'] !== '';
+}
+
+/**
+ * Send one email through an HTTPS email API (Resend or Brevo).
+ * Railway does not block these (they use the normal web port 443).
+ */
+function api_deliver($pdo, $to, $subject, $htmlBody, &$error = '') {
+    $c = mail_config($pdo);
+    if (!$c['enabled'])            { $error = 'Email sending is turned off in Messaging Config.'; return false; }
+    if ($c['api_key'] === '')      { $error = 'No ' . ucfirst($c['method']) . ' API key — add it in Railway Variables or Messaging Config.'; return false; }
+    if ($c['from_email'] === '')   { $error = 'The "From Email" is empty in Messaging Config.'; return false; }
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) { $error = 'That is not a valid email address.'; return false; }
+    if (!function_exists('curl_init')) { $error = 'The PHP curl extension is not available on this server.'; return false; }
+
+    if ($c['method'] === 'resend') {
+        $url     = 'https://api.resend.com/emails';
+        $headers = ['Authorization: Bearer ' . $c['api_key'], 'Content-Type: application/json'];
+        $payload = ['from' => $c['from_name'] . ' <' . $c['from_email'] . '>', 'to' => [$to],
+                    'subject' => $subject, 'html' => $htmlBody];
+    } else {   // brevo
+        $url     = 'https://api.brevo.com/v3/smtp/email';
+        $headers = ['api-key: ' . $c['api_key'], 'Content-Type: application/json', 'Accept: application/json'];
+        $payload = ['sender' => ['name' => $c['from_name'], 'email' => $c['from_email']],
+                    'to' => [['email' => $to]], 'subject' => $subject, 'htmlContent' => $htmlBody];
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 20,
+        // XAMPP on Windows often has no certificate bundle; real servers (Railway) do.
+        CURLOPT_SSL_VERIFYPEER => PHP_OS_FAMILY !== 'Windows',
+    ]);
+    $resp = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $cerr = curl_error($ch);
+    curl_close($ch);
+
+    if ($resp === false) { $error = 'Could not reach ' . ucfirst($c['method']) . ': ' . $cerr; return false; }
+    if ($code >= 200 && $code < 300) return true;
+    $j = json_decode((string)$resp, true);
+    $error = ucfirst($c['method']) . ' said (' . $code . '): ' . ($j['message'] ?? $j['error'] ?? mb_substr((string)$resp, 0, 200));
+    return false;
 }
 
 /**
@@ -102,7 +167,9 @@ function smtp_cmd($socket, $cmd, $expect, &$error) {
  * @return bool   true if the server accepted the message
  */
 function send_mail($pdo, $to, $subject, $htmlBody, &$error = '', $kind = 'general') {
-    $ok = smtp_deliver($pdo, $to, $subject, $htmlBody, $error);
+    $ok = mail_config($pdo)['method'] === 'smtp'
+        ? smtp_deliver($pdo, $to, $subject, $htmlBody, $error)
+        : api_deliver($pdo, $to, $subject, $htmlBody, $error);    // Resend / Brevo over HTTPS
 
     // Keep a record of every attempt (useful proof that reminders went out).
     try {
