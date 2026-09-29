@@ -40,8 +40,8 @@ function health_form_fields($p = [], $byStaff = false) {
 
       <div class="hf-q">
         <div class="hf-label">Are you pregnant? *</div>
-        <label><input type="radio" name="hf[pregnant]" value="yes" <?= $chk('pregnant','yes') ?> required onchange="hfToggle()"> Yes</label>
-        <label><input type="radio" name="hf[pregnant]" value="no"  <?= $chk('pregnant','no') ?> onchange="hfToggle()"> No</label>
+        <label><input type="radio" name="hf[pregnant]" value="no"  <?= $chk('pregnant','no') ?> required onchange="hfToggle()"> No</label>
+        <label><input type="radio" name="hf[pregnant]" value="yes" <?= $chk('pregnant','yes') ?> onchange="hfToggle()"> Yes</label>
         <label><input type="radio" name="hf[pregnant]" value="na"  <?= $chk('pregnant','na') ?> onchange="hfToggle()"> Not applicable</label>
         <div class="hf-more" data-when="pregnant=yes">
           <span>Estimated date of delivery</span>
@@ -52,8 +52,9 @@ function health_form_fields($p = [], $byStaff = false) {
       <?php foreach (HEALTH_YESNO as $k => [$q, $more, $when]): ?>
       <div class="hf-q">
         <div class="hf-label"><?= e($q) ?> *</div>
-        <label><input type="radio" name="hf[<?= $k ?>]" value="<?= $k === 'good_health' ? 'yes' : 'no' ?>" <?= $chk($k, $k === 'good_health' ? 'yes' : 'no') ?> required onchange="hfToggle()"> <?= $k === 'good_health' ? 'Yes' : 'No' ?></label>
-        <label><input type="radio" name="hf[<?= $k ?>]" value="<?= $k === 'good_health' ? 'no' : 'yes' ?>" <?= $chk($k, $k === 'good_health' ? 'no' : 'yes') ?> onchange="hfToggle()"> <?= $k === 'good_health' ? 'No' : 'Yes' ?></label>
+        <!-- Always "No" on the left and "Yes" on the right, for every question. -->
+        <label><input type="radio" name="hf[<?= $k ?>]" value="no"  <?= $chk($k, 'no') ?> required onchange="hfToggle()"> No</label>
+        <label><input type="radio" name="hf[<?= $k ?>]" value="yes" <?= $chk($k, 'yes') ?> onchange="hfToggle()"> Yes</label>
         <div class="hf-more" data-when="<?= $k ?>=<?= $when ?>">
           <span><?= e($more) ?></span>
           <input type="text" name="hf[<?= $k ?>_detail]" class="form-control form-control-sm" value="<?= $v($k . '_detail') ?>"
@@ -100,8 +101,8 @@ function health_form_fields($p = [], $byStaff = false) {
 
       <div class="hf-q">
         <div class="hf-label">Do you permit us to give information about your care to the dental or other health care provider you are referred to? *</div>
-        <label><input type="radio" name="hf[share_consent]" value="yes" <?= $chk('share_consent','yes') ?> required> Yes</label>
-        <label><input type="radio" name="hf[share_consent]" value="no"  <?= $chk('share_consent','no') ?>> No</label>
+        <label><input type="radio" name="hf[share_consent]" value="no"  <?= $chk('share_consent','no') ?> required> No</label>
+        <label><input type="radio" name="hf[share_consent]" value="yes" <?= $chk('share_consent','yes') ?>> Yes</label>
       </div>
 
       <label class="hf-confirm"><input type="checkbox" name="hf[confirm]" value="1" required>
