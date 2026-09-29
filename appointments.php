@@ -461,7 +461,13 @@ if ($isDentist) {
 
 $sql = "SELECT a.* FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id";
 if ($conds) $sql .= " WHERE " . implode(" AND ", $conds);
-$sql .= " ORDER BY a.appointment_date DESC, a.appointment_time ASC";
+// Order: Pending requests first (they need a decision), then what's coming up —
+// soonest first — and finally past appointments, most recent first.
+$sql .= " ORDER BY (a.status = 'Pending') DESC,
+                   (a.appointment_date < CURDATE()) ASC,
+                   CASE WHEN a.appointment_date >= CURDATE() THEN a.appointment_date END ASC,
+                   CASE WHEN a.appointment_date <  CURDATE() THEN a.appointment_date END DESC,
+                   STR_TO_DATE(REPLACE(a.appointment_time, ' ', ''), '%h:%i%p') ASC, a.id ASC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $appts = $stmt->fetchAll();

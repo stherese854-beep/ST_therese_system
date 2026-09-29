@@ -116,12 +116,23 @@ $active = 'users';
 <div class="app-wrap">
     <?php include 'includes/sidebar.php'; ?>
     <main class="main">
-        <div class="page-head">
+        <?php $uClinic = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='clinic_name'")->fetchColumn() ?: 'St. Therese Dental Clinic'; ?>
+        <!-- Only on paper / PDF -->
+        <div class="print-only" style="border-bottom:2px solid #0d3b3b;padding-bottom:8px;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+                <div style="font-size:18px;font-weight:700;color:#0d3b3b;"><?= e($uClinic) ?></div>
+                <div style="text-align:right;font-size:11px;color:#555;"><strong style="font-size:14px;color:#0d3b3b;">System Users</strong><br>
+                    <?= count($users) ?> users · Printed <?= date('M j, Y g:i A') ?> by <?= e($_SESSION['name'] ?? '') ?></div>
+            </div>
+        </div>
+
+        <div class="page-head no-print">
             <div><h1 style="color:var(--teal-light)">User Management</h1><div class="sub">Manage doctors, staff, and patient accounts</div></div>
+            <button type="button" class="btn btn-teal" onclick="window.print()" data-keep-text>🖨 Print / PDF</button>
         </div>
 
         <!-- Top tabs shared across admin pages -->
-        <?php include 'includes/admin_tabs.php'; ?>
+        <div class="no-print"><?php include 'includes/admin_tabs.php'; ?></div>
 
         <!-- Stat cards -->
         <div class="stat-grid">
@@ -134,7 +145,7 @@ $active = 'users';
         <div class="card-box">
             <div class="flex-between mb-3">
                 <h5 class="mb-0">System Users <small class="text-muted2 d-block" style="font-size:.75rem;">Showing <?= count($users) ?> users</small></h5>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 no-print">
                     <a href="admin_archive" class="btn btn-sm btn-outline-secondary position-relative" title="Archive" data-keep-text>
                         🗄 Archive
                         <?php if ($archivedCount > 0): ?>
@@ -147,7 +158,7 @@ $active = 'users';
             <?= bulk_bar('bulk-users', 'delete', 'users to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive.', 'Move') ?>
             <div class="table-responsive">
                 <table class="data">
-                    <thead><tr><th>User</th><th>Role</th><th>Specialty / Position</th><th>Contact</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>User</th><th>Role</th><th>Specialty / Position</th><th>Contact</th><th>Status</th><th>Last Login</th><th class="no-print">Actions</th></tr></thead>
                     <tbody>
                     <?php foreach ($users as $u):
                         $initials = strtoupper(substr($u['name'],0,1) . (strpos($u['name'],' ') ? substr(strstr($u['name'],' '),1,1) : ''));
@@ -162,8 +173,8 @@ $active = 'users';
                             <td><?= e($u['specialty'] ?: $u['position'] ?: 'N/A') ?></td>
                             <td><?= e($u['contact']) ?></td>
                             <td><span class="badge-pill b-<?= $u['status'] ?>"><?= ucfirst($u['status']) ?></span></td>
-                            <td><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : '-' ?></small></td>
-                            <td>
+                            <td style="white-space:nowrap;"><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : 'N/A' ?></small></td>
+                            <td class="no-print">
                                 <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
                                 <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode($u) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
                                 <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')">

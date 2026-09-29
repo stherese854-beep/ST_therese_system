@@ -537,3 +537,10 @@ a.recent-name:hover strong { color: var(--teal, #0f766e); text-decoration: under
     .stat-card .value { font-size: 1.25rem !important; }
     .stat-card .label { font-size: .6rem !important; letter-spacing: .5px !important; }
 }
+
+/* Printing: a box that holds a table may continue onto the next page
+   (otherwise a long table jumps to page 2 and leaves page 1 empty). */
+@media print {
+    .card-box:has(table), .card-box:has(.table-responsive) { break-inside: auto !important; page-break-inside: auto !important; }
+    .table-responsive { overflow: visible !important; }
+}
