@@ -38,7 +38,12 @@ $clientSecret = $cfg['google_client_secret'] ?? '';
 
 // The address Google sends the user back to. It must EXACTLY match the one
 // you typed in the Google Console.
-$scheme      = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+// Behind Railway's proxy the site IS https, but PHP only sees http — the proxy
+// says so in X-Forwarded-Proto. Use the same rule as the Settings page, or the
+// address sent to Google won't match the one registered there
+// (Error 400: redirect_uri_mismatch).
+$scheme      = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')) ? 'https' : 'http';
 $redirectUri = $scheme . '://' . $_SERVER['HTTP_HOST']
              . rtrim(dirname($_SERVER['PHP_SELF']), '/\\') . '/google_auth.php';
 
