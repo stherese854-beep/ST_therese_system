@@ -181,6 +181,10 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
   }
   @page { margin: 0; }                                     /* no room for browser headers/footers */
   body { padding: 1cm !important; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  /* List reports: compact rows, and dates / times / phones never split over two lines */
+  #report-area table.data th, #report-area table.data td { padding: 5px 7px !important; font-size: 10.5px !important; }
+  #report-area table.data td.nw { white-space: nowrap; }
+  #report-area table.data tr { break-inside: avoid; }
 }
 
 /* Compact print sizing. Switched on (body.print-compact) right before printing
@@ -586,10 +590,10 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                     <tr>
                                         <td><?= e($ap['patient_name']) ?></td>
                                         <td><?= e($ap['dentist']) ?></td>
-                                        <td><?= e($ap['appointment_date']) ?></td>
-                                        <td><?= e($ap['appointment_time']) ?></td>
+                                        <td class="nw"><?= e($ap['appointment_date']) ?></td>
+                                        <td class="nw"><?= e($ap['appointment_time']) ?></td>
                                         <td><?= e($ap['treatment']) ?></td>
-                                        <td><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e(status_label($ap['status'])) ?></span></td>
+                                        <td class="nw"><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e(status_label($ap['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (!$allAppts): ?>
@@ -618,7 +622,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                     <tr>
                                         <td><?= e($p['name']) ?></td>
                                         <td><?= e($p['age']) ?></td>
-                                        <td><?= e($p['phone']) ?></td>
+                                        <td class="nw"><?= e($p['phone']) ?></td>
                                         <td><?= e($p['patient_type']) ?></td>
                                         <td><?= e($p['primary_dentist']) ?></td>
                                         <td><span class="badge-pill <?= badge_for($p['status']) ?>"><?= e(status_label($p['status'])) ?></span></td>

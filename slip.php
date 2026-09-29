@@ -52,7 +52,7 @@ if (!$allowed) {
 
 // Only confirmed appointments have a slip.
 if ($appt['status'] !== 'Confirmed') {
-    exit('A slip is only available once the appointment is confirmed by the clinic.');
+    exit('A slip is only available once the appointment is approved by the clinic.');
 }
 
 // ---- Clinic details (from Settings, with sensible fallbacks) ----
@@ -167,7 +167,7 @@ $backLink = ($role === 'patient') ? 'portal?view=appointments' : 'appointments';
             <h2><?= htmlspecialchars($slipCfg['slip_title']) ?></h2>
             <div class="ref">Reference No: <?= htmlspecialchars($refNo) ?></div>
         </div>
-        <span class="badge">✓ CONFIRMED</span>
+        <span class="badge">✓ APPROVED</span>
     </div>
 
     <div class="slip-body">

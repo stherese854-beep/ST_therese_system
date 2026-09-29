@@ -545,7 +545,7 @@ include 'includes/head.php';
 
     <main class="main">
         <!-- Top bar -->
-        <div class="card-box flex-between" style="padding:14px 20px;">
+        <div class="card-box flex-between no-print" style="padding:14px 20px;">
             <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
             <?php if ($view === 'appointments'): ?>
                 <a href="book" class="btn btn-teal">+ Book Appointment</a>
@@ -590,12 +590,12 @@ include 'includes/head.php';
                         </div>
 
                         <?php if (count($mySessions) > 1): ?>
-                            <p class="text-muted2 mb-2" style="font-size:.87rem;">
+                            <p class="text-muted2 mb-2 no-print" style="font-size:.87rem;">
                                 You have <strong><?= count($mySessions) ?> visits</strong> on record.
                                 Tap a visit to see how your teeth looked that day.
                             </p>
                         <?php else: ?>
-                            <p class="text-muted2 mb-2" style="font-size:.87rem;">Click any tooth to view its condition.</p>
+                            <p class="text-muted2 mb-2 no-print" style="font-size:.87rem;">Click any tooth to view its condition.</p>
                         <?php endif; ?>
 
                         <!-- Visit tabs -->
@@ -659,7 +659,7 @@ include 'includes/head.php';
                 </div>
 
                 <div class="col-lg-4">
-                    <div class="card-box">
+                    <div class="card-box no-print">
                         <h5>Select a tooth</h5>
                         <div id="tooth-panel"><p class="text-muted2">Click a tooth on the chart to view its status</p></div>
                     </div>
