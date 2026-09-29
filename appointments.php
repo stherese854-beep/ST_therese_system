@@ -921,11 +921,12 @@ function sbValidate() {
         if (!f || !l) msg = "Please enter the walk-in patient's first and last name.";
         else if (typeof phoneProblem === 'function' && phoneProblem(p, true)) msg = phoneProblem(p, true);
     }
-    if (!msg && tpPicked('sb-list').length === 0) msg = 'Please choose at least one treatment.';
-    if (!msg) {
-        var bad = [].slice.call(document.querySelectorAll('#sb-hf input[required]')).find(function (el) { return !el.checkValidity(); });
-        if (bad) { msg = 'Please answer every question marked * in the health questionnaire.'; bad.scrollIntoView({ block: 'center' }); }
-    }
+    // Missing treatment / health answers turn red (and back to normal once answered).
+    var noTreat = tpPicked('sb-list').length === 0;
+    document.getElementById('sb-list').classList.toggle('tp-missing', noTreat);
+    var bad = hfMark(document.getElementById('sb-hf'));
+    if (!msg && noTreat) msg = 'Please choose at least one treatment.';
+    if (!msg && bad) { msg = 'Please answer the questions marked in red.'; bad.scrollIntoView({ block: 'center' }); }
     if (msg) { warn.textContent = msg; warn.style.display = 'block'; return false; }
     return true;
 }

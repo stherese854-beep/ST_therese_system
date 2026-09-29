@@ -899,32 +899,21 @@ function relOther() {
 }
 
 // Step 2: every required health question answered (the browser marks the first one missing).
+// Everything still missing turns red (and back to normal once answered).
 function validateStep2() {
-    if (tpPicked('bk-list').length === 0) {
-        document.getElementById('tp-warn').style.display = 'block';
-        document.getElementById('bk-list').scrollIntoView({ block: 'center' });
-        return;
-    }
-    document.getElementById('tp-warn').style.display = 'none';
+    var list = document.getElementById('bk-list');
+    var noTreat = tpPicked('bk-list').length === 0;
+    list.classList.toggle('tp-missing', noTreat);
+    document.getElementById('tp-warn').style.display = noTreat ? 'block' : 'none';
+
     var wrap = document.getElementById('hf-wrap');
-    var bad = [].slice.call(wrap.querySelectorAll('input[required]')).find(function (el) { return !el.checkValidity(); });
     var warn = document.getElementById('hf-warn');
-    if (bad) {
-        warn.textContent = 'Please answer every question marked * in the health questionnaire.';
-        warn.style.display = 'block';
-        bad.scrollIntoView({ block: 'center' }); bad.focus();
-        return;
-    }
-    var need = [['allergy','which medicine or stuff you are allergic to'], ['anesthesia','what trouble you had with local anesthesia']];
-    for (var i = 0; i < need.length; i++) {
-        var yes = wrap.querySelector('[name="hf[' + need[i][0] + ']"][value="yes"]:checked');
-        var det = wrap.querySelector('[name="hf[' + need[i][0] + '_detail]"]');
-        if (yes && det && det.value.trim() === '') {
-            warn.textContent = 'Please tell us ' + need[i][1] + '.';
-            warn.style.display = 'block'; det.focus(); return;
-        }
-    }
-    warn.style.display = 'none';
+    var bad = hfMark(wrap);
+    warn.textContent = 'Please answer the questions marked in red.';
+    warn.style.display = bad ? 'block' : 'none';
+
+    if (noTreat) { list.scrollIntoView({ block: 'center' }); return; }
+    if (bad) { bad.scrollIntoView({ block: 'center' }); return; }
     goStep(4);
 }
 

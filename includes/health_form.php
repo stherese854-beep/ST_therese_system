@@ -240,6 +240,12 @@ function health_form_styles() { return <<<CSS
 .hf-confirm { display: block; font-size: .88rem; font-weight: 600; margin-top: 8px; cursor: pointer; }
 @media (max-width: 640px) { .hf-grid, .hf-two { grid-template-columns: 1fr; } .hf-more, .hf-inline { flex-wrap: wrap; } }
 .hf-view th { width: 46%; font-weight: 600; color: #52606b; }
+/* A required question left unanswered turns red until it is answered (hfMark). */
+.hf-q.hf-missing, .hf-confirm.hf-missing { background: #fdecec; box-shadow: inset 3px 0 0 #e74c3c;
+                                           border-radius: 8px; padding-left: 10px; padding-right: 8px; }
+.hf-missing .hf-label, .hf-confirm.hf-missing { color: #c0392b; }
+.hf-missing input.hf-need { border-color: #e74c3c; }
+.tp-list.tp-missing { outline: 2px solid #e74c3c; outline-offset: 4px; border-radius: 10px; }
 </style>
 <script>
 // Show the "which? / how many?" boxes only when they apply.
@@ -252,6 +258,40 @@ function hfToggle() {
     });
 }
 document.addEventListener('DOMContentLoaded', hfToggle);
+
+// Colour every unanswered required question inside `root` red (and the
+// "which medicine?" box when they said Yes to an allergy / anesthesia trouble).
+// Returns the first one, so the page can scroll to it.
+function hfMark(root) {
+    var first = null, seen = {};
+    root.querySelectorAll('.hf-missing').forEach(function (q) { q.classList.remove('hf-missing'); });
+    root.querySelectorAll('.hf-need').forEach(function (i) { i.classList.remove('hf-need'); });
+    function mark(box) { if (box) { box.classList.add('hf-missing'); first = first || box; } }
+    root.querySelectorAll('input[required]').forEach(function (el) {
+        if (seen[el.name]) return; seen[el.name] = 1;
+        var ok = el.type === 'radio'    ? !!root.querySelector('[name="' + el.name + '"]:checked')
+               : el.type === 'checkbox' ? el.checked : el.value.trim() !== '';
+        if (!ok) mark(el.closest('.hf-q') || el.closest('.hf-confirm'));
+    });
+    ['allergy', 'anesthesia'].forEach(function (k) {
+        var yes = root.querySelector('[name="hf[' + k + ']"][value="yes"]:checked');
+        var det = root.querySelector('[name="hf[' + k + '_detail]"]');
+        if (yes && det && det.value.trim() === '') { det.classList.add('hf-need'); mark(det.closest('.hf-q')); }
+    });
+    return first;
+}
+// Once the red marks are showing, answering a question clears its mark straight away.
+['change', 'input'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+        var t = e.target, root = t.closest && t.closest('.hf');
+        if (root && root.querySelector('.hf-missing')) hfMark(root);
+        var tp = t.closest && t.closest('.tp-list.tp-missing');
+        if (tp && tp.querySelector('input:checked')) {
+            tp.classList.remove('tp-missing');
+            var w = document.getElementById('tp-warn'); if (w) w.style.display = 'none';
+        }
+    });
+});
 
 // Fill the form inside `root` with saved answers ({} clears it).
 function hfFill(root, a) {
