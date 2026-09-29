@@ -200,6 +200,14 @@ foreach ($changes as $ch) {
     if (!in_array($was, $badList) && in_array($now, $badList)) $worsened++;
 }
 
+// ---- For the printed / PDF chart ----
+$printPatient = null;
+if ($pid) { $pp = $pdo->prepare("SELECT name, age, date_of_birth, primary_dentist FROM patients WHERE id=?"); $pp->execute([$pid]); $printPatient = $pp->fetch(); }
+$printClinic = [];
+foreach ($pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('clinic_name','land_contact_address','clinic_address','land_contact_phone','clinic_phone')") as $r) $printClinic[$r['setting_key']] = trim((string)$r['setting_value']);
+$printFindings = array_filter($toothMap, fn($st) => $st !== 'Healthy');   // teeth that are not healthy
+ksort($printFindings);
+
 $page_title = "Odontogram";
 include 'includes/head.php';
 $active = 'odontogram';
@@ -208,7 +216,26 @@ $active = 'odontogram';
 <div class="app-wrap">
     <?php include 'includes/sidebar.php'; ?>
     <main class="main">
-        <div class="page-head">
+        <!-- ===== Only on paper / PDF: clinic letterhead + whose chart this is ===== -->
+        <div class="print-only odo-print-head">
+            <div class="d-flex justify-content-between align-items-end">
+                <div>
+                    <div style="font-size:18px;font-weight:700;color:#0d3b3b;"><?= e($printClinic['clinic_name'] ?? 'St. Therese Dental Clinic') ?></div>
+                    <div style="font-size:11px;color:#555;"><?= e(($printClinic['land_contact_address'] ?? '') ?: ($printClinic['clinic_address'] ?? '')) ?>
+                        · <?= e(($printClinic['land_contact_phone'] ?? '') ?: ($printClinic['clinic_phone'] ?? '')) ?></div>
+                </div>
+                <div style="text-align:right;font-size:11px;color:#555;"><strong style="font-size:14px;color:#0d3b3b;">Dental Chart (Odontogram)</strong><br>Printed <?= date('M j, Y g:i A') ?></div>
+            </div>
+            <table class="odo-print-info">
+                <tr><td><b>Patient:</b> <?= e($printPatient['name'] ?? 'N/A') ?></td>
+                    <td><b>Age:</b> <?= !empty($printPatient['age']) ? e($printPatient['age']) : 'N/A' ?></td>
+                    <td><b>Date of birth:</b> <?= !empty($printPatient['date_of_birth']) ? date('M j, Y', strtotime($printPatient['date_of_birth'])) : 'N/A' ?></td></tr>
+                <tr><td><b>Visit:</b> <?= $session ? date('M j, Y', strtotime($session['visit_date'])) . ($session['title'] ? ' · ' . e($session['title']) : '') : 'N/A' ?></td>
+                    <td colspan="2"><b>Dentist:</b> <?= e(($printPatient['primary_dentist'] ?? '') ?: 'N/A') ?></td></tr>
+            </table>
+        </div>
+
+        <div class="page-head no-print">
             <div><h1>Odontogram</h1><div class="sub">One dental chart per visit — track the patient's progress</div></div>
             <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
         </div>
@@ -218,17 +245,18 @@ $active = 'odontogram';
                 <div class="card-box">
                     <div class="flex-between">
                         <h5 class="mb-0">Dental Chart
-                            <small class="text-muted2 d-block" style="font-size:.75rem;">Click a tooth to set its condition</small>
+                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;">Click a tooth to set its condition</small>
                         </h5>
                         <div class="d-flex gap-2">
                             <button type="button" id="odo-edit-btn" class="btn btn-outline-teal btn-sm" onclick="toggleOdoEdit(true)">✏️ Edit Chart</button>
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;" onclick="toggleOdoEdit(false)">✔ Done</button>
-                            <a href="reports" class="btn btn-gold btn-sm">🖨 Print / PDF</a>
+                            <!-- Prints this chart (choose "Save as PDF" in the print window for a PDF) -->
+                            <button type="button" class="btn btn-gold btn-sm" onclick="window.print()" title="Print / Save as PDF">🖨 Print / PDF</button>
                         </div>
                     </div>
 
                     <!-- Choose which patient -->
-                    <form method="GET" class="mt-3">
+                    <form method="GET" class="mt-3 no-print">
                         <label class="field-label">Patient</label>
                         <select name="patient" class="form-select" style="max-width:280px;" onchange="this.form.submit()">
                             <?php foreach ($patients as $p): ?>
@@ -238,8 +266,8 @@ $active = 'odontogram';
                     </form>
 
                     <!-- ===== VISIT TABS (the chart history) ===== -->
-                    <label class="field-label mt-3">Visits</label>
-                    <div class="sess-tabs">
+                    <label class="field-label mt-3 no-print">Visits</label>
+                    <div class="sess-tabs no-print">
                         <?php $oldestFirst = array_reverse($sessions); ?>
                         <?php foreach ($oldestFirst as $i => $s): ?>
                             <a class="sess-tab <?= (int)$s['id']===$sid?'on':'' ?>"
@@ -253,7 +281,7 @@ $active = 'odontogram';
                             + New Chart
                         </button>
                     </div>
-                    <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                    <div class="text-muted2 mb-3 no-print" style="font-size:.78rem;">
                         Each visit keeps its own chart. Older visits stay editable — nothing gets overwritten.
                     </div>
 
@@ -276,6 +304,22 @@ $active = 'odontogram';
                         <?php foreach ($TOOTH_STATUSES as $st): ?>
                             <span><i class="legend-dot" style="background:<?= $legendColors[$st] ?>"></i><?= $st ?></span>
                         <?php endforeach; ?>
+                    </div>
+
+                    <!-- Only on paper / PDF: the teeth that need attention, and the visit notes -->
+                    <div class="print-only odo-print-findings">
+                        <b>Findings on this visit:</b>
+                        <?php if ($printFindings): ?>
+                            <?php foreach ($printFindings as $tn => $st): ?>
+                                <span class="pill-sm" style="background:<?= $legendColors[$st] ?? '#999' ?>;color:#fff;">#<?= e($tn) ?> <?= e($st) ?></span>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            All teeth healthy.
+                        <?php endif; ?>
+                        <?php if ($session && trim($session['notes'] ?? '') !== ''): ?>
+                            <div class="mt-2"><b>Visit notes:</b> <?= nl2br(e($session['notes'])) ?></div>
+                        <?php endif; ?>
+                        <div class="odo-print-sign">Dentist's signature: ______________________________</div>
                     </div>
                 </div>
 
@@ -315,7 +359,7 @@ $active = 'odontogram';
             </div>
 
             <!-- ===== RIGHT COLUMN (hidden until "Edit Chart" is clicked) ===== -->
-            <div class="col-lg-4" id="odo-right-col" style="display:none;">
+            <div class="col-lg-4 no-print" id="odo-right-col" style="display:none;">
                 <div class="card-box">
                     <h5>Select a Tooth</h5>
                     <div id="tooth-panel"><p class="text-muted2">Click a tooth on the chart to view or change its condition.</p></div>

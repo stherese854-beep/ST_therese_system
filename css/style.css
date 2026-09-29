@@ -504,3 +504,19 @@ a.recent-name:hover strong { color: var(--teal, #0f766e); text-decoration: under
 
 /* "N/A" shown wherever a piece of information is missing (includes/head.php) */
 .na { color: #9aa7a7; font-style: italic; font-size: .92em; }
+
+/* ---- Printing / PDF: elements that only exist on paper ---- */
+.print-only { display: none; }
+.odo-print-head { border-bottom: 2px solid #0d3b3b; padding-bottom: 8px; margin-bottom: 12px; }
+.odo-print-info { width: 100%; margin-top: 8px; font-size: 12px; border-collapse: collapse; }
+.odo-print-info td { padding: 3px 6px 3px 0; }
+.odo-print-findings { margin-top: 14px; font-size: 12px; line-height: 2; }
+.odo-print-findings .pill-sm { display: inline-block; margin: 0 3px 3px 0; }
+.odo-print-sign { margin-top: 36px; }
+@media print {
+    #odo-left-col { width: 100% !important; flex: 0 0 100% !important; max-width: 100% !important; }
+    #odo-row .card-box { border: none !important; padding: 0 !important; }
+    .odo-arch { padding: 12px 6px !important; gap: 3px !important; flex-wrap: nowrap !important; }
+    .odo-print-findings { display: block !important; }
+    .odo-print-head { display: block !important; }
+}

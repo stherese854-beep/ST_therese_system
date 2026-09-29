@@ -1242,7 +1242,7 @@ include 'includes/head.php';
       </div>
 
       <div class="modal-footer">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Keep appointment</button>
+        <button type="button" class="btn btn-outline-teal" data-bs-dismiss="modal" style="font-weight:600;">Keep appointment</button>
         <button class="btn" style="background:#c0392b;color:#fff;">Cancel appointment</button>
       </div>
     </form>
