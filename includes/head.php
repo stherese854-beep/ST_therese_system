@@ -135,6 +135,68 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         document.addEventListener('click', hide);
     })();
 
+    // ---- Type-to-search drop-downs: <select data-search="placeholder"> ----
+    // A search box appears above the drop-down. Typing (e.g. "Bi") opens the
+    // list showing only the matching choices; click one, or press Enter to
+    // take the first match. The drop-down's own onchange then runs as usual.
+    (function () {
+        function setup(sel) {
+            if (sel.dataset.searchReady) return;
+            sel.dataset.searchReady = '1';
+            var inp = document.createElement('input');
+            inp.type = 'search'; inp.autocomplete = 'off';
+            inp.className = 'form-control form-control-sm mb-1 select-search';
+            inp.placeholder = sel.dataset.search || 'Type to search…';
+            sel.parentNode.insertBefore(inp, sel);
+            var picked = false;
+            function pick(v) {
+                if (picked) return; picked = true;
+                sel.value = v; sel.size = 1;
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+                setTimeout(function () { picked = false; }, 400);
+            }
+            inp.addEventListener('input', function () {
+                var q = inp.value.toLowerCase().trim(), n = 0;
+                [].forEach.call(sel.options, function (o) {
+                    var hit = q === '' || o.text.toLowerCase().indexOf(q) !== -1;
+                    o.hidden = !hit; if (hit) n++;
+                });
+                sel.size = q === '' ? 1 : Math.max(2, Math.min(8, n));   // show the matches as an open list
+            });
+            inp.addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                var first = [].find.call(sel.options, function (o) { return !o.hidden && !o.disabled; });
+                if (first) pick(first.value);
+            });
+            // Clicking a match picks it, even if it was already the selected one.
+            sel.addEventListener('click', function (e) {
+                if (sel.size > 1 && e.target.tagName === 'OPTION') pick(e.target.value);
+            });
+        }
+        function run() { document.querySelectorAll('select[data-search]').forEach(setup); }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+    })();
+
+    // ---- Search inside a table: <input data-filter-rows="css selector of the tables"> ----
+    // Hides the rows that don't contain the typed text (hidden rows don't print).
+    document.addEventListener('input', function (e) {
+        var inp = e.target;
+        if (!inp.matches || !inp.matches('[data-filter-rows]')) return;
+        var q = inp.value.toLowerCase().trim(), shown = 0, total = 0;
+        document.querySelectorAll(inp.dataset.filterRows).forEach(function (t) {
+            t.querySelectorAll('tbody tr').forEach(function (tr) {
+                if (tr.querySelector('td[colspan]')) return;          // "nothing found" rows
+                total++;
+                var hit = q === '' || tr.textContent.toLowerCase().indexOf(q) !== -1;
+                tr.style.display = hit ? '' : 'none';
+                if (hit) shown++;
+            });
+        });
+        var c = inp.parentNode.querySelector('[data-filter-count]');
+        if (c) c.textContent = q === '' ? '' : shown + ' of ' + total + ' shown';
+    });
+
     // ---- No blank information: empty table cells say "N/A" ----
     // Any data-table cell with nothing in it (or just "-" / "—") shows a grey
     // "N/A" instead, including tables filled in later by a script. Cells that
