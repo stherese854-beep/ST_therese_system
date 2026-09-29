@@ -252,7 +252,9 @@ function health_form_styles() { return <<<CSS
 function hfToggle() {
     document.querySelectorAll('.hf-more[data-when]').forEach(function (box) {
         var parts = box.dataset.when.split('='), name = 'hf[' + parts[0] + ']', want = parts[1];
-        var el = document.querySelector('[name="' + name + '"]:checked');
+        // Look only inside this questionnaire (a page can hold several, e.g. My Family).
+        var scope = box.closest('.hf') || document;
+        var el = scope.querySelector('[name="' + name + '"]:checked');
         var val = el ? (el.type === 'checkbox' ? el.value : el.value) : '';
         box.style.display = (val === want) ? '' : 'none';
     });

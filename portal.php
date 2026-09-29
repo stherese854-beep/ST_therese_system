@@ -119,6 +119,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: portal?view=profile#my-health"); exit;
     }
 
+    // ---- My Family: a relative's relationship / phone, or their health questionnaire ----
+    // Only relatives linked to THIS account. Name, birthday and age stay clinic-only.
+    if (in_array($action, ['save_family_member', 'save_family_health'], true) && $pid) {
+        $mid = (int)($_POST['member_id'] ?? 0);
+        $own = $pdo->prepare("SELECT id, name FROM patients WHERE id = ? AND guardian_patient_id = ?");
+        $own->execute([$mid, $pid]);
+        $member = $own->fetch();
+        if (!$member) {
+            set_flash('That family member could not be found.', 'error');
+        } elseif ($action === 'save_family_member') {
+            $rel = trim($_POST['relationship'] ?? '');
+            if ($rel === 'Other') $rel = trim($_POST['relationship_other'] ?? '');
+            [$mPhone, $mPhoneErr] = validate_phone($_POST['phone'] ?? '', false);   // optional
+            if ($rel === '')           set_flash('Please say how they are related to you.', 'error');
+            elseif ($mPhoneErr !== '') set_flash($mPhoneErr, 'error');
+            else {
+                $pdo->prepare("UPDATE patients SET relationship = ?, phone = ? WHERE id = ?")
+                    ->execute([mb_substr($rel, 0, 40), $mPhone ?: null, $mid]);
+                log_activity($pdo, 'Updated family member', $member['name']);
+                set_flash($member['name'] . '’s details were updated.');
+            }
+        } else {
+            [$hfNew, $hfErr] = health_form_from_post($_POST);
+            if ($hfErr !== '') set_flash($hfErr, 'error');
+            else {
+                save_patient_health($pdo, $mid, $hfNew);
+                log_activity($pdo, 'Updated health questionnaire', $member['name'] . ' (family member)');
+                set_flash($member['name'] . '’s health questionnaire was updated.');
+            }
+        }
+        header("Location: portal?view=family#member-" . $mid); exit;
+    }
+
     if ($action === 'save_profile' && $pid) {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
         if ($phoneError !== '') {
@@ -482,10 +515,31 @@ if ($rsDentist !== '') {
 // Clinic announcements (published ones) - the patient's notifications.
 $news = $pdo->query("SELECT * FROM announcements WHERE status='Published' ORDER BY created_at DESC LIMIT 10")->fetchAll();
 
+// ---------- My Family: relatives this account books for ----------
+$family = [];
+if ($pid) {
+    $fq = $pdo->prepare("SELECT * FROM patients WHERE guardian_patient_id = ? AND status <> 'Archived' ORDER BY name");
+    $fq->execute([$pid]);
+    $family = $fq->fetchAll();
+}
+$familyById = [];
+foreach ($family as $fm) $familyById[(int)$fm['id']] = $fm;
+
+// Whose dental chart is shown: the account holder's own, or (?member=<id>)
+// one of THEIR family members — never anyone else's.
+$chartPid    = $pid;
+$chartMember = null;
+if (isset($_GET['member']) && isset($familyById[(int)$_GET['member']])) {
+    $chartMember = $familyById[(int)$_GET['member']];
+    $chartPid    = (int)$chartMember['id'];
+}
+$chartName = $chartMember ? $chartMember['name'] : ($me['name'] ?? '');
+$chartQs   = $chartMember ? '&member=' . (int)$chartMember['id'] : '';
+
 // Tooth map for the dental chart.
 // ---------- Dental chart: the patient has ONE CHART PER VISIT ----------
 // The patient can flip through every visit and see how their teeth improved.
-$mySessions = $pid ? get_chart_sessions($pdo, $pid) : [];   // newest first
+$mySessions = $chartPid ? get_chart_sessions($pdo, $chartPid) : [];   // newest first
 
 // Which visit is the patient looking at? Default = their latest.
 $mySid = (int)($_GET['session'] ?? 0);
@@ -495,14 +549,14 @@ if (!$mySid || !in_array($mySid, $myValid)) $mySid = $myValid[0] ?? 0;
 $mySession = null;
 foreach ($mySessions as $s) if ((int)$s['id'] === $mySid) $mySession = $s;
 
-$toothMap = ($pid && $mySid) ? build_tooth_map($pdo, $pid, $mySid) : [];
+$toothMap = ($chartPid && $mySid) ? build_tooth_map($pdo, $chartPid, $mySid) : [];
 
 // The visit before this one, so we can show what changed.
 $myPrev = null;
 foreach ($mySessions as $i => $s) {
     if ((int)$s['id'] === $mySid) { $myPrev = $mySessions[$i + 1] ?? null; break; }
 }
-$myPrevMap = $myPrev ? build_tooth_map($pdo, $pid, (int)$myPrev['id']) : [];
+$myPrevMap = $myPrev ? build_tooth_map($pdo, $chartPid, (int)$myPrev['id']) : [];
 
 $myChanges = [];
 if ($myPrev) {
@@ -537,6 +591,8 @@ include 'includes/head.php';
         <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">📅 Appointments</a>
         <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">🦷 My Dental Chart</a>
         <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">📋 My Records</a>
+        <a class="nav-item <?= $view==='family'?'active':'' ?>" href="portal?view=family">👨‍👩‍👧 My Family
+            <?php if ($family): ?><span class="badge-pill b-confirmed" style="font-size:.65rem;"><?= count($family) ?></span><?php endif; ?></a>
         <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal?view=news">
             📣 Announcements <?php if ($news): ?><span class="badge-pill b-pending" style="font-size:.65rem;"><?= count($news) ?></span><?php endif; ?>
         </a>
@@ -565,7 +621,7 @@ include 'includes/head.php';
                         echo e($cn->fetchColumn() ?: 'St. Therese of Carmel Dental Clinic');
                     ?>
                 </div>
-                <div style="font-size:.9rem;">Dental Chart — <?= e($me['name'] ?? '') ?></div>
+                <div style="font-size:.9rem;">Dental Chart — <?= e($chartName) ?><?= $chartMember && $chartMember['relationship'] ? ' (' . e($chartMember['relationship']) . ')' : '' ?></div>
                 <?php if ($mySession): ?>
                     <div style="font-size:.85rem;color:#555;">
                         Visit of <?= date('F j, Y', strtotime($mySession['visit_date'])) ?>
@@ -580,7 +636,7 @@ include 'includes/head.php';
                 <div class="col-lg-8">
                     <div class="card-box">
                         <div class="flex-between mb-1">
-                            <h5 class="mb-0">My Dental Chart</h5>
+                            <h5 class="mb-0"><?= $chartMember ? e($chartMember['name']) . '’s Dental Chart' : 'My Dental Chart' ?></h5>
                             <?php if ($mySessions): ?>
                                 <button class="btn btn-sm btn-outline-teal no-print" onclick="printChart()"
                                         title="Print this visit's chart, or save it as a PDF">
@@ -589,9 +645,23 @@ include 'includes/head.php';
                             <?php endif; ?>
                         </div>
 
-                        <?php if (count($mySessions) > 1): ?>
+                        <?php if ($family): ?>
+                            <!-- Whose chart: mine, or a family member's -->
+                            <div class="d-flex flex-wrap gap-2 align-items-center mb-2 no-print" style="font-size:.85rem;">
+                                <span class="text-muted2">Chart of:</span>
+                                <a href="portal?view=chart" class="btn btn-sm <?= $chartMember ? 'btn-light' : 'btn-teal' ?>" data-keep-text>Me</a>
+                                <?php foreach ($family as $fm): ?>
+                                    <a href="portal?view=chart&member=<?= (int)$fm['id'] ?>" data-keep-text
+                                       class="btn btn-sm <?= ($chartMember && (int)$chartMember['id'] === (int)$fm['id']) ? 'btn-teal' : 'btn-light' ?>">
+                                        <?= e($fm['name']) ?><?= $fm['relationship'] ? ' · ' . e($fm['relationship']) : '' ?></a>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!$mySessions): ?>
+                            <p class="text-muted2 mb-2" style="font-size:.87rem;"><?= $chartMember ? e($chartMember['name']) . ' has' : 'You have' ?> no dental chart yet — the dentist records it at the first visit.</p>
+                        <?php elseif (count($mySessions) > 1): ?>
                             <p class="text-muted2 mb-2 no-print" style="font-size:.87rem;">
-                                You have <strong><?= count($mySessions) ?> visits</strong> on record.
+                                <?= $chartMember ? e($chartMember['name']) . ' has' : 'You have' ?> <strong><?= count($mySessions) ?> visits</strong> on record.
                                 Tap a visit to see how your teeth looked that day.
                             </p>
                         <?php else: ?>
@@ -604,7 +674,7 @@ include 'includes/head.php';
                             <?php $oldFirst = array_reverse($mySessions); ?>
                             <?php foreach ($oldFirst as $i => $s): ?>
                                 <a class="sess-tab <?= (int)$s['id']===$mySid?'on':'' ?>"
-                                   href="portal?view=chart&session=<?= $s['id'] ?>">
+                                   href="portal?view=chart&session=<?= $s['id'] ?><?= $chartQs ?>">
                                     <b>Visit <?= $i+1 ?><?= $i === count($oldFirst)-1 ? ' · latest' : '' ?></b>
                                     <small><?= date('M j, Y', strtotime($s['visit_date'])) ?></small>
                                 </a>
@@ -1048,6 +1118,97 @@ include 'includes/head.php';
                     </div>
                 </div>
             </div>
+
+        <?php elseif ($view === 'family'): ?>
+            <!-- ===== MY FAMILY: relatives this account books for ===== -->
+            <?= health_form_styles() ?>
+            <div class="card-box mb-3">
+                <h5 class="mb-1">👨‍👩‍👧 My Family</h5>
+                <div class="text-muted2" style="font-size:.85rem;">
+                    Relatives you book appointments for. You can update how they are related to you, their phone number
+                    and their health questionnaire, and view or print their dental chart.
+                    Their <b>name, birthday and age</b> can only be changed by the clinic.
+                    To add someone, book for them — choose <b>“Someone else”</b> on the booking page.
+                </div>
+            </div>
+
+            <?php if (!$family): ?>
+                <div class="card-box text-center text-muted2 py-4">
+                    <div style="font-size:2rem;">👨‍👩‍👧</div>
+                    No family members yet. When you book an appointment for someone else, they appear here.
+                    <div class="mt-2"><a href="book" class="btn btn-teal btn-sm" data-keep-text>+ Book for someone else</a></div>
+                </div>
+            <?php endif; ?>
+
+            <?php $relChoices = ['Parent','Guardian','Spouse','Child','Sibling','Grandparent']; ?>
+            <?php foreach ($family as $fm):
+                $fmId = (int)$fm['id'];
+                [$fmHealth] = patient_health($pdo, $fmId);
+                $fmUp = $pdo->prepare("SELECT appointment_date, appointment_time, treatment, status FROM appointments
+                                        WHERE patient_id = ? AND appointment_date >= CURDATE() AND status IN ('Pending','Confirmed')
+                                        ORDER BY appointment_date, STR_TO_DATE(REPLACE(appointment_time,' ',''), '%h:%i%p') LIMIT 3");
+                $fmUp->execute([$fmId]); $fmUpcoming = $fmUp->fetchAll();
+                $relIsOther = $fm['relationship'] && !in_array($fm['relationship'], $relChoices, true);
+            ?>
+            <div class="card-box mb-3" id="member-<?= $fmId ?>">
+                <div class="flex-between flex-wrap gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="avatar" style="background:#7fb4ad;"><?= e(strtoupper(substr($fm['name'], 0, 1))) ?></span>
+                        <div><strong><?= e($fm['name']) ?></strong>
+                            <div class="text-muted2" style="font-size:.8rem;"><?= e($fm['relationship'] ?: 'Family member') ?>
+                                · Born <?= $fm['date_of_birth'] ? date('M j, Y', strtotime($fm['date_of_birth'])) : 'N/A' ?>
+                                · Age <?= !empty($fm['age']) ? e($fm['age']) : 'N/A' ?></div></div>
+                    </div>
+                    <a href="portal?view=chart&member=<?= $fmId ?>" class="btn btn-sm btn-outline-teal" data-keep-text>🦷 View / print dental chart</a>
+                </div>
+
+                <div class="row g-3">
+                    <!-- Relationship + phone -->
+                    <div class="col-lg-5">
+                        <form method="POST">
+                            <input type="hidden" name="action" value="save_family_member">
+                            <input type="hidden" name="member_id" value="<?= $fmId ?>">
+                            <label class="field-label">Relationship to you</label>
+                            <select name="relationship" class="form-select mb-2"
+                                    onchange="this.nextElementSibling.style.display = this.value === 'Other' ? '' : 'none'">
+                                <?php foreach ($relChoices as $rc): ?>
+                                    <option <?= $fm['relationship'] === $rc ? 'selected' : '' ?>><?= $rc ?></option>
+                                <?php endforeach; ?>
+                                <option value="Other" <?= $relIsOther ? 'selected' : '' ?>>Other relative</option>
+                            </select>
+                            <input type="text" name="relationship_other" class="form-control mb-2" maxlength="40" placeholder="e.g. Niece, Cousin"
+                                   value="<?= $relIsOther ? e($fm['relationship']) : '' ?>" style="<?= $relIsOther ? '' : 'display:none;' ?>">
+                            <label class="field-label">Phone number <span class="text-muted2">(optional)</span></label>
+                            <input name="phone" class="form-control mb-2" placeholder="09XX XXX XXXX" value="<?= e($fm['phone'] ?? '') ?>" <?= phone_input_attrs() ?>>
+                            <button class="btn btn-teal btn-sm" data-keep-text>💾 Save</button>
+                        </form>
+
+                        <div class="mt-3" style="font-size:.85rem;">
+                            <div class="field-label">Upcoming appointments</div>
+                            <?php foreach ($fmUpcoming as $u): ?>
+                                <div class="py-1">📅 <?= date('M j, Y', strtotime($u['appointment_date'])) ?> · <?= e($u['appointment_time']) ?>
+                                    · <?= e($u['treatment']) ?> <span class="badge-pill b-<?= strtolower($u['status']) ?>"><?= e(status_label($u['status'])) ?></span></div>
+                            <?php endforeach; ?>
+                            <?php if (!$fmUpcoming): ?><div class="text-muted2">N/A — none booked.</div><?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Health questionnaire -->
+                    <div class="col-lg-7">
+                        <details <?= $fmHealth ? '' : 'open' ?>>
+                            <summary style="cursor:pointer;font-weight:600;color:var(--teal);">
+                                🩺 Health questionnaire <?= $fmHealth ? '— on file, tap to review / update' : '— not filled in yet' ?></summary>
+                            <form method="POST" class="mt-2">
+                                <input type="hidden" name="action" value="save_family_health">
+                                <input type="hidden" name="member_id" value="<?= $fmId ?>">
+                                <?= health_form_fields($fmHealth ?: []) ?>
+                                <button class="btn btn-teal btn-sm" data-keep-text>💾 Save health questionnaire</button>
+                            </form>
+                        </details>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
 
         <?php elseif ($view === 'news'): ?>
             <!-- ===== ANNOUNCEMENTS / NOTIFICATIONS ===== -->
