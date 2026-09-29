@@ -158,6 +158,16 @@ $reportTypes = [
 $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
 ?>
 <style>
+/* The four report choices (inside one container, laid out by Bootstrap's grid). */
+.report-type-card { display: flex; gap: 12px; align-items: flex-start; height: 100%; padding: 14px 16px;
+                    border: 2px solid #e3e9ee; border-radius: 14px; background: #fff; color: var(--ink, #1d2b33);
+                    text-decoration: none; transition: border-color .15s, background .15s, box-shadow .15s; }
+.report-type-card:hover { border-color: var(--teal-light, #14b8a6); box-shadow: 0 4px 14px rgba(15,118,110,.10); color: inherit; }
+.report-type-card.is-active { border-color: var(--teal-mid, #0f766e); background: #e8f5f3; }
+.report-type-card .rt-icon { font-size: 1.7rem; line-height: 1; flex: none; }
+.report-type-card .rt-title { font-weight: 700; margin-bottom: 2px; }
+.report-type-card .rt-desc { font-size: .78rem; color: var(--muted, #6b7a86); line-height: 1.35; }
+
 /* Quick counts inside the report: a small row of four, never a swipe strip. */
 .report-counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
 .report-counts > div { border: 1px solid #e3e9ee; border-radius: 8px; padding: 6px 4px; text-align: center; background: #fbfdfd; }
@@ -226,19 +236,26 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
             </div>
         </div>
 
-        <!-- ===== Report type cards ===== -->
-        <div class="stat-grid stat-scroll" style="grid-template-columns:repeat(4,1fr);">
-            <?php foreach ($reportTypes as $key => $rt):
-                $isActive = ($type === $key);
-            ?>
-                <a href="reports?type=<?= $key ?>&patient_id=<?= $patientId ?><?= $filterDentist !== '' ? '&dentist='.urlencode($filterDentist) : '' ?>"
-                   class="stat-card text-decoration-none text-dark"
-                   style="<?= $isActive ? 'border:2px solid var(--teal-mid);background:#e8f5f3;' : 'border:2px solid transparent;' ?>">
-                    <div style="font-size:1.8rem;"><?= $rt[0] ?></div>
-                    <div class="fw-bold mt-1"><?= $rt[1] ?></div>
-                    <div class="text-muted2" style="font-size:.78rem;"><?= $rt[2] ?></div>
-                </a>
-            <?php endforeach; ?>
+        <!-- ===== Report type cards — one container, Bootstrap grid:
+             1 per row on small phones, 2 on larger phones / tablets, 4 on wide screens ===== -->
+        <div class="card-box report-types mb-3">
+            <h6 class="mb-3">Choose a report</h6>
+            <div class="row g-3">
+                <?php foreach ($reportTypes as $key => $rt):
+                    $isActive = ($type === $key);
+                ?>
+                    <div class="col-12 col-sm-6 col-xl-3">
+                        <a href="reports?type=<?= $key ?>&patient_id=<?= $patientId ?><?= $filterDentist !== '' ? '&dentist='.urlencode($filterDentist) : '' ?>"
+                           class="report-type-card<?= $isActive ? ' is-active' : '' ?>" <?= $isActive ? 'aria-current="page"' : '' ?>>
+                            <div class="rt-icon"><?= $rt[0] ?></div>
+                            <div>
+                                <div class="rt-title"><?= $rt[1] ?></div>
+                                <div class="rt-desc"><?= $rt[2] ?></div>
+                            </div>
+                        </a>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
 
         <div class="row g-3 mt-1">
