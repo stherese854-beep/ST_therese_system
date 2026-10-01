@@ -1298,8 +1298,11 @@ include 'includes/head.php';
                             <?php if (!$fmUpcoming): ?><div class="text-muted2">– (none booked)</div><?php endif; ?>
                         </div>
 
-                        <!-- Their teeth in plain words, and a printed copy on request -->
-                        <?= dental_summary_card($pdo, $fmId, $fm['name'], $fmId, true) ?>
+                        <!-- Their teeth in plain words + printed copy on request — only when the
+                             clinic hides the dental chart (otherwise the chart button above shows it all) -->
+                        <?php if (!patient_chart_visible($pdo)): ?>
+                            <?= dental_summary_card($pdo, $fmId, $fm['name'], $fmId, true) ?>
+                        <?php endif; ?>
 
                         <!-- Their own account: an emailed invite (adults only) -->
                         <?php

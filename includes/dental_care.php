@@ -55,11 +55,20 @@ function tooth_label($tooth) {
     return implode(', ', $out);
 }
 
-/** The whole My Records "dental care" block for one patient. $treatments = their (non-archived) rows. */
+/**
+ * The whole My Records "dental care" block for one patient. $treatments = their (non-archived) rows.
+ *
+ * The tooth details (teeth needing attention, what changed on the chart, printed copy)
+ * only appear when the clinic has turned the dental chart OFF for patients
+ * (System → Patient Portal). When it is ON, the patient already sees every tooth on
+ * "My Dental Chart", so My Records only shows treatments, notes and the next visit.
+ */
 function my_dental_care_html($pdo, $patient, array $treatments) {
     global $UPPER_TEETH, $LOWER_TEETH;
     $pid = (int)$patient['id'];
-    $sessions = get_chart_sessions($pdo, $pid);          // newest first
+    $chartOn  = patient_chart_visible($pdo);
+    $sessions = $chartOn ? [] : get_chart_sessions($pdo, $pid);   // tooth details only when the chart is hidden
+    $hasChart = $chartOn ? (bool)latest_session_id($pdo, $pid) : (bool)$sessions;
 
     // ---------- 1. What you need to do ----------
     $todo = [];
@@ -130,14 +139,13 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
             </ul>
         <?php endif; ?>
         <div class="ds-actions">
-            <?php if ($req): ?>
+            <?php if ($chartOn): ?>
+                <?php if ($hasChart): ?><a href="portal?view=chart" class="btn btn-sm btn-light">🦷 See and print my dental chart →</a><?php endif; ?>
+            <?php elseif ($req): ?>
                 <span class="badge-pill b-pending">📄 Printed copy of your dental chart requested <?= date('M j', strtotime($req['created_at'])) ?> — the clinic will let you know when it is ready</span>
             <?php elseif ($sessions): ?>
                 <form method="POST" class="m-0"><input type="hidden" name="action" value="request_chart_copy"><input type="hidden" name="member_id" value="0">
                     <button class="btn btn-sm btn-light">📄 Request a printed copy of my dental chart</button></form>
-            <?php endif; ?>
-            <?php if ($sessions && patient_chart_visible($pdo)): ?>
-                <a href="portal?view=chart" class="btn btn-sm btn-light">See my full dental chart →</a>
             <?php endif; ?>
         </div>
     </div>
