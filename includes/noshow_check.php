@@ -204,3 +204,42 @@ function patient_cancel_count($pdo, $patientId, $months = NOSHOW_WINDOW_MONTHS) 
     }
 }
 
+
+// ============================================================
+//  SAME COUNTS FOR A WHOLE LIST AT ONCE
+// ============================================================
+//  patient_noshow_count() / patient_cancel_count() for many patients in
+//  ONE query each (the Patients list used 4 queries per row). Same rules:
+//  rolling window, and only after the last staff reset.
+//  Returns [patient_id => count]; patients with none are 0.
+// ============================================================
+function patient_counts_bulk($pdo, array $ids, $months = NOSHOW_WINDOW_MONTHS) {
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    $noshow = array_fill_keys($ids, 0); $cancel = $noshow;
+    if (!$ids) return [$noshow, $cancel];
+    try {
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $nsCut = date('Y-m-d', strtotime("-$months months"));
+        $q = $pdo->prepare(
+            "SELECT p.id, COUNT(a.id) AS n
+               FROM patients p
+               JOIN appointments a ON a.patient_id = p.id AND a.status = 'No-show'
+                AND a.appointment_date > GREATEST(?, COALESCE(DATE(p.noshow_reset_at), ?))
+              WHERE p.id IN ($in) GROUP BY p.id");
+        $q->execute(array_merge([$nsCut, $nsCut], $ids));
+        foreach ($q as $r) $noshow[(int)$r['id']] = (int)$r['n'];
+
+        $ccCut = date('Y-m-d H:i:s', strtotime("-$months months"));
+        $q = $pdo->prepare(
+            "SELECT p.id, COUNT(a.id) AS n
+               FROM patients p
+               JOIN appointments a ON a.patient_id = p.id AND a.status = 'Cancelled' AND a.cancelled_by = 'patient'
+                AND COALESCE(a.cancelled_at, a.created_at) > GREATEST(?, COALESCE(p.cancel_reset_at, ?))
+              WHERE p.id IN ($in) GROUP BY p.id");
+        $q->execute(array_merge([$ccCut, $ccCut], $ids));
+        foreach ($q as $r) $cancel[(int)$r['id']] = (int)$r['n'];
+    } catch (Throwable $e) {
+        foreach ($ids as $id) { $noshow[$id] = patient_noshow_count($pdo, $id, $months); $cancel[$id] = patient_cancel_count($pdo, $id, $months); }
+    }
+    return [$noshow, $cancel];
+}

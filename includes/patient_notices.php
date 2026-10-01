@@ -20,7 +20,7 @@ if (!function_exists('patient_cancel_count')) require_once __DIR__ . '/noshow_ch
 
 function ensure_patient_notices_table($pdo) {
     static $done = false;
-    if ($done) return;
+    if ($done || (defined('SCHEMA_CHECKED') && SCHEMA_CHECKED)) return;   // already checked after this update
     $done = true;
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS patient_notices (

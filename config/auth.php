@@ -40,12 +40,31 @@ if (php_sapi_name() !== 'cli') {
     session_set_save_handler(new DbSessionHandler($pdo), true);
 }
 session_start();               // turn on PHP sessions (remembers who is logged in)
-ensure_archive_schema($pdo);                        // self-heals the archive columns/table
-ensure_activity_log_schema($pdo);                   // self-heals the activity_log table
-ensure_patient_archive_schema($pdo);                // self-heals the patients table's archive columns
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
-ensure_dependents_schema($pdo);                     // family members booked by a patient get their own record (needs assign.php)
-ensure_booking_review_schema($pdo);                 // health questionnaire + cancellation review columns
+
+// ---- Self-healing database (new tables / columns) ----
+// These checks only need to run once after each update of the system, not on
+// every click: on Railway every query is a trip to the database server, and
+// they were ~20 extra trips per page. The marker changes whenever this file is
+// deployed again, so a new version always runs them once.
+$__schemaKey = 'schema-' . @filemtime(__FILE__);
+$__schemaOk  = false;
+try {
+    $__schemaOk = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'schema_ok'")->fetchColumn() === $__schemaKey;
+} catch (Throwable $e) {}
+define('SCHEMA_CHECKED', $__schemaOk);
+if (!$__schemaOk) {
+    ensure_archive_schema($pdo);                    // self-heals the archive columns/table
+    ensure_activity_log_schema($pdo);               // self-heals the activity_log table
+    ensure_patient_archive_schema($pdo);            // self-heals the patients table's archive columns
+    ensure_dependents_schema($pdo);                 // family members booked by a patient get their own record (needs assign.php)
+    ensure_booking_review_schema($pdo);             // health questionnaire + cancellation review columns
+    require_once __DIR__ . '/../includes/patient_notices.php';
+    ensure_patient_notices_table($pdo);             // cancellation / no-show pop-ups
+    require_once __DIR__ . '/../includes/account_transfer.php';
+    ensure_account_transfer_tables($pdo);           // own-account invites, login email changes
+    try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
+}
 
 // ============================================================
 //  CSRF PROTECTION  (forged form submissions)
@@ -1191,7 +1210,13 @@ function system_text_scale($pdo) {
 
 // The logged-in user's own choice, or null to follow the clinic default.
 function user_text_scale($pdo) {
+    static $cache = [];
     if (empty($_SESSION['user_id'])) return null;
+    $uid = (int)$_SESSION['user_id'];
+    if (array_key_exists($uid, $cache)) return $cache[$uid];
+    return $cache[$uid] = user_text_scale_load($pdo);
+}
+function user_text_scale_load($pdo) {
     try {
         $q = $pdo->prepare("SELECT text_scale FROM users WHERE id = ?");
         $q->execute([(int)$_SESSION['user_id']]);

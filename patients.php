@@ -366,11 +366,7 @@ if (current_role() === 'admin') {
 // ---- Who is blocked from booking online? ----
 // Same shared rule as the booking page: three missed visits inside the
 // rolling window (and only those after any staff reset) pauses booking.
-$blockedCounts = []; $cancelCounts = [];
-foreach ($patients as $p) {
-    $blockedCounts[$p['id']] = patient_noshow_count($pdo, $p['id']);
-    $cancelCounts[$p['id']]  = patient_cancel_count($pdo, $p['id']);
-}
+[$blockedCounts, $cancelCounts] = patient_counts_bulk($pdo, array_column($patients, 'id'));   // 2 queries for the whole list
 
 // Active dentists (for the admin's manual "assign doctor" dropdown).
 $dentistList = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);

@@ -34,7 +34,7 @@ const PATIENT_LINKED_TABLES = ['appointments', 'chart_sessions', 'clinical_notes
 
 function ensure_account_transfer_tables($pdo) {
     static $done = false;
-    if ($done) return;
+    if ($done || (defined('SCHEMA_CHECKED') && SCHEMA_CHECKED)) return;   // already checked after this update
     $done = true;
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS account_invites (
