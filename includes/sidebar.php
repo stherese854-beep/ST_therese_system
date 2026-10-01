@@ -58,6 +58,9 @@ function nav_active($page) {
         <a class="nav-item <?= nav_active('patients') ?>"     href="patients">👥 My Patients</a>
         <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">📅 Schedule</a>
         <a class="nav-item <?= nav_active('schedule') ?>"     href="schedule">🗓 My Availability</a>
+
+        <!-- The clinical work, grouped under its own heading -->
+        <div class="nav-label">Treatment</div>
         <a class="nav-item <?= nav_active('odontogram') ?>"   href="odontogram">🦷 Odontogram</a>
         <a class="nav-item <?= nav_active('records') ?>"      href="records">📋 Treatment Records</a>
     <?php endif; ?>

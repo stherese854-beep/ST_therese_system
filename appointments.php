@@ -8,6 +8,7 @@ require_once 'includes/mailer.php';     // confirmation / cancellation emails
 require_once 'includes/message_templates.php';  // editable message wording
 require_once 'includes/health_form.php';        // health questionnaire view
 require_once 'includes/treatments.php';         // clinic_treatments(), clinic_time_slots()
+define('DENTIST_CANCEL_DAYS', 3);                 // a dentist can cancel only this many days ahead (or more)
 require_login(['admin','dentist','staff']);
 
 // ---------- Remove an old, finished appointment ----------
@@ -410,6 +411,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
         $chk->execute($gp);
         $canEdit = ((int)$chk->fetchColumn() > 0);
+        // A dentist may cancel an approved appointment only when it is still 3+ days away
+        // (closer than that, the clinic front desk handles it).
+        if ($canEdit && $newStatus === 'Cancelled') {
+            $dq = $pdo->prepare("SELECT appointment_date FROM appointments WHERE id = ?");
+            $dq->execute([$id]);
+            if ((string)$dq->fetchColumn() < date('Y-m-d', strtotime('+' . DENTIST_CANCEL_DAYS . ' days'))) {
+                set_flash('You can only cancel an appointment that is at least ' . DENTIST_CANCEL_DAYS . ' days away. Please ask the front desk.', 'error');
+                header("Location: appointments" . (isset($_POST['filter']) ? "?filter=" . urlencode($_POST['filter']) : '')); exit;
+            }
+        }
     }
 
     if ($id && in_array($newStatus, $allowed) && $canEdit) {
@@ -500,7 +511,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------- Filter tabs + name search ----------
-$filter = $_GET['filter'] ?? 'All';
+// A dentist's Schedule opens on "Your Appointments" (see below); admin/staff on "All".
+$filter = $_GET['filter'] ?? (current_role() === 'dentist' ? 'Mine' : 'All');
+if (current_role() === 'dentist' && in_array($filter, ['All', 'Confirmed'], true)) $filter = 'Mine';
 $search = trim($_GET['q'] ?? '');
 
 // A dentist may only see appointments for THEIR OWN assigned patients (matched
@@ -514,6 +527,10 @@ $params = [];
 if (in_array($filter, ['Confirmed','Pending','Cancelled','Completed','Arrived','Disapproved'])) {
     $conds[] = "a.status = ?"; $params[] = $filter;
 }
+// "Your Appointments" (dentist): approved visits still to come. One leaves this list
+// as soon as it is marked Arrived, or when its day has passed.
+$mineSql = "a.status = 'Confirmed' AND a.arrived_at IS NULL AND a.appointment_date >= CURDATE()";
+if ($filter === 'Mine') $conds[] = $mineSql;
 if ($search !== '') {
     $conds[] = "(a.patient_name LIKE ? OR a.dentist LIKE ? OR a.treatment LIKE ?)";
     $params[] = "%$search%"; $params[] = "%$search%"; $params[] = "%$search%";
@@ -542,7 +559,8 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $appts = $stmt->fetchAll();
 
-$tabs = ['All','Confirmed','Pending','Arrived','Cancelled','Disapproved'];
+$tabs = $isDentist ? ['Mine','Pending','Arrived','Completed','Cancelled','Disapproved']
+                   : ['All','Confirmed','Pending','Arrived','Cancelled','Disapproved'];
 
 // How many appointments each tab holds — same dentist scope and search as the
 // list, just without the status filter — so every tab shows its total.
@@ -561,6 +579,12 @@ $cq = $pdo->prepare("SELECT a.status, COUNT(*) FROM appointments a LEFT JOIN pat
                     . ($cConds ? " WHERE " . implode(" AND ", $cConds) : "") . " GROUP BY a.status");
 $cq->execute($cParams);
 foreach ($cq->fetchAll(PDO::FETCH_KEY_PAIR) as $st => $n) { $tabCounts[$st] = (int)$n; $tabCounts['All'] += (int)$n; }
+if ($isDentist) {
+    $mq = $pdo->prepare("SELECT COUNT(*) FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id WHERE $mineSql"
+                        . ($cConds ? " AND " . implode(" AND ", $cConds) : ""));
+    $mq->execute($cParams);
+    $tabCounts['Mine'] = (int)$mq->fetchColumn();
+}
 
 // For the "+ Book" form.
 $bookPatients = staff_bookable_patients($pdo);
@@ -594,7 +618,7 @@ $active = 'appointments';
         <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
             <?php foreach ($tabs as $t): ?>
                 <a href="appointments?filter=<?= $t ?><?= $search!==''?'&q='.urlencode($search):'' ?>" data-keep-text
-                   class="btn btn-sm <?= $filter===$t ? 'btn-dark-navy' : 'btn-light' ?>"><?= e(status_label($t)) ?>
+                   class="btn btn-sm <?= $filter===$t ? 'btn-dark-navy' : 'btn-light' ?>"><?= $t === 'Mine' ? '📅 Your Appointments' : e(status_label($t)) ?>
                     <span class="tab-count"><?= (int)($tabCounts[$t] ?? 0) ?></span></a>
             <?php endforeach; ?>
             <form method="GET" class="d-flex gap-2 align-items-center ms-auto" style="flex:1;max-width:340px;min-width:200px;">
@@ -612,11 +636,13 @@ $active = 'appointments';
                 <table class="data">
                     <thead><tr>
                         <th>Patient</th><?php if (!$isDentist): ?><th>Dentist</th><?php endif; /* a dentist only sees their own */ ?><th>Date</th><th>Time</th>
-                        <th>Treatment</th><th>Status</th><th>Actions</th>
+                        <?php // A dentist's other tabs are view only; "Your Appointments" has the actions.
+                              $showActions = !$isDentist || $filter === 'Mine' || $filter === 'Arrived'; ?>
+                        <th>Treatment</th><th>Status</th><?php if ($showActions): ?><th>Actions</th><?php endif; ?>
                     </tr></thead>
                     <tbody>
                     <?php if (empty($appts)): ?>
-                        <tr><td colspan="<?= $isDentist ? 6 : 7 ?>" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
+                        <tr><td colspan="<?= ($isDentist ? 5 : 6) + ($showActions ? 1 : 0) ?>" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
                             <div style="font-size:2.4rem;margin-bottom:8px;">📅</div>
                             <?php if ($search !== '' || $filter !== 'All'): ?>
                                 No appointments match. <a href="appointments" style="color:var(--teal);">Clear filters</a>
@@ -652,8 +678,42 @@ $active = 'appointments';
                                 <?php elseif (!empty($a['patient_confirmed_at']) && in_array($a['status'], ['Pending','Confirmed'], true)): ?>
                                     <br><small style="color:#0f766e;" title="Confirmed from the reminder email on <?= date('M j, g:i A', strtotime($a['patient_confirmed_at'])) ?>">✓ Patient confirmed</small>
                                 <?php endif; ?></td>
+                            <?php if ($showActions): ?>
                             <td>
                                 <div class="d-flex gap-1 align-items-center">
+                                <?php if ($isDentist && $filter === 'Mine'): ?>
+                                    <?php // ---- Dentist, "Your Appointments": Arrived (today) · health questionnaire · Cancel (3+ days away) ----
+                                          $daysAway = (int)floor((strtotime($a['appointment_date']) - strtotime('today')) / 86400); ?>
+                                    <?php if ($a['appointment_date'] === date('Y-m-d')): ?>
+                                        <form method="POST" class="d-inline m-0">
+                                            <input type="hidden" name="action" value="arrived"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
+                                            <input type="hidden" name="filter" value="Mine">
+                                            <button class="btn btn-sm" style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here" data-keep-text>✓ Arrived</button>
+                                        </form>
+                                    <?php endif; ?>
+                                    <?php if (!empty($a['health_form'])): $hfA = json_decode($a['health_form'], true) ?: []; $hfFlag = health_form_flags($hfA); ?>
+                                        <button type="button" class="btn btn-sm" data-keep-text style="white-space:nowrap;background:<?= $hfFlag ? '#fdecec' : '#eaf7ef' ?>;color:<?= $hfFlag ? '#c0392b' : '#1f8a54' ?>;"
+                                                title="Health questionnaire<?= $hfFlag ? ' — ' . e(implode(', ', $hfFlag)) : '' ?>"
+                                                onclick="showHealthForm(<?= (int)$a['id'] ?>)">🩺 Health form<?= $hfFlag ? ' ⚠' : '' ?></button>
+                                        <template id="hf-<?= (int)$a['id'] ?>"><?= '<h6 class="mb-2">' . e($a['patient_name']) . '</h6>' . health_form_view($hfA) ?></template>
+                                    <?php else: ?>
+                                        <span class="text-muted2" style="font-size:.78rem;white-space:nowrap;" title="The patient has not filled in the health questionnaire">🩺 none</span>
+                                    <?php endif; ?>
+                                    <?php if ($daysAway >= DENTIST_CANCEL_DAYS): ?>
+                                        <button type="button" class="btn btn-sm" data-keep-text style="background:#fbdcdc;color:#c0392b;white-space:nowrap;" title="Cancel this appointment"
+                                                onclick='openCancelAppt(<?= json_encode(["pending" => false, "id" => $a["id"], "name" => $a["patient_name"],
+                                                    "date" => $a["appointment_date"], "time" => $a["appointment_time"], "treat" => $a["treatment"]], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>✕ Cancel</button>
+                                    <?php else: ?>
+                                        <span class="text-muted2" style="font-size:.74rem;white-space:nowrap;" title="Less than <?= DENTIST_CANCEL_DAYS ?> days away — the front desk can still cancel it">✕ only <?= DENTIST_CANCEL_DAYS ?>+ days ahead</span>
+                                    <?php endif; ?>
+                                <?php elseif ($isDentist): ?>
+                                    <?php // ---- Dentist, Arrived tab: only "Add procedure" for today's visit ----
+                                          if (!empty($a['arrived_at']) && $a['appointment_date'] === date('Y-m-d')): ?>
+                                        <button type="button" class="btn btn-sm" data-keep-text style="background:#eef7f6;color:var(--teal-mid);font-weight:600;white-space:nowrap;"
+                                                title="Add a procedure to this visit (with the patient's agreement)" data-addproc="<?= (int)$a['id'] ?>"
+                                                onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"]], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕ Add procedure</button>
+                                    <?php else: ?><span class="text-muted2">–</span><?php endif; ?>
+                                <?php else: ?>
                                 <?php if (in_array($a['status'], ['Confirmed','Arrived'], true) && $a['appointment_date'] === date('Y-m-d')): ?>
                                     <form method="POST" class="d-inline m-0">
                                         <input type="hidden" name="action" value="<?= empty($a['arrived_at']) ? 'arrived' : 'undo_arrived' ?>">
@@ -732,12 +792,14 @@ $active = 'appointments';
                                     </form>
                                     <?= bulk_pick('bulk-appts', $a['id'], 'Select to remove') ?>
                                 <?php endif; ?>
+                                <?php endif; /* admin / staff actions */ ?>
                                 </div>
                             </td>
+                            <?php endif; /* $showActions */ ?>
                         </tr>
                     <?php endforeach; ?>
                     <?php if (!$appts): ?>
-                        <tr><td colspan="<?= $isDentist ? 6 : 7 ?>" class="text-center text-muted2 py-4">No appointments in this view.</td></tr>
+                        <tr><td colspan="<?= ($isDentist ? 5 : 6) + ($showActions ? 1 : 0) ?>" class="text-center text-muted2 py-4">No appointments in this view.</td></tr>
                     <?php endif; ?>
                     </tbody>
                 </table>
