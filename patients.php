@@ -456,7 +456,7 @@ $active = 'patients';
                                         <strong><?= e($p['name']) ?></strong><br>
                                         <small class="text-muted2"><?= e($p['email']) ?></small>
                                         <?php if (!empty($p['guardian_patient_id']) && empty($p['user_id'])): ?>
-                                            <br><small class="text-muted2" style="font-size:.7rem;">👪 Booked by <?= e($p['booked_by_name'] ?: 'N/A') ?> · no login of their own</small>
+                                            <br><small class="text-muted2" style="font-size:.7rem;">👪 Booked by <?= e($p['booked_by_name'] ?: '–') ?> · no login of their own</small>
                                             <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
                                                 <?php if (isset($openInvites[(int)$p['id']])): ?>
                                                     <br><span class="badge-pill b-pending" style="font-size:.66rem;">✉️ Invite sent to <?= e($openInvites[(int)$p['id']]['email']) ?></span>
@@ -849,17 +849,17 @@ function validatePauseBooking(){
             '<div class="row">'
           +   '<div class="col-md-6">'
           +     '<p><b>Name:</b> '+esc(p.name)+'</p>'
-          +     '<p><b>Email:</b> '+esc(p.email||'N/A')+'</p>'
-          +     '<p><b>Phone:</b> '+esc(p.phone||'N/A')+'</p>'
-          +     '<p><b>Age:</b> '+(p.age||'N/A')+'</p>'
+          +     '<p><b>Email:</b> '+esc(p.email||'–')+'</p>'
+          +     '<p><b>Phone:</b> '+esc(p.phone||'–')+'</p>'
+          +     '<p><b>Age:</b> '+(p.age||'–')+'</p>'
           +     (p.booked_by_name ? '<p><b>Booked by:</b> '+esc(p.booked_by_name)+(p.relationship ? ' <span class="text-muted2">('+esc(p.relationship)+')</span>' : '')+'</p>' : '')
           +     (p.family_members && p.family_members.length ? '<p><b>Family members:</b> '+p.family_members.map(esc).join(', ')+'</p>' : '')
           +   '</div>'
           +   '<div class="col-md-6">'
-          +     '<p><b>Blood Type:</b> '+esc(p.blood_type||'N/A')+'</p>'
-          +     '<p><b>Patient Type:</b> '+esc(p.patient_type||'N/A')+'</p>'
-          +     '<p><b>Last Visit:</b> '+esc(p.last_visit||'N/A')+'</p>'
-          +     '<p><b>Next Visit:</b> '+esc(p.next_visit||'N/A')+'</p>'
+          +     '<p><b>Blood Type:</b> '+esc(p.blood_type||'–')+'</p>'
+          +     '<p><b>Patient Type:</b> '+esc(p.patient_type||'–')+'</p>'
+          +     '<p><b>Last Visit:</b> '+esc(p.last_visit||'–')+'</p>'
+          +     '<p><b>Next Visit:</b> '+esc(p.next_visit||'–')+'</p>'
           +   '</div>'
           + '</div>'
           + clinical;

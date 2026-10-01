@@ -1144,7 +1144,7 @@ include 'includes/head.php';
                             <strong><?= !empty($account['google_id']) ? 'Google' : 'Email + password' ?></strong></div>
                         <div class="flex-between py-2 border-bottom"><span>Patient type</span><strong><?= e($me['patient_type']) ?></strong></div>
                         <div class="flex-between py-2 border-bottom"><span>Primary dentist</span><strong><?= e($me['primary_dentist'] ?: 'Not assigned') ?></strong></div>
-                        <div class="flex-between py-2"><span>Last visit</span><strong><?= e($me['last_visit'] ?: 'N/A') ?></strong></div>
+                        <div class="flex-between py-2"><span>Last visit</span><strong><?= e($me['last_visit'] ?: '–') ?></strong></div>
                     </div>
 
                     <!-- Password -->
@@ -1231,8 +1231,8 @@ include 'includes/head.php';
                         <span class="avatar" style="background:#7fb4ad;"><?= e(strtoupper(substr($fm['name'], 0, 1))) ?></span>
                         <div><strong><?= e($fm['name']) ?></strong>
                             <div class="text-muted2" style="font-size:.8rem;"><?= e($fm['relationship'] ?: 'Booked by you') ?>
-                                · Born <?= $fm['date_of_birth'] ? date('M j, Y', strtotime($fm['date_of_birth'])) : 'N/A' ?>
-                                · Age <?= !empty($fm['age']) ? e($fm['age']) : 'N/A' ?></div></div>
+                                · Born <?= $fm['date_of_birth'] ? date('M j, Y', strtotime($fm['date_of_birth'])) : '–' ?>
+                                · Age <?= !empty($fm['age']) ? e($fm['age']) : '–' ?></div></div>
                     </div>
                     <a href="portal?view=chart&member=<?= $fmId ?>" class="btn btn-sm btn-outline-teal" data-keep-text>🦷 View / print dental chart</a>
                 </div>
@@ -1264,7 +1264,7 @@ include 'includes/head.php';
                                 <div class="py-1">📅 <?= date('M j, Y', strtotime($u['appointment_date'])) ?> · <?= e($u['appointment_time']) ?>
                                     · <?= e($u['treatment']) ?> <span class="badge-pill b-<?= strtolower($u['status']) ?>"><?= e(status_label($u['status'])) ?></span></div>
                             <?php endforeach; ?>
-                            <?php if (!$fmUpcoming): ?><div class="text-muted2">N/A — none booked.</div><?php endif; ?>
+                            <?php if (!$fmUpcoming): ?><div class="text-muted2">– (none booked)</div><?php endif; ?>
                         </div>
 
                         <!-- Their own account: an emailed invite (adults only) -->

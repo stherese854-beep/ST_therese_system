@@ -360,7 +360,7 @@ function send_cancellation_warning($pdo, $appt, $reason = '') {
             'date'      => date('l, F j, Y', strtotime($appt['appointment_date'])),
             'time'      => $appt['appointment_time'],
             'treatment' => $appt['treatment'],
-            'reason'    => $reason !== '' ? $reason : 'N/A',
+            'reason'    => $reason !== '' ? $reason : '–',
             'used'      => $used,
             'limit'     => $limit,
             'left'      => max(0, $limit - $used),

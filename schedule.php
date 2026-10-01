@@ -181,7 +181,7 @@ $active = 'schedule';
             </form>
         <?php endif; ?>
 
-        <div class="row g-3">
+        <div class="row g-3 row-match"><!-- the list card is as tall as "Disable a Day"; only the list scrolls -->
             <!-- Add a day off -->
             <div class="col-lg-5">
                 <div class="card-box">
@@ -210,7 +210,7 @@ $active = 'schedule';
             <div class="col-lg-7">
                 <div class="card-box">
                     <h5 class="mb-3">📅 Your Unavailable Days</h5>
-                    <div class="table-responsive">
+                    <div class="match-scroll">
                         <table class="data">
                             <thead><tr><th>Date</th><th>Day</th><th>Reason</th><th></th></tr></thead>
                             <tbody>

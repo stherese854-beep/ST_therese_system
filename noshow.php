@@ -462,7 +462,7 @@ function tabLink($key, $label, $count, $current) {
                                                 <span class="text-muted2">— <?= e($rc['cancel_reason'] ?: 'no reason given') ?></span></div>
                                         <?php endforeach; ?>
                                     </td>
-                                    <td><?= e($cp['primary_dentist'] ?: 'N/A') ?></td>
+                                    <td><?= e($cp['primary_dentist'] ?: '–') ?></td>
                                     <td class="no-print">
                                         <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
                                             <form method="POST" class="m-0" onsubmit="return confirm('Mark <?= e(addslashes($cp['name'])) ?> as reviewed and let them book online again?')">

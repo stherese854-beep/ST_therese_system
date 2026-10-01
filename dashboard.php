@@ -345,7 +345,7 @@ $active = 'dashboard';
                                               ? 'records?patient=' . (int)$p['id'] . '&tab=treatments'
                                               : 'patients?q=' . urlencode($p['name']); ?>
                                     <a href="<?= e($recentLink) ?>" class="recent-name" title="Open <?= e($p['name']) ?>’s <?= $role === 'staff' ? 'details' : 'treatment record' ?>"><strong><?= e($p['name']) ?></strong></a><br>
-                                    <small class="text-muted2">Age <?= !empty($p['age']) ? e($p['age']) : 'N/A' ?> · Last visit <?= e($p['last_visit'] ?: 'N/A') ?></small>
+                                    <small class="text-muted2">Age <?= !empty($p['age']) ? e($p['age']) : '–' ?> · Last visit <?= e($p['last_visit'] ?: '–') ?></small>
                                 </div>
                             </div>
                             <span class="badge-pill b-<?= strtolower($p['status']) ?>"><?= e(status_label($p['status'])) ?></span>

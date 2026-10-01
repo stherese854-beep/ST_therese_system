@@ -202,7 +202,7 @@ function health_form_flags($a) {
 // Read-only view for the admin / dentist.
 function health_form_view($a) {
     if (!$a) return '<div class="text-muted2">No health questionnaire on file.</div>';
-    $yn = fn($v) => $v === 'yes' ? 'Yes' : ($v === 'no' ? 'No' : ($v === 'na' ? 'Not applicable' : '—'));
+    $yn = fn($v) => $v === 'yes' ? 'Yes' : ($v === 'no' ? 'No' : ($v === 'na' ? 'Not applicable' :  '–'));
     $row = fn($q, $ans) => '<tr><th>' . e($q) . '</th><td>' . $ans . '</td></tr>';
     $flags = health_form_flags($a);
     $h  = $flags ? '<div class="alert py-2 mb-2" style="background:#fdecec;border:1px solid #f5b5b5;color:#9b2c2c;font-size:.85rem;">⚠️ '
@@ -215,11 +215,11 @@ function health_form_view($a) {
     }
     $conds = array_merge($a['conditions'] ?? [], !empty($a['other_disease']) ? ['Other: ' . $a['other_disease']] : []);
     $h .= $row('Diseases / symptoms', $conds ? e(implode(', ', $conds)) : 'None ticked');
-    $h .= $row('Regular medication', !empty($a['no_medication']) ? 'No regular medication' : e($a['medication'] ?: 'N/A'));
-    $h .= $row('Attending physician', e($a['physician'] ?: 'N/A'));
-    $h .= $row('Further information', e($a['further'] ?: 'N/A'));
+    $h .= $row('Regular medication', !empty($a['no_medication']) ? 'No regular medication' : e($a['medication'] ?: '–'));
+    $h .= $row('Attending physician', e($a['physician'] ?: '–'));
+    $h .= $row('Further information', e($a['further'] ?: '–'));
     $h .= $row('May share info with other providers', e($yn($a['share_consent'] ?? '')));
-    $h .= $row('Filled in', e(!empty($a['filled_at']) ? date('M j, Y g:i A', strtotime($a['filled_at'])) : '—'));
+    $h .= $row('Filled in', e(!empty($a['filled_at']) ? date('M j, Y g:i A', strtotime($a['filled_at'])) :  '–'));
     return $h . '</table>';
 }
 

@@ -69,7 +69,7 @@ $active = 'my_activity';
                         <tr>
                             <td><small class="text-muted2"><?= date('M j, Y g:i A', strtotime($log['created_at'])) ?></small></td>
                             <td><span class="badge-pill <?= activity_badge($log['action']) ?>"><?= e($log['action']) ?></span></td>
-                            <td class="text-muted2"><?= e($log['details'] ?: 'N/A') ?></td>
+                            <td class="text-muted2"><?= e($log['details'] ?: '–') ?></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>

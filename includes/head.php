@@ -199,9 +199,9 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         if (c) c.textContent = q === '' ? '' : shown + ' of ' + total + ' shown';
     });
 
-    // ---- No blank information: empty table cells show a grey "-" ----
-    // Any table cell with nothing in it, or that just says "N/A", shows a grey
-    // "-" instead, including tables filled in later by a script. Cells that
+    // ---- No blank information: empty table cells show a grey "–" ----
+    // Any table cell with nothing in it, or that just says "N/A" / "-", shows a grey
+    // "–" instead, including tables filled in later by a script. Cells that
     // hold buttons, inputs, pictures, the calendar, etc. are left alone.
     (function () {
         function fill(root) {
@@ -212,7 +212,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
                 var t = td.textContent.replace(/\s+/g, ' ').trim();
                 if (t === '' || /^(-|—|–|n\/a)$/i.test(t)) {
                     td.dataset.na = '1';
-                    td.innerHTML = '<span class="na" title="No information">-</span>';
+                    td.innerHTML = '<span class="na" title="No information">–</span>';
                 }
             });
         }

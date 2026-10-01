@@ -402,7 +402,7 @@ $active = 'dentists';
                         </div>
                         <div class="text-muted2 mb-1" style="font-size:.85rem;">🦷 <?= e($doc['specialty'] ?: 'General Dentistry') ?></div>
                         <div class="text-muted2 mb-1" style="font-size:.85rem;">📧 <?= e($doc['email']) ?></div>
-                        <div class="text-muted2 mb-3" style="font-size:.85rem;">📞 <?= e($doc['contact'] ?: 'N/A') ?></div>
+                        <div class="text-muted2 mb-3" style="font-size:.85rem;">📞 <?= e($doc['contact'] ?: '–') ?></div>
 
                         <form method="POST" enctype="multipart/form-data" class="mb-3">
                             <input type="hidden" name="action" value="upload_photo">

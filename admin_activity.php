@@ -133,9 +133,9 @@ $active = 'activity';
                         <tr>
                             <td><small class="text-muted2"><?= date('M j, Y g:i A', strtotime($log['created_at'])) ?></small></td>
                             <td><strong><?= e($log['actor_name'] ?: 'System') ?></strong></td>
-                            <td><?= $log['actor_role'] ? '<span class="badge-pill b-pending">' . ucfirst(e($log['actor_role'])) . '</span>' : '<span class="text-muted2">N/A</span>' ?></td>
+                            <td><?= $log['actor_role'] ? '<span class="badge-pill b-pending">' . ucfirst(e($log['actor_role'])) . '</span>' : '<span class="text-muted2">–</span>' ?></td>
                             <td><span class="badge-pill <?= activity_badge($log['action']) ?>"><?= e($log['action']) ?></span></td>
-                            <td class="text-muted2"><?= e($log['details'] ?: 'N/A') ?></td>
+                            <td class="text-muted2"><?= e($log['details'] ?: '–') ?></td>
                             <td class="text-end">
                                 <div class="d-flex gap-2 align-items-center justify-content-end">
                                 <?= bulk_pick('bulk-log', $log['id']) ?>

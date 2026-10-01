@@ -170,10 +170,10 @@ $active = 'users';
                                 <div><strong><?= e($u['name']) ?></strong><br><small class="text-muted2"><?= e($u['email']) ?></small></div>
                             </div></td>
                             <td><span class="badge-pill <?= $roleBadge ?>"><?= ucfirst($u['role']) ?></span></td>
-                            <td><?= e($u['specialty'] ?: $u['position'] ?: 'N/A') ?></td>
+                            <td><?= e($u['specialty'] ?: $u['position'] ?: '–') ?></td>
                             <td><?= e($u['contact']) ?></td>
                             <td><span class="badge-pill b-<?= $u['status'] ?>"><?= ucfirst($u['status']) ?></span></td>
-                            <td style="white-space:nowrap;"><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : 'N/A' ?></small></td>
+                            <td style="white-space:nowrap;"><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : '–' ?></small></td>
                             <td class="no-print">
                                 <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
                                 <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode($u) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>

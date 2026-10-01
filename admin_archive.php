@@ -210,7 +210,7 @@ $active = 'archive';
                                 <div><strong><?= e($u['name']) ?></strong><br><small class="text-muted2"><?= e($u['email'] ?: 'No login account') ?></small></div>
                             </div></td>
                             <td><span class="badge-pill <?= $roleBadge ?>"><?= ucfirst($u['role']) ?></span></td>
-                            <td><?= e($u['archived_by'] ?: 'N/A') ?></td>
+                            <td><?= e($u['archived_by'] ?: '–') ?></td>
                             <td><small class="text-muted2"><?= $u['archived_at'] ? date('M j, Y g:i A', strtotime($u['archived_at'])) : '-' ?></small></td>
                             <td>
                                 <div class="d-flex gap-1 align-items-center">
@@ -250,10 +250,10 @@ $active = 'archive';
                     <tbody>
                     <?php foreach ($archivedVisits as $v): ?>
                         <tr>
-                            <td><strong><?= e($v['patient_name'] ?: 'N/A') ?></strong></td>
+                            <td><strong><?= e($v['patient_name'] ?: '–') ?></strong></td>
                             <td><?= date('M j, Y', strtotime($v['visit_date'])) ?><?= $v['title'] ? ' · ' . e($v['title']) : '' ?>
                                 <br><small class="text-muted2"><?= (int)$v['teeth'] ?> tooth record<?= (int)$v['teeth'] === 1 ? '' : 's' ?></small></td>
-                            <td><?= e($v['archived_by'] ?: 'N/A') ?></td>
+                            <td><?= e($v['archived_by'] ?: '–') ?></td>
                             <td><small class="text-muted2"><?= date('M j, Y g:i A', strtotime($v['archived_at'])) ?></small></td>
                             <td class="no-print">
                                 <div class="d-flex gap-1">

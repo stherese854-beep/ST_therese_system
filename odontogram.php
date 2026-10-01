@@ -235,11 +235,11 @@ $active = 'odontogram';
                 <div style="text-align:right;font-size:11px;color:#555;"><strong style="font-size:14px;color:#0d3b3b;">Dental Chart (Odontogram)</strong><br>Printed <?= date('M j, Y g:i A') ?></div>
             </div>
             <table class="odo-print-info">
-                <tr><td><b>Patient:</b> <?= e($printPatient['name'] ?? 'N/A') ?></td>
-                    <td><b>Age:</b> <?= !empty($printPatient['age']) ? e($printPatient['age']) : 'N/A' ?></td>
-                    <td><b>Date of birth:</b> <?= !empty($printPatient['date_of_birth']) ? date('M j, Y', strtotime($printPatient['date_of_birth'])) : 'N/A' ?></td></tr>
-                <tr><td><b>Visit:</b> <?= $session ? date('M j, Y', strtotime($session['visit_date'])) . ($session['title'] ? ' · ' . e($session['title']) : '') : 'N/A' ?></td>
-                    <td colspan="2"><b>Dentist:</b> <?= e(($printPatient['primary_dentist'] ?? '') ?: 'N/A') ?></td></tr>
+                <tr><td><b>Patient:</b> <?= e($printPatient['name'] ?? '–') ?></td>
+                    <td><b>Age:</b> <?= !empty($printPatient['age']) ? e($printPatient['age']) : '–' ?></td>
+                    <td><b>Date of birth:</b> <?= !empty($printPatient['date_of_birth']) ? date('M j, Y', strtotime($printPatient['date_of_birth'])) : '–' ?></td></tr>
+                <tr><td><b>Visit:</b> <?= $session ? date('M j, Y', strtotime($session['visit_date'])) . ($session['title'] ? ' · ' . e($session['title']) : '') : '–' ?></td>
+                    <td colspan="2"><b>Dentist:</b> <?= e(($printPatient['primary_dentist'] ?? '') ?: '–') ?></td></tr>
             </table>
         </div>
 
@@ -387,7 +387,7 @@ $active = 'odontogram';
                     <h5>Select a Tooth</h5>
                     <div id="tooth-panel"><p class="text-muted2">Click a tooth on the chart to view or change its condition.</p></div>
                     <div class="text-muted2 mt-2" style="font-size:.76rem;">
-                        Changes save into the <strong><?= $session ? date('M j, Y', strtotime($session['visit_date'])) : '—' ?></strong> chart.
+                        Changes save into the <strong><?= $session ? date('M j, Y', strtotime($session['visit_date'])) :  '–' ?></strong> chart.
                     </div>
                 </div>
 
@@ -404,7 +404,7 @@ $active = 'odontogram';
                         </div>
                         <div class="flex-between py-1">
                             <span class="text-muted2">Label</span>
-                            <strong><?= e($session['title'] ?: 'N/A') ?></strong>
+                            <strong><?= e($session['title'] ?: '–') ?></strong>
                         </div>
                         <?php if (trim($session['notes'] ?? '') !== ''): ?>
                         <div class="py-1">
@@ -464,7 +464,7 @@ $active = 'odontogram';
                     </div>
 
                     <div class="text-muted2 mt-2" style="font-size:.76rem;">
-                        Recorded by <?= e($session['created_by'] ?: 'N/A') ?>
+                        Recorded by <?= e($session['created_by'] ?: '–') ?>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -509,7 +509,7 @@ $active = 'odontogram';
                 <?php endforeach; ?>
             </select>
             <div class="text-muted2 mt-2" style="font-size:.78rem;">
-                Saves into the <strong><?= $session ? date('M j, Y', strtotime($session['visit_date'])) : '—' ?></strong> chart.
+                Saves into the <strong><?= $session ? date('M j, Y', strtotime($session['visit_date'])) :  '–' ?></strong> chart.
             </div>
         </div>
         <div class="modal-footer">

@@ -68,7 +68,7 @@ $completed  = $byStatus['Completed'] ?? 0;
 $noShows    = $byStatus['No-show'] ?? 0;
 $cancelled  = $byStatus['Cancelled'] ?? 0;
 $attendBase = $completed + $noShows;                         // visits that were due and resolved
-$pct = fn($n, $d) => $d > 0 ? round($n * 100 / $d) . '%' : '—';
+$pct = fn($n, $d) => $d > 0 ? round($n * 100 / $d) . '%' :  '–';
 
 $patientCount = (int)$pdo->query("SELECT COUNT(*) FROM patients p LEFT JOIN users u ON p.user_id = u.id
                                    WHERE (u.id IS NULL OR u.role = 'patient') AND p.status <> 'Archived'")->fetchColumn();
@@ -338,7 +338,7 @@ $active = 'analytics';
             <div class="kpi"><div class="label">No-show rate</div><div class="value"><?= $pct($noShows, $attendBase) ?></div><div class="note"><?= $noShows ?> missed</div></div>
             <div class="kpi"><div class="label">Cancellation rate</div><div class="value"><?= $pct($cancelled, $total) ?></div><div class="note"><?= $cancelled ?> cancelled</div></div>
             <div class="kpi"><div class="label">Active patients</div><div class="value"><?= number_format($patientCount) ?></div><div class="note">all time</div></div>
-            <div class="kpi"><div class="label">Average rating</div><div class="value"><?= $rev['n'] ? number_format((float)$rev['avg'], 1) . ' ★' : '—' ?></div><div class="note"><?= (int)$rev['n'] ?> review<?= (int)$rev['n'] === 1 ? '' : 's' ?></div></div>
+            <div class="kpi"><div class="label">Average rating</div><div class="value"><?= $rev['n'] ? number_format((float)$rev['avg'], 1) . ' ★' :  '–' ?></div><div class="note"><?= (int)$rev['n'] ?> review<?= (int)$rev['n'] === 1 ? '' : 's' ?></div></div>
         </div>
 
         <!-- Section navbar: "All" shows every graph on one page; the others narrow it down -->
