@@ -83,6 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $keep->execute([$pid]);
             $_POST['primary_dentist'] = (string)$keep->fetchColumn();
         }
+        $oldDentQ = $pdo->prepare("SELECT primary_dentist FROM patients WHERE id=?");
+        $oldDentQ->execute([$pid]);
+        $oldDentist = (string)$oldDentQ->fetchColumn();
         // Birthday / age: only admin and staff may change them.
         if (in_array(current_role(), ['admin','staff'], true)) {
             $dob = trim($_POST['dob'] ?? '');
@@ -109,7 +112,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pid
         ]);
         log_activity($pdo, 'Updated patient info', patient_name_of($pdo, $pid));
-        set_flash('Patient information updated.');
+        // A new dentist: the patient's upcoming appointments go to them too (same date and time).
+        $newDentist = trim($_POST['primary_dentist']);
+        $msg = 'Patient information updated.'; $type = 'success';
+        if ($newDentist !== '' && $newDentist !== $oldDentist) {
+            log_activity($pdo, 'Assigned dentist', patient_name_of($pdo, $pid) . ' → ' . $newDentist);
+            [$movedN, $stuck] = move_upcoming_to_dentist($pdo, $pid, $newDentist);
+            if ($movedN) $msg .= " $movedN upcoming appointment" . ($movedN > 1 ? 's were' : ' was') . " moved to $newDentist (same date and time).";
+            if ($stuck) { $msg .= " Not moved — $newDentist is off or already booked: " . implode('; ', $stuck) . '. Please change those in Appointments.'; $type = 'warning'; }
+        }
+        set_flash($msg, $type);
         header("Location: records?patient=$pid&tab=overview"); exit;
     }
 

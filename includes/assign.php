@@ -234,6 +234,8 @@ function slots_blocked_by($slots, $busyTimes) {
 function move_upcoming_to_dentist($pdo, $patientId, $newDentist) {
     $newDentist = trim((string)$newDentist);
     if ($newDentist === '' || (int)$patientId <= 0) return [0, []];
+    if (!function_exists('mail_is_ready'))     require_once __DIR__ . '/mailer.php';
+    if (!function_exists('message_catalogue')) require_once __DIR__ . '/message_templates.php';
     $q = $pdo->prepare("SELECT a.*, COALESCE(NULLIF(p.email,''), g.email, u.email) AS patient_email
                           FROM appointments a
                           JOIN patients p ON p.id = a.patient_id
