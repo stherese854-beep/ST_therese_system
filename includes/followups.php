@@ -206,3 +206,62 @@ function send_followup_reminders($pdo) {
     } catch (Throwable $e) {}
     return $sent;
 }
+
+/**
+ * Book the plan's next visit as a real appointment (already Approved), and set the plan's due date to it.
+ * The patient sees it in My Appointments (with the slip), gets a pop-up + the confirmation email,
+ * and can still reschedule or cancel it from the portal like any booking.
+ * Returns [ok, message].
+ */
+function book_followup_appointment($pdo, $plan, $date, $time, $by) {
+    if (!function_exists('clinic_time_slots')) require_once __DIR__ . '/treatments.php';
+    if (!function_exists('booking_treatment_for')) require_once __DIR__ . '/dental_care.php';
+    if (!function_exists('add_patient_notice')) require_once __DIR__ . '/patient_notices.php';
+    if (!function_exists('appt_slot_is_open')) require_once __DIR__ . '/assign.php';
+    if (!function_exists('mail_is_ready')) require_once __DIR__ . '/mailer.php';
+    if (!function_exists('message_catalogue')) require_once __DIR__ . '/message_templates.php';
+
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$date) || $date <= date('Y-m-d')) return [false, 'Please choose a date from tomorrow onwards.'];
+    if (!in_array($time, clinic_time_slots($pdo), true)) return [false, 'Please choose one of the clinic\'s time slots.'];
+
+    $pq = $pdo->prepare("SELECT p.id, p.name, p.primary_dentist, p.guardian_patient_id,
+                                COALESCE(NULLIF(p.email,''), NULLIF(g.email,''), u.email) AS email
+                           FROM patients p LEFT JOIN patients g ON g.id = p.guardian_patient_id
+                      LEFT JOIN users u ON u.id = COALESCE(g.user_id, p.user_id) WHERE p.id = ?");
+    $pq->execute([(int)$plan['patient_id']]);
+    $pt = $pq->fetch();
+    if (!$pt) return [false, 'The patient could not be found.'];
+    $dentist = $plan['dentist'] ?: $pt['primary_dentist'];
+    if (!$dentist) return [false, 'This patient has no dentist yet. Please assign one first.'];
+    if (!appt_slot_is_open($pdo, $date, $time, $dentist)) {
+        return [false, $dentist . ' is not free on ' . date('M j, Y', strtotime($date)) . " at $time (day off, clinic closed, or already booked). Please pick another time."];
+    }
+
+    $session = ((int)$plan['sessions_done'] + 1) . ($plan['total_sessions'] ? ' of ' . (int)$plan['total_sessions'] : '');
+    $treat   = booking_treatment_for($plan['treatment_name']);
+    $note    = 'Follow-up: ' . $plan['treatment_name'] . " (session $session) — booked by $by";
+    $pdo->prepare("INSERT INTO appointments (patient_id, patient_name, dentist, treatment, appointment_date, appointment_time,
+                                             status, confirmed_at, notes, booked_for)
+                   VALUES (?, ?, ?, ?, ?, ?, 'Confirmed', NOW(), ?, 'Myself')")
+        ->execute([(int)$pt['id'], $pt['name'], $dentist, $treat, $date, $time, $note]);
+    $pdo->prepare("UPDATE treatment_plans SET next_due = ?, last_reminder_for = ? WHERE id = ?")->execute([$date, $date, (int)$plan['id']]);
+    sync_next_visit($pdo, (int)$pt['id']);
+
+    $when = date('l, F j, Y', strtotime($date)) . " at $time";
+    $holder = (int)($pt['guardian_patient_id'] ?: $pt['id']);
+    add_patient_notice($pdo, $holder, 'followup_booked', 'good', '📅 Your next visit is booked',
+        ($holder !== (int)$pt['id'] ? $pt['name'] . '’s' : 'Your') . ' next ' . $plan['treatment_name'] . " visit (session $session) is booked for $when with $dentist."
+        . "\n\nYou can see it — and print the slip — under Appointments. If the time does not suit you, you can reschedule it there.");
+    $mailNote = '';
+    if (!empty($pt['email']) && mail_is_ready($pdo)) {
+        $cat = message_catalogue()['appointment_confirmed'];
+        [$subj, $body] = tpl_message($pdo, 'appointment_confirmed', $cat['subject'], $cat['body'], [
+            'patient' => $pt['name'], 'date' => date('l, F j, Y', strtotime($date)), 'time' => $time,
+            'treatment' => $treat, 'dentist' => $dentist, 'clinic' => clinic_name($pdo),
+        ]);
+        $err = '';
+        $mailNote = send_mail($pdo, $pt['email'], $subj, $body, $err, 'appointment_confirmed') ? ' A confirmation was emailed.' : '';
+    }
+    log_activity($pdo, 'Booked follow-up visit', $pt['name'] . ' — ' . $plan['treatment_name'] . " (session $session), $when with $dentist");
+    return [true, 'Next ' . $plan['treatment_name'] . " visit booked: $when with $dentist. The patient can see it in their portal." . $mailNote];
+}

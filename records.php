@@ -19,6 +19,7 @@ require_login(['admin','dentist']);   // clinical records - not front-desk staff
 require_once 'includes/teeth.php';     // for the read-only dental chart in Overview
 require_once 'includes/followups.php'; // follow-up plans (braces, root canal sessions, check-ups)
 require_once 'includes/clinical.php';  // allergies, medications, dental notes, alert banner
+require_once 'includes/treatments.php'; // clinic_time_slots() for booking the next visit
 require_once 'includes/health_form.php';   // latest health questionnaire in Overview
 
 // Only REAL patients (exclude staff/dentist/admin accounts).
@@ -151,16 +152,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Follow-up: a session of an existing plan, or a new plan ("Needs follow-up" ticked).
         $fuMsg = ($_POST['status'] ?? '') === 'Planned' ? '' : followup_after_treatment($pdo, $pid, $_POST['treatment_name'], $_POST['tooth'] ?? '',
                      $_POST['treatment_date'] ?: date('Y-m-d'), $_POST, $_SESSION['name'] ?? '');
+        // "📅 Also book the next session now"
+        if (!empty($_POST['book_next'])) {
+            $pq = $pdo->prepare("SELECT * FROM treatment_plans WHERE patient_id = ? AND status = 'Active' AND LOWER(treatment_name) = LOWER(?) LIMIT 1");
+            $pq->execute([$pid, trim($_POST['treatment_name'])]);
+            if ($plan = $pq->fetch()) {
+                [$okB, $msgB] = book_followup_appointment($pdo, $plan, $_POST['book_date'] ?? '', $_POST['book_time'] ?? '', $_SESSION['name'] ?? 'Clinic');
+                $fuMsg .= ' ' . ($okB ? $msgB : 'The next session was NOT booked: ' . $msgB);
+            } else {
+                $fuMsg .= ' (The next session was not booked: tick "Needs follow-up" to start a plan for this treatment first.)';
+            }
+        }
         set_flash('Treatment record added.' . $fuMsg);
         header("Location: records?patient=$pid&tab=treatments"); exit;
     }
     // ---- Follow-up plan: finish, stop, or change the next due date ----
-    if (in_array($action, ['plan_complete', 'plan_stop', 'plan_due'], true)) {
+    if (in_array($action, ['plan_complete', 'plan_stop', 'plan_due', 'plan_book'], true)) {
         $planId = (int)($_POST['plan_id'] ?? 0);
         $pl = $pdo->prepare("SELECT * FROM treatment_plans WHERE id = ? AND patient_id = ?");
         $pl->execute([$planId, $pid]);
         if ($plan = $pl->fetch()) {
-            if ($action === 'plan_due') {
+            if ($action === 'plan_book') {
+                // 📅 Book next visit: a real (approved) appointment the patient sees in their portal.
+                [$okB, $msgB] = book_followup_appointment($pdo, $plan, $_POST['book_date'] ?? '', $_POST['book_time'] ?? '', $_SESSION['name'] ?? 'Clinic');
+                set_flash($msgB, $okB ? 'success' : 'error');
+                header("Location: records?patient=$pid&tab=treatments#plans"); exit;
+            } elseif ($action === 'plan_due') {
                 $nd = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['next_due'] ?? '') ? $_POST['next_due'] : null;
                 $pdo->prepare("UPDATE treatment_plans SET next_due = ?, last_reminder_for = NULL WHERE id = ?")->execute([$nd, $planId]);
                 set_flash('Next ' . $plan['treatment_name'] . ' visit moved to ' . ($nd ? date('M j, Y', strtotime($nd)) : '–') . '.');
@@ -592,6 +609,18 @@ $active = 'records';
                             <div class="col-md-3"><label class="field-label">Total sessions</label>
                                 <input type="number" name="followup_sessions" class="form-control" min="2" max="99" placeholder="e.g. 24"></div>
                         </div>
+                        <!-- Book the next session right away, while the patient is still at the clinic -->
+                        <label class="d-flex align-items-center gap-2 mt-2 m-0" style="cursor:pointer;">
+                            <input type="checkbox" name="book_next" value="1" class="form-check-input m-0"
+                                   onchange="document.getElementById('fu-book').style.display = this.checked ? '' : 'none'">
+                            📅 Also book the next session now <span class="text-muted2" style="font-size:.8rem;">(for a follow-up plan — the patient sees it in their portal)</span>
+                        </label>
+                        <div id="fu-book" class="row g-2 mt-1" style="display:none;">
+                            <div class="col-md-5"><label class="field-label">Date</label>
+                                <input type="date" name="book_date" class="form-control" min="<?= date('Y-m-d', strtotime('+1 day')) ?>"></div>
+                            <div class="col-md-4"><label class="field-label">Time</label>
+                                <select name="book_time" class="form-select"><?php foreach (clinic_time_slots($pdo) as $sl): ?><option><?= e($sl) ?></option><?php endforeach; ?></select></div>
+                        </div>
                     </div>
                     <button class="btn btn-teal">Add Record</button>
                 </form>
@@ -616,13 +645,26 @@ $active = 'records';
                         </div>
                         <?php if ($pl['status'] === 'Active'): ?>
                         <div class="d-flex gap-1 flex-wrap align-items-center" data-keep-text>
-                            <?php if (!$nextBooked): ?><a href="<?= e(followup_book_link($pl)) ?>" class="btn btn-sm btn-teal">📅 Book follow-up</a><?php endif; ?>
-                            <form method="POST" class="d-flex gap-1 m-0">
-                                <input type="hidden" name="action" value="plan_due"><input type="hidden" name="patient_id" value="<?= $pid ?>">
+                            <?php $bkDefault = max((string)$pl['next_due'], date('Y-m-d', strtotime('+1 day'))); ?>
+                            <!-- 📅 Book next visit: creates the appointment (Approved); the patient sees it in their portal -->
+                            <form method="POST" class="d-flex gap-1 m-0 flex-wrap" title="Books a real appointment the patient sees in their portal">
+                                <input type="hidden" name="action" value="plan_book"><input type="hidden" name="patient_id" value="<?= $pid ?>">
                                 <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>">
-                                <input type="date" name="next_due" class="form-control form-control-sm" style="width:150px;" value="<?= e($pl['next_due']) ?>">
-                                <button class="btn btn-sm btn-light">Save date</button>
+                                <input type="date" name="book_date" class="form-control form-control-sm" style="width:150px;" min="<?= date('Y-m-d', strtotime('+1 day')) ?>" value="<?= e($bkDefault) ?>" required>
+                                <select name="book_time" class="form-select form-select-sm" style="width:118px;" required>
+                                    <?php foreach (clinic_time_slots($pdo) as $sl): ?><option><?= e($sl) ?></option><?php endforeach; ?>
+                                </select>
+                                <button class="btn btn-sm btn-teal">📅 Book next visit</button>
                             </form>
+                            <details class="fu-only-date">
+                                <summary class="text-muted2" style="font-size:.78rem;cursor:pointer;">Only change the due date</summary>
+                                <form method="POST" class="d-flex gap-1 m-0 mt-1">
+                                    <input type="hidden" name="action" value="plan_due"><input type="hidden" name="patient_id" value="<?= $pid ?>">
+                                    <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>">
+                                    <input type="date" name="next_due" class="form-control form-control-sm" style="width:150px;" value="<?= e($pl['next_due']) ?>">
+                                    <button class="btn btn-sm btn-light" title="No appointment is made — the patient is reminded to book">Save date</button>
+                                </form>
+                            </details>
                             <form method="POST" class="m-0"><input type="hidden" name="action" value="plan_complete"><input type="hidden" name="patient_id" value="<?= $pid ?>">
                                 <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>"><button class="btn btn-sm btn-light" style="color:#1f8a54;">✔ Finished</button></form>
                             <form method="POST" class="m-0" onsubmit="return confirm('Stop this follow-up plan? The patient will no longer be reminded.')">
