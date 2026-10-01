@@ -104,18 +104,23 @@ include 'includes/head.php';
             <input type="hidden" name="action" value="save_templates">
 
             <div class="tpl-layout">
-            <!-- Navbar: one entry per message; the selected one shows on the right -->
-            <nav class="tpl-nav" id="tpl-nav" aria-label="Messages">
-                <?php foreach ($groups as $groupName => $items): ?>
-                    <div class="tpl-nav-group"><?= e($groupName) ?></div>
-                    <?php foreach ($items as $kind => $t):
-                        $navEdited = isEdited($saved, "tpl_{$kind}_subject") || isEdited($saved, "tpl_{$kind}_body"); ?>
-                        <button type="button" data-pane="<?= e($kind) ?>"><?= e($t['label']) ?><?= $navEdited ? ' <i class="tpl-dot" title="edited"></i>' : '' ?></button>
+            <!-- Pick a message from the drop-down; only that one shows below -->
+            <div class="tpl-pick card-box">
+                <label class="field-label mb-1" for="tpl-select">📝 Choose a message to edit</label>
+                <select id="tpl-select" class="form-select">
+                    <?php foreach ($groups as $groupName => $items): ?>
+                        <optgroup label="<?= e($groupName) ?>">
+                        <?php foreach ($items as $kind => $t):
+                            $navEdited = isEdited($saved, "tpl_{$kind}_subject") || isEdited($saved, "tpl_{$kind}_body"); ?>
+                            <option value="<?= e($kind) ?>"><?= e($t['label']) ?><?= $navEdited ? '  • edited' : '' ?></option>
+                        <?php endforeach; ?>
+                        </optgroup>
                     <?php endforeach; ?>
-                <?php endforeach; ?>
-                <div class="tpl-nav-group">Printed</div>
-                <button type="button" data-pane="slip">Appointment slip</button>
-            </nav>
+                    <optgroup label="Printed">
+                        <option value="slip">Appointment slip</option>
+                    </optgroup>
+                </select>
+            </div>
 
             <div class="tpl-panes">
             <?php foreach ($groups as $groupName => $items): ?>
@@ -197,55 +202,41 @@ include 'includes/head.php';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <style>
-.tpl-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 12px; }
-.tpl-nav { background: #fff; border-radius: 14px; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06);
-           position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; }
-.tpl-nav-group { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
-                 color: #8aa0a0; padding: 10px 10px 4px; }
-.tpl-nav button { border: 0; background: transparent; text-align: left; padding: 8px 10px; border-radius: 9px;
-                  font-size: .86rem; color: #3f5350; line-height: 1.3; }
-.tpl-nav button:hover { background: #eef7f6; color: var(--teal); }
-.tpl-nav button.on { background: var(--teal); color: #fff; font-weight: 600; }
-.tpl-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); vertical-align: 1px; margin-left: 3px; }
+.tpl-layout { margin-top: 12px; }
+.tpl-pick { padding: 14px 18px; margin-bottom: 14px; }
+.tpl-pick select { max-width: 520px; font-weight: 600; }
 .tpl-pane { display: none; }
 .tpl-pane.on { display: block; }
-@media (max-width: 860px) {
-    /* Phones/tablets: the navbar becomes one scrollable row above the message */
-    .tpl-layout { grid-template-columns: 1fr; }
-    .tpl-nav { position: static; flex-direction: row; overflow-x: auto; padding: 6px; }
-    .tpl-nav-group { display: none; }
-    .tpl-nav button { white-space: nowrap; flex: 0 0 auto; }
-}
+/* Message boxes grow to fit their text, so nothing needs scrolling inside them */
+.tpl-pane textarea { overflow: hidden; resize: none; min-height: 90px; }
 </style>
 <script>
 startClock();
 
-// Message navbar: show the chosen message; remembered per browser.
+// Message drop-down: show the chosen message; remembered per browser.
+function tplFit(t) { t.style.height = 'auto'; t.style.height = (t.scrollHeight + 2) + 'px'; }
 (function () {
-    var nav = document.getElementById('tpl-nav');
-    if (!nav) return;
+    var sel = document.getElementById('tpl-select');
+    if (!sel) return;
     function show(k) {
         var found = false;
         document.querySelectorAll('.tpl-pane').forEach(function (p) {
             var on = p.dataset.pane === k; p.classList.toggle('on', on); found = found || on;
+            if (on) p.querySelectorAll('textarea').forEach(tplFit);
         });
         if (!found) return false;
-        nav.querySelectorAll('button').forEach(function (b) {
-            var on = b.dataset.pane === k;
-            b.classList.toggle('on', on);
-            b.setAttribute('aria-current', on ? 'true' : 'false');
-            if (on && window.innerWidth <= 860) b.scrollIntoView({ block: 'nearest', inline: 'center' });
-        });
+        sel.value = k;
         try { localStorage.setItem('tpl_pane', k); } catch (e) {}
         return true;
     }
-    nav.addEventListener('click', function (e) {
-        var b = e.target.closest('button[data-pane]');
-        if (b) show(b.dataset.pane);
+    sel.addEventListener('change', function () { show(sel.value); });
+    document.querySelectorAll('.tpl-pane textarea').forEach(function (t) {
+        t.addEventListener('input', function () { tplFit(t); });
     });
+    window.addEventListener('resize', function () { document.querySelectorAll('.tpl-pane.on textarea').forEach(tplFit); });
     var saved = null;
     try { saved = localStorage.getItem('tpl_pane'); } catch (e) {}
-    if (!saved || !show(saved)) show(nav.querySelector('button[data-pane]').dataset.pane);
+    if (!saved || !show(saved)) show(sel.options[0].value);
 })();
 
 function resetOne(kind, label){

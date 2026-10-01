@@ -962,6 +962,27 @@ include 'includes/head.php';
         <?php elseif ($view === 'profile'): ?>
             <!-- ===== MY PROFILE (editable) ===== -->
 
+            <!-- Text size: make the writing bigger if it is hard to read (saved to this account) -->
+            <?php $tsMine = user_text_scale($pdo); $tsNow = $tsMine ?? system_text_scale($pdo); ?>
+            <div class="card-box mb-3" data-keep-text>
+                <h5 class="mb-1">🔠 Text Size</h5>
+                <div class="text-muted2 mb-3" style="font-size:.88rem;">Hard to read? Make the writing bigger. It changes right away and is remembered on every device you sign in with.</div>
+                <div class="ts-btns">
+                    <?php foreach (TEXT_SCALES as $tsv => $tsl): ?>
+                        <button type="button" data-scale="<?= $tsv ?>" class="<?= $tsNow === $tsv ? 'on' : '' ?>" onclick="setTextScale(<?= $tsv ?>)">
+                            <span style="font-size:<?= round(1.1 * $tsv / 100, 2) ?>rem;font-weight:700;">Aa</span><br><small><?= e($tsl) ?></small>
+                        </button>
+                    <?php endforeach; ?>
+                </div>
+                <button type="button" class="ts-reset btn btn-link p-0 mt-2" onclick="setTextScale('')" <?= $tsMine === null ? 'hidden' : '' ?>>Use the clinic's default size</button>
+            </div>
+            <style>
+            .ts-btns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; max-width: 560px; }
+            .ts-btns button { border: 2px solid #dde5ea; background: var(--card, #fff); border-radius: 12px; padding: 10px 4px; color: #3f5350; line-height: 1.2; }
+            .ts-btns button.on { border-color: var(--teal-mid); background: #eef7f6; color: var(--teal-mid); }
+            @media (max-width: 420px) { .ts-btns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+            </style>
+
             <!-- Profile picture -->
             <div class="card-box mb-3">
                 <h5 class="mb-3">🖼️ Profile Picture</h5>

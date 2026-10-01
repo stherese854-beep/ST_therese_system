@@ -379,16 +379,16 @@ $active = 'dentists';
             </div>
         </div>
 
-        <div class="row g-3">
-            <div class="col-12"><?= bulk_bar('bulk-dentists', 'delete_dentist', 'dentists to the Archive', [], '🗑 Move selected to Archive', 'Their patients will be transferred to the remaining dentists. They can be restored from the Archive.', 'Move') ?></div>
+        <div class="mb-3"><?= bulk_bar('bulk-dentists', 'delete_dentist', 'dentists to the Archive', [], '🗑 Move selected to Archive', 'Their patients will be transferred to the remaining dentists. They can be restored from the Archive.', 'Move') ?></div>
+        <div class="dentist-grid">
             <?php foreach ($dentists as $doc):
                 // how many patients are assigned to this dentist?
                 $cnt = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE primary_dentist = ?");
                 $cnt->execute([$doc['name']]);
                 $patientCount = $cnt->fetchColumn();
             ?>
-                <div class="col-md-6 col-xl-4">
-                    <div class="card-box h-100">
+                <div class="dg-cell">
+                    <div class="card-box h-100 mb-0">
                         <div class="d-flex align-items-center gap-3 mb-3">
                             <?php if (!empty($doc['photo']) && is_file(__DIR__ . '/' . $doc['photo'])): ?>
                                 <img src="<?= e($doc['photo']) ?>" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;">
@@ -431,7 +431,7 @@ $active = 'dentists';
             <?php endforeach; ?>
 
             <?php if (empty($dentists)): ?>
-                <div class="col-12"><div class="card-box text-center text-muted2">No dentists yet. Click <strong>+ Add Dentist</strong> to create one.</div></div>
+                <div class="dg-full"><div class="card-box text-center text-muted2">No dentists yet. Click <strong>+ Add Dentist</strong> to create one.</div></div>
             <?php endif; ?>
         </div>
 
@@ -493,5 +493,13 @@ $active = 'dentists';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>if (document.getElementById('clock')) startClock();</script>
+<style>
+/* Dentist cards share the full width and re-flow on their own as dentists are added:
+   2 dentists = 2 wide cards, 3 = three across, more wrap onto the next row. */
+.dentist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.dentist-grid .dg-full { grid-column: 1 / -1; }
+.dentist-grid .dg-full .bulk-bar, .dentist-grid .dg-full > div { margin-bottom: 0; }
+@media (max-width: 400px) { .dentist-grid { grid-template-columns: 1fr; } }
+</style>
 </body>
 </html>

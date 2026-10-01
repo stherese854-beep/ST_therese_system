@@ -25,6 +25,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
          the latest copy after a deploy, instead of serving a stale cache) -->
     <link href="css/style.css?v=<?= @filemtime(__DIR__ . '/../css/style.css') ?: time() ?>" rel="stylesheet">
     <?php if (isset($pdo) && function_exists('theme_style_tag')) echo theme_style_tag($pdo, 'system');   // admin's chosen colours ?>
+    <?php if (isset($pdo) && function_exists('text_scale_style')) echo text_scale_style($pdo);   // text size (own choice, else clinic default) ?>
     <script>
     // ---- Number fields: digits only ----
     // Phone numbers, ages, codes, counts... (type="tel", type="number" or
@@ -198,20 +199,20 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         if (c) c.textContent = q === '' ? '' : shown + ' of ' + total + ' shown';
     });
 
-    // ---- No blank information: empty table cells say "N/A" ----
-    // Any data-table cell with nothing in it (or just "-" / "—") shows a grey
-    // "N/A" instead, including tables filled in later by a script. Cells that
+    // ---- No blank information: empty table cells show a grey "-" ----
+    // Any table cell with nothing in it, or that just says "N/A", shows a grey
+    // "-" instead, including tables filled in later by a script. Cells that
     // hold buttons, inputs, pictures, the calendar, etc. are left alone.
     (function () {
         function fill(root) {
             if (!root.querySelectorAll) return;
-            root.querySelectorAll('table.data td, table.table td, .hf-view td').forEach(function (td) {
+            root.querySelectorAll('table td').forEach(function (td) {
                 if (td.closest('#calendar, [data-no-na]') || td.dataset.na) return;
                 if (td.querySelector('button, input, select, textarea, img, svg, canvas, a, form, .badge-pill')) return;
                 var t = td.textContent.replace(/\s+/g, ' ').trim();
-                if (t === '' || t === '-' || t === '—' || t === '–') {
+                if (t === '' || /^(-|—|–|n\/a)$/i.test(t)) {
                     td.dataset.na = '1';
-                    td.innerHTML = '<span class="na">N/A</span>';
+                    td.innerHTML = '<span class="na" title="No information">-</span>';
                 }
             });
         }

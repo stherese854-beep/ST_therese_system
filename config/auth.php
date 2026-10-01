@@ -528,6 +528,10 @@ function ensure_booking_review_schema($pdo) {
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'notif_seen_map'")->rowCount()) {
             $pdo->exec("ALTER TABLE users ADD COLUMN notif_seen_map TEXT DEFAULT NULL");
         }
+        // Each user's own text size (null = the clinic default).
+        if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'text_scale'")->rowCount()) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN text_scale SMALLINT DEFAULT NULL");
+        }
         // ...and the items they clicked, which are removed from their bell.
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'notif_hidden_map'")->rowCount()) {
             $pdo->exec("ALTER TABLE users ADD COLUMN notif_hidden_map TEXT DEFAULT NULL");
@@ -1151,4 +1155,46 @@ function theme_style_tag($pdo, $scope = 'system', $primary = null, $bg = null, $
           . "--sky:$soft;--mint:$soft;--white:$w;--grad:linear-gradient(135deg,$dark 0%,$p 55%,$light 100%);"
         : "--teal-dark:$dark;--teal:$deep;--teal-mid:$p;--teal-light:$light;--card:$w;--bg:$page;";
     return "<style id=\"theme-colors\">:root{{$vars}--theme-p:$p;--theme-bg:$w;}</style>";
+}
+
+// ============================================================
+//  TEXT SIZE  (readability)
+// ============================================================
+//  The whole system is sized in "rem", so one number on <html> makes
+//  every text bigger or smaller. The admin sets the default for
+//  everyone (Edit Landing Page → System Colours & Text Size); each
+//  user can pick their own from the profile menu (Text size A− A A+),
+//  which wins over the default — handy for anyone with blurry eyesight.
+// ============================================================
+const TEXT_SCALES = [100 => 'Small', 110 => 'Normal', 125 => 'Large', 140 => 'Extra large'];
+define('TEXT_SCALE_DEFAULT', 110);
+
+function text_scale_ok($v) { return isset(TEXT_SCALES[(int)$v]); }
+
+function system_text_scale($pdo) {
+    static $s = null;
+    if ($s === null) {
+        $s = TEXT_SCALE_DEFAULT;
+        try {
+            $v = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'ui_text_scale'")->fetchColumn();
+            if (text_scale_ok($v)) $s = (int)$v;
+        } catch (Throwable $e) {}
+    }
+    return $s;
+}
+
+// The logged-in user's own choice, or null to follow the clinic default.
+function user_text_scale($pdo) {
+    if (empty($_SESSION['user_id'])) return null;
+    try {
+        $q = $pdo->prepare("SELECT text_scale FROM users WHERE id = ?");
+        $q->execute([(int)$_SESSION['user_id']]);
+        $v = $q->fetchColumn();
+        return text_scale_ok($v) ? (int)$v : null;
+    } catch (Throwable $e) { return null; }
+}
+
+function text_scale_style($pdo, $override = null) {
+    $s = text_scale_ok($override) ? (int)$override : (user_text_scale($pdo) ?? system_text_scale($pdo));
+    return '<style id="text-scale">html{font-size:' . $s . '%}</style>';
 }

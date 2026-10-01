@@ -190,6 +190,19 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
                 <a href="portal?view=archive" class="pw-item" style="padding-left:34px;font-size:.9em;">🗄 My Archive</a>
             <?php endif; ?>
         <?php endif; ?>
+        <?php $tbMine = user_text_scale($pdo); $tbSys = system_text_scale($pdo); ?>
+        <!-- Text size: for anyone who finds the writing too small (saved to this account) -->
+        <div class="pw-text" onclick="event.stopPropagation()" data-keep-text>
+            <div class="pw-text-label">🔠 Text size</div>
+            <div class="pw-text-btns" role="group" aria-label="Text size">
+                <?php foreach (TEXT_SCALES as $tsv => $tsl): ?>
+                    <button type="button" data-scale="<?= $tsv ?>" title="<?= e($tsl) ?>"
+                            class="<?= ($tbMine ?? $tbSys) === $tsv ? 'on' : '' ?>"
+                            style="font-size:<?= round(0.8 * $tsv / 100, 2) ?>rem;">A</button>
+                <?php endforeach; ?>
+            </div>
+            <button type="button" class="pw-text-reset" data-scale="" <?= $tbMine === null ? 'hidden' : '' ?>>Use the clinic default</button>
+        </div>
         <a href="logout" class="pw-item pw-signout" data-confirm="Are you sure you want to log out?" data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-icon="⏻">⏻ Sign Out</a>
     </div>
 </div>
@@ -252,6 +265,12 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
 .pw-item{display:block;padding:12px 16px;text-decoration:none;color:#3f5350;font-size:.9rem;
          font-weight:500;transition:background .12s;}
 .pw-item:hover{background:#f2f7f6;}
+.pw-text{padding:10px 16px;border-top:1px solid #eef2f3;}
+.pw-text-label{font-size:.8rem;color:#6b7b8c;margin-bottom:6px;}
+.pw-text-btns{display:flex;gap:4px;}
+.pw-text-btns button{flex:1;min-width:0;height:36px;border:1px solid #dde5ea;background:#fff;border-radius:8px;color:#3f5350;font-weight:700;line-height:1;}
+.pw-text-btns button.on{background:var(--teal-mid);border-color:var(--teal-mid);color:#fff;}
+.pw-text-reset{border:0;background:none;color:var(--teal-mid);font-size:.76rem;padding:6px 0 0;text-decoration:underline;}
 .pw-signout{color:#c0392b;border-top:1px solid #eef2f2;}
 
 /* Reserve a strip at the very top of the main area for the floating widget,
@@ -273,6 +292,20 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
 </style>
 
 <script>
+// Text size (profile menu, and the patient's My Profile page): applied at once, saved to the account.
+window.setTextScale = function (v) {
+    var sys = <?= (int)system_text_scale($pdo) ?>, now = +(v || sys);
+    document.documentElement.style.fontSize = now + '%';
+    document.querySelectorAll('.pw-text-btns button, .ts-btns button').forEach(function (x) { x.classList.toggle('on', +x.dataset.scale === now); });
+    document.querySelectorAll('.pw-text-reset, .ts-reset').forEach(function (r) { r.hidden = !v; });
+    var fd = new FormData(); fd.append('scale', v || '');
+    var t = document.querySelector('meta[name="csrf-token"]');
+    fetch('text_size', { method: 'POST', body: fd, headers: t ? { 'X-CSRF-Token': t.content } : {}, credentials: 'same-origin' });
+};
+document.querySelectorAll('.pw-text').forEach(function (box) { box.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-scale]');
+    if (b) setTextScale(b.dataset.scale);
+}); });
 function toggleProfileMenu(e){
     e.stopPropagation();
     document.getElementById('pwMenu').classList.toggle('open');

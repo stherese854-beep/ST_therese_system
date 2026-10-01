@@ -74,7 +74,11 @@ $active = 'clinic_contact';
             </div>
         </div>
 
-        <div class="card-box" style="max-width:820px;">
+        <!-- Centred: the form on the left, what patients will see on the right -->
+        <div class="cc-wrap">
+        <div class="row g-4 align-items-stretch">
+        <div class="col-lg-7">
+        <div class="card-box h-100">
             <h5 class="mb-3">📞 Edit contact details</h5>
             <form method="POST">
                 <input type="hidden" name="action" value="save_contact">
@@ -99,8 +103,49 @@ $active = 'clinic_contact';
                 <button class="btn btn-teal">Save changes</button>
             </form>
         </div>
+        </div>
+
+        <!-- Live preview of the patient's "Clinic Contact" card -->
+        <div class="col-lg-5">
+        <div class="card-box h-100 cc-preview">
+            <h5 class="mb-1">👁 What patients see</h5>
+            <div class="text-muted2 mb-3" style="font-size:.85rem;">Updates as you type. Save to publish it.</div>
+            <div class="cc-row"><span class="cc-ic">📱</span><div><div class="cc-lbl">Call or text</div><div class="cc-val" data-cc="land_contact_phone"></div></div></div>
+            <div class="cc-row"><span class="cc-ic">✉️</span><div><div class="cc-lbl">Email</div><div class="cc-val" data-cc="land_contact_email"></div></div></div>
+            <div class="cc-row"><span class="cc-ic">📍</span><div><div class="cc-lbl">Address</div><div class="cc-val" data-cc="land_contact_address"></div></div></div>
+            <div class="cc-row"><span class="cc-ic">🕘</span><div><div class="cc-lbl">Clinic hours</div><div class="cc-val" data-cc="land_contact_hours"></div></div></div>
+            <div class="cc-row"><span class="cc-ic">📘</span><div><div class="cc-lbl">Facebook</div><div class="cc-val" data-cc="land_contact_facebook"></div></div></div>
+        </div>
+        </div>
+        </div>
+        </div>
     </main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<style>
+.cc-wrap { max-width: 1180px; margin: 0 auto; }
+.cc-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid #e8eef0; }
+.cc-row:last-child { border-bottom: 0; }
+.cc-ic { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 10px; background: #eef7f6;
+         display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+.cc-lbl { font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: #8aa0a0; }
+.cc-val { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+</style>
+<script>
+startClock();
+// "What patients see" follows the form as it is typed.
+(function () {
+    function sync() {
+        document.querySelectorAll('[data-cc]').forEach(function (el) {
+            var inp = document.querySelector('[name="' + el.dataset.cc + '"]');
+            var v = inp ? inp.value.trim() : '';
+            el.textContent = v || '-';
+            el.style.color = v ? '' : '#9aa9b0';
+        });
+    }
+    document.addEventListener('input', sync);
+    sync();
+})();
+</script>
 </body></html>

@@ -98,7 +98,7 @@ body {
 .sidebar .signout { color: #e9967a; text-decoration: none; font-size: .85rem; display: inline-flex; gap: 6px; margin-top: 8px; }
 
 /* --------------------------- MAIN AREA --------------------------- */
-.main { flex: 1; padding: 22px 28px; overflow-x: hidden; }
+.main { flex: 1; padding: 22px 28px; overflow-x: hidden; overflow-x: clip; }   /* clip (where supported) keeps "sticky" bars working */
 
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
 .page-head h1 { font-size: 1.7rem; margin: 0; font-weight: 700; }

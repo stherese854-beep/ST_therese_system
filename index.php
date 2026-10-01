@@ -430,6 +430,10 @@ section{scroll-margin-top:88px}
 .foot .brand small{color:#d9b989}
 </style>
 <?php if (function_exists('theme_style_tag')) echo theme_style_tag($pdo, 'landing', $pvPrimary, $pvBg, $isPreview); ?>
+<?php if (function_exists('system_text_scale')) {      // text size: the clinic default (or the editor's unsaved pick in the preview)
+    $lpScale = ($isPreview && text_scale_ok($_POST['ui_text_scale'] ?? '')) ? (int)$_POST['ui_text_scale'] : system_text_scale($pdo);
+    echo '<style id="text-scale">html{font-size:' . $lpScale . '%}</style>';
+} ?>
 <?php if ($isPreview): ?><style>.reveal{opacity:1!important;transform:none!important}</style><?php endif; ?>
 </head>
 <body>

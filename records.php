@@ -265,7 +265,7 @@ $active = 'records';
         </div>
 
         <!-- Tabs -->
-        <div class="mb-3 d-flex gap-2">
+        <div class="mb-3 d-flex gap-2 flex-wrap" data-keep-text>
             <?php
             $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 X-rays','notes'=>'📝 Notes'];
             foreach ($recTabs as $k=>$label): ?>
@@ -280,7 +280,14 @@ $active = 'records';
             <!-- ===== OVERVIEW: editable patient info + dental chart + remarks ===== -->
             <?php [$hfAns, $hfAt] = patient_health($pdo, $pid); ?>
             <?= health_form_styles() ?>
-            <div class="card-box mb-3">
+            <!-- Overview navbar: show everything, or just the part you need -->
+            <nav class="rv-nav" id="rv-nav" aria-label="Overview sections" data-keep-text>
+                <button type="button" data-rv="all" class="on">📋 All</button>
+                <button type="button" data-rv="health">🩺 Health Questionnaire</button>
+                <button type="button" data-rv="info">👤 Patient Information</button>
+                <button type="button" data-rv="chart">🦷 Dental Chart</button>
+            </nav>
+            <div class="card-box mb-3 rv-sec" data-rv="health">
                 <div class="flex-between mb-2">
                     <h6 class="mb-0">🩺 Health Questionnaire
                         <small class="text-muted2"><?= $hfAt ? '(latest, updated ' . date('M j, Y', strtotime($hfAt)) . ')' : '' ?></small></h6>
@@ -299,7 +306,7 @@ $active = 'records';
                     </div>
                 </form>
             </div>
-            <form method="POST">
+            <form method="POST" class="rv-sec" data-rv="info">
                 <input type="hidden" name="action" value="update_patient_info">
                 <input type="hidden" name="patient_id" value="<?= $pid ?>">
                 <div class="card-box mb-3">
@@ -363,7 +370,7 @@ $active = 'records';
                 </div>
             </form>
 
-            <div class="card-box">
+            <div class="card-box rv-sec" data-rv="chart">
                 <h6 class="mb-1">🦷 Dental Chart (Odontogram) <small class="text-muted2">— view only (edit on the Odontogram page)</small></h6>
 
                 <?php if (count($recSessions) > 1): ?>
@@ -555,5 +562,33 @@ $active = 'records';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>startClock();</script>
+<style>
+.rv-nav { display: flex; gap: 4px; overflow-x: auto; background: var(--card, #fff); border-radius: 14px; padding: 6px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; position: sticky; top: 8px; z-index: 20; }
+.rv-nav button { border: 0; background: transparent; color: #52606b; font-size: .9rem; font-weight: 600;
+                 padding: 8px 14px; border-radius: 10px; white-space: nowrap; flex: 0 0 auto; }
+.rv-nav button:hover { background: #eef7f6; color: var(--teal-mid); }
+.rv-nav button.on { background: var(--teal-mid); color: #fff; }
+.rv-sec.rv-hide { display: none; }
+@media print { .rv-nav { display: none; } .rv-sec.rv-hide { display: block; } }
+</style>
+<script>
+// Records > Overview navbar: "All" shows every part; the others show just one. Remembered per browser.
+(function () {
+    var nav = document.getElementById('rv-nav');
+    if (!nav) return;
+    function show(k) {
+        document.querySelectorAll('.rv-sec').forEach(function (s) { s.classList.toggle('rv-hide', k !== 'all' && s.dataset.rv !== k); });
+        nav.querySelectorAll('button').forEach(function (b) {
+            var on = b.dataset.rv === k; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        try { localStorage.setItem('records_overview', k); } catch (e) {}
+    }
+    nav.addEventListener('click', function (e) { var b = e.target.closest('button[data-rv]'); if (b) show(b.dataset.rv); });
+    var saved = 'all';
+    try { saved = localStorage.getItem('records_overview') || 'all'; } catch (e) {}
+    show(nav.querySelector('[data-rv="' + saved + '"]') ? saved : 'all');
+})();
+</script>
 </body>
 </html>

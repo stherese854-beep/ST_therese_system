@@ -52,6 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             save_setting($pdo, 'theme_primary', $tp);
             save_setting($pdo, 'theme_bg', $tb);
         }
+        if (isset($_POST['ui_text_scale']) && text_scale_ok($_POST['ui_text_scale'])) {
+            save_setting($pdo, 'ui_text_scale', (string)(int)$_POST['ui_text_scale']);
+        }
         // Save every "land_*" field that was submitted.
         foreach ($_POST as $k => $v) {
             if (strpos($k, 'land_') === 0) {
@@ -214,7 +217,7 @@ $active = 'landing_edit';
             <!-- ===== SYSTEM COLOURS ===== -->
             <?php [$curPrimary, $curBg] = theme_colors($pdo); ?>
             <div class="card-box mb-3 le-card" data-section="home">
-                <h5 class="mb-1">🎨 System Colours</h5>
+                <h5 class="mb-1">🎨 System Colours &amp; Text Size</h5>
                 <div class="text-muted2 mb-3" style="font-size:.85rem;">
                     The two main colours of the whole system (landing page, sidebar, buttons, headings).
                     The lighter and darker shades are made from the main colour automatically.
@@ -236,6 +239,15 @@ $active = 'landing_edit';
                     </div>
                 </div>
                 <div id="le-color-warn" class="text-danger small mt-2" style="display:none;"></div>
+
+                <label class="field-label mt-3" for="ui_text_scale">🔠 Text size for everyone <span class="text-muted2">(the starting size)</span></label>
+                <select name="ui_text_scale" id="ui_text_scale" class="form-select" style="max-width:320px;">
+                    <?php foreach (TEXT_SCALES as $tsv => $tsl): ?>
+                        <option value="<?= $tsv ?>" <?= system_text_scale($pdo) === $tsv ? 'selected' : '' ?>><?= e($tsl) ?> (<?= $tsv ?>%)<?= $tsv === TEXT_SCALE_DEFAULT ? ' — recommended' : '' ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="text-muted2 mt-1" style="font-size:.8rem;">Used on the landing page and inside the system. Each person can still
+                    choose their own size from their profile menu (🔠 Text size), e.g. for blurry eyesight.</div>
                 <button type="button" class="btn btn-sm btn-light mt-2" onclick="leResetColors()" data-keep-text>↺ Back to the original green &amp; white</button>
             </div>
 
@@ -746,6 +758,21 @@ $active = 'landing_edit';
     }
     form.addEventListener('focusin', function (e) { setSection(e.target.closest('.le-card')); });
     form.addEventListener('click',   function (e) { setSection(e.target.closest('.le-card')); });
+
+    // Scrolling the editor moves the preview too: the section at the top of the
+    // screen is the one shown on the right, so the two always line up.
+    var scrollTimer = null;
+    window.addEventListener('scroll', function () {
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(function () {
+            var line = 160, pick = null;
+            document.querySelectorAll('.le-card').forEach(function (c) {
+                var r = c.getBoundingClientRect();
+                if (!pick && r.bottom > line) pick = c;     // first card still showing below the top bar
+            });
+            if (pick) setSection(pick);
+        }, 90);
+    }, { passive: true });
 
     function refresh() {
         if (busy) { again = true; return; }
