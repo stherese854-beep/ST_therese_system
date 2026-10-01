@@ -8,6 +8,7 @@ require_once 'includes/mailer.php';     // confirmation / cancellation emails
 require_once 'includes/message_templates.php';  // editable message wording
 require_once 'includes/health_form.php';        // health questionnaire view
 require_once 'includes/treatments.php';         // clinic_treatments(), clinic_time_slots()
+require_once 'includes/clinical.php';           // allergy / medical alert banner
 define('DENTIST_CANCEL_DAYS', 3);                 // a dentist can cancel only this many days ahead (or more)
 require_login(['admin','dentist','staff']);
 
@@ -546,7 +547,7 @@ if ($isDentist) {
     foreach ($dp as $v) $params[] = $v;
 }
 
-$sql = "SELECT a.* FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id";
+$sql = "SELECT a.*, p.allergies, p.medical_alert FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id";
 if ($conds) $sql .= " WHERE " . implode(" AND ", $conds);
 // Order: Pending requests first (they need a decision), then what's coming up —
 // soonest first — and finally past appointments, most recent first.
@@ -653,7 +654,7 @@ $active = 'appointments';
                     <?php endif; ?>
                     <?php foreach ($appts as $a): ?>
                         <tr>
-                            <td><strong><?= e($a['patient_name']) ?></strong></td>
+                            <td><strong><?= e($a['patient_name']) ?></strong><?= current_role() !== 'staff' ? patient_alert_banner($a, true) : '' ?></td>
                             <?php if (!$isDentist): ?><td><?= e($a['dentist']) ?></td><?php endif; ?>
                             <td><?= e($a['appointment_date']) ?></td>
                             <td class="date-blue"><?= e($a['appointment_time']) ?></td>
@@ -711,7 +712,7 @@ $active = 'appointments';
                                           if (!empty($a['arrived_at']) && $a['appointment_date'] === date('Y-m-d')): ?>
                                         <button type="button" class="btn btn-sm" data-keep-text style="background:#eef7f6;color:var(--teal-mid);font-weight:600;white-space:nowrap;"
                                                 title="Add a procedure to this visit (with the patient's agreement)" data-addproc="<?= (int)$a['id'] ?>"
-                                                onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"]], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕ Add procedure</button>
+                                                onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"], "allergies" => $a["allergies"] ?? "", "alert" => $a["medical_alert"] ?? ""], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕ Add procedure</button>
                                     <?php else: ?><span class="text-muted2">–</span><?php endif; ?>
                                 <?php else: ?>
                                 <?php if (in_array($a['status'], ['Confirmed','Arrived'], true) && $a['appointment_date'] === date('Y-m-d')): ?>
@@ -730,7 +731,7 @@ $active = 'appointments';
                                           && in_array($a['status'], ['Arrived','Completed'], true) && $a['appointment_date'] === date('Y-m-d')): ?>
                                     <button type="button" class="btn btn-sm" data-keep-text style="background:#eef7f6;color:var(--teal-mid);font-weight:600;white-space:nowrap;"
                                             title="Add a procedure to this visit (with the patient's agreement)" data-addproc="<?= (int)$a['id'] ?>"
-                                            onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"]], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕ Add procedure</button>
+                                            onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"], "allergies" => $a["allergies"] ?? "", "alert" => $a["medical_alert"] ?? ""], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕ Add procedure</button>
                                 <?php endif; ?>
                                 <?php if ($a['status'] === 'Pending'): ?>
                                     <form method="POST" class="d-inline">
@@ -1177,6 +1178,7 @@ function validateCancelAppt(){
   </div>
 </div>
 <?php if (in_array(current_role(), ['dentist','admin'], true)): require_once 'includes/followups.php'; ?>
+<?= clinical_styles() ?>
 <!-- ===== Add a procedure to the visit the patient is at ===== -->
 <div class="modal fade" id="addProcModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
@@ -1194,6 +1196,7 @@ function validateCancelAppt(){
           <div style="font-weight:600;" id="ap-name"></div>
           <div class="text-muted2" style="font-size:.85rem;">Booked for: <span id="ap-treat"></span></div>
         </div>
+        <div id="ap-alert" class="pt-alert" style="display:none;"></div>
         <label class="field-label">Additional procedure(s)</label>
         <?= treatment_picker([], 'ap') ?>
         <div class="row g-2 mt-1">
@@ -1241,6 +1244,11 @@ function openAddProc(a) {
     document.getElementById('ap-id').value = a.id;
     document.getElementById('ap-name').textContent = a.name;
     document.getElementById('ap-treat').textContent = a.treatment || '–';
+    var al = document.getElementById('ap-alert'), bits = [];
+    if (a.allergies) bits.push('Allergies: ' + a.allergies);
+    if (a.alert) bits.push('Alert: ' + a.alert);
+    al.textContent = bits.length ? '⚠️ ' + bits.join(' · ') : '';
+    al.style.display = bits.length ? 'block' : 'none';
     document.querySelectorAll('#addProcModal input[name="treatments[]"]').forEach(function (b) { b.checked = false; b.disabled = false; });
     document.getElementById('ap-consent').checked = false;
     document.getElementById('ap-warn').style.display = 'none';

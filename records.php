@@ -18,6 +18,7 @@ require_once 'config/auth.php';
 require_login(['admin','dentist']);   // clinical records - not front-desk staff
 require_once 'includes/teeth.php';     // for the read-only dental chart in Overview
 require_once 'includes/followups.php'; // follow-up plans (braces, root canal sessions, check-ups)
+require_once 'includes/clinical.php';  // allergies, medications, dental notes, alert banner
 require_once 'includes/health_form.php';   // latest health questionnaire in Overview
 
 // Only REAL patients (exclude staff/dentist/admin accounts).
@@ -69,60 +70,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: records?patient=$pid&tab=overview"); exit;
     }
 
-    // ----- Overview: save edited patient info -----
-    if ($action === 'update_patient_info') {
+    // ----- Overview: 👤 Patient details — the ADMIN only (a dentist sees them read-only) -----
+    if ($action === 'update_patient_details') {
+        $back = "Location: records?patient=$pid&tab=overview";
+        if (current_role() !== 'admin') { set_flash('Only the admin or the front desk can change patient details.', 'error'); header($back); exit; }
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '', false);
-        if ($phoneError === '' && trim($_POST['email'] ?? '') !== '') $phoneError = email_problem($_POST['email']);   // a real address only
-        if ($phoneError !== '') {
-            set_flash($phoneError, 'error');
-            header("Location: records?patient=$pid&tab=overview"); exit;
+        [$emPhone, $emErr]         = validate_phone($_POST['emergency_phone'] ?? '', false);
+        $email = trim($_POST['email'] ?? '');
+        $err = $phoneError ?: ($emErr ? 'Emergency contact: ' . $emErr : '');
+        if (!$err && $email !== '') $err = email_problem($email);
+        $dob = trim($_POST['dob'] ?? '');
+        if (!$err) $err = birth_date_error($dob);
+        if (trim($_POST['name'] ?? '') === '') $err = 'Please enter the patient\'s name.';
+        if ($err) { set_flash($err, 'error'); header($back); exit; }
+
+        $cur = $pdo->prepare("SELECT p.primary_dentist, p.user_id, u.email AS login_email FROM patients p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?");
+        $cur->execute([$pid]); $cur = $cur->fetch();
+        $msg = 'Patient details saved.'; $type = 'success';
+        // A login email is protected: it changes only after the new address is confirmed.
+        if (!empty($cur['user_id']) && strcasecmp((string)$cur['login_email'], $email) !== 0) {
+            if ($email === '') { $msg .= ' The login email cannot be empty, so it was kept.'; }
+            else {
+                require_once 'includes/account_transfer.php';
+                [$okE, $msgE] = request_email_change($pdo, (int)$cur['user_id'], $pid, $email, $_SESSION['name'] ?? 'Admin');
+                $msg .= ' ' . ($okE ? $msgE : 'The login email was NOT changed: ' . $msgE);
+                if (!$okE) $type = 'warning';
+            }
+            $email = (string)$cur['login_email'];
         }
-        // Only admin and staff may change the patient's dentist; for anyone
-        // else the dentist on file is kept, whatever the form sends.
-        if (!in_array(current_role(), ['admin','staff'])) {
-            $keep = $pdo->prepare("SELECT primary_dentist FROM patients WHERE id=?");
-            $keep->execute([$pid]);
-            $_POST['primary_dentist'] = (string)$keep->fetchColumn();
-        }
-        $oldDentQ = $pdo->prepare("SELECT primary_dentist FROM patients WHERE id=?");
-        $oldDentQ->execute([$pid]);
-        $oldDentist = (string)$oldDentQ->fetchColumn();
-        // Birthday / age: only admin and staff may change them.
-        if (in_array(current_role(), ['admin','staff'], true)) {
-            $dob = trim($_POST['dob'] ?? '');
-            if (($de = birth_date_error($dob)) !== '') { set_flash($de, 'error'); header("Location: records?patient=$pid&tab=overview"); exit; }
-            $ageIn = trim($_POST['age'] ?? '');
-            $pdo->prepare("UPDATE patients SET date_of_birth=?, age=? WHERE id=?")
-                ->execute([$dob ?: null, $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null), $pid]);
-        }
-        $pdo->prepare(
-            "UPDATE patients SET name=?, blood_type=?, phone=?, email=?, patient_type=?,
-             primary_dentist=?, last_visit=?, next_visit=?, medical_alert=?, chart_remarks=?
-             WHERE id=?"
-        )->execute([
-            trim($_POST['name']),
-            trim($_POST['blood_type']),
-            $cleanPhone,
-            trim($_POST['email']),
-            $_POST['patient_type'],
-            trim($_POST['primary_dentist']),
-            ($_POST['last_visit'] ?: null),
-            ($_POST['next_visit'] ?: null),
-            trim($_POST['medical_alert']),
-            trim($_POST['chart_remarks']),
-            $pid
-        ]);
-        log_activity($pdo, 'Updated patient info', patient_name_of($pdo, $pid));
+        $ageIn = trim($_POST['age'] ?? '');
+        $newDentist = trim($_POST['primary_dentist'] ?? '');
+        $pdo->prepare("UPDATE patients SET name = ?, date_of_birth = ?, age = ?, phone = ?, email = ?, primary_dentist = ?,
+                              emergency_name = ?, emergency_phone = ? WHERE id = ?")
+            ->execute([trim($_POST['name']), $dob ?: null, $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null),
+                       $cleanPhone, $email, $newDentist ?: null,
+                       trim($_POST['emergency_name'] ?? '') ?: null, $emPhone ?: null, $pid]);
+        log_activity($pdo, 'Updated patient details', patient_name_of($pdo, $pid));
         // A new dentist: the patient's upcoming appointments go to them too (same date and time).
-        $newDentist = trim($_POST['primary_dentist']);
-        $msg = 'Patient information updated.'; $type = 'success';
-        if ($newDentist !== '' && $newDentist !== $oldDentist) {
+        if ($newDentist !== '' && $newDentist !== (string)$cur['primary_dentist']) {
             log_activity($pdo, 'Assigned dentist', patient_name_of($pdo, $pid) . ' → ' . $newDentist);
             [$movedN, $stuck] = move_upcoming_to_dentist($pdo, $pid, $newDentist);
             if ($movedN) $msg .= " $movedN upcoming appointment" . ($movedN > 1 ? 's were' : ' was') . " moved to $newDentist (same date and time).";
             if ($stuck) { $msg .= " Not moved — $newDentist is off or already booked: " . implode('; ', $stuck) . '. Please change those in Appointments.'; $type = 'warning'; }
         }
         set_flash($msg, $type);
+        header($back); exit;
+    }
+
+    // ----- Overview: 🩺 Clinical information — the dentist (and admin) -----
+    if ($action === 'update_clinical') {
+        $pick = fn($v, $list) => in_array($v, $list, true) ? $v : null;
+        $habits = array_values(array_intersect(DENTAL_HABITS, array_map('strval', (array)($_POST['dental_habits'] ?? []))));
+        $pdo->prepare("UPDATE patients SET blood_type = ?, allergies = ?, medications = ?, medical_conditions = ?, medical_alert = ?,
+                              gum_condition = ?, oral_hygiene = ?, dental_habits = ?, dental_anxiety = ?, chart_remarks = ?,
+                              clinical_updated_by = ?, clinical_updated_at = NOW() WHERE id = ?")
+            ->execute([trim($_POST['blood_type'] ?? '') ?: null,
+                       trim($_POST['allergies'] ?? '') ?: null, trim($_POST['medications'] ?? '') ?: null,
+                       trim($_POST['medical_conditions'] ?? '') ?: null, trim($_POST['medical_alert'] ?? '') ?: null,
+                       $pick($_POST['gum_condition'] ?? '', GUM_CONDITIONS), $pick($_POST['oral_hygiene'] ?? '', ORAL_HYGIENE),
+                       $habits ? implode(', ', $habits) : null, $pick($_POST['dental_anxiety'] ?? '', DENTAL_ANXIETY),
+                       trim($_POST['chart_remarks'] ?? '') ?: null, $_SESSION['name'] ?? '', $pid]);
+        log_activity($pdo, 'Updated clinical information', patient_name_of($pdo, $pid));
+        set_flash('Clinical information saved.');
         header("Location: records?patient=$pid&tab=overview"); exit;
     }
 
@@ -316,6 +325,10 @@ $active = 'records';
             <div class="card-box text-center text-muted2 py-4">Add a patient first, then you can record their treatments here.</div>
 
         <?php elseif ($tab === 'overview'): ?>
+            <?php sync_visit_info($pdo, $pid);                       // New / Returning + last visit come from real visits
+                  $prq = $pdo->prepare("SELECT * FROM patients WHERE id = ?"); $prq->execute([$pid]); $patientRow = $prq->fetch() ?: $patientRow; ?>
+            <?= clinical_styles() ?>
+            <?= patient_alert_banner($patientRow) ?>
             <!-- ===== OVERVIEW: editable patient info + dental chart + remarks ===== -->
             <?php [$hfAns, $hfAt] = patient_health($pdo, $pid); ?>
             <?= health_form_styles() ?>
@@ -345,69 +358,126 @@ $active = 'records';
                     </div>
                 </form>
             </div>
-            <form method="POST" class="rv-sec" data-rv="info">
-                <input type="hidden" name="action" value="update_patient_info">
+            <?php
+                $isAdminR   = current_role() === 'admin';
+                [$nvDate, $nvFrom] = next_visit_info($pdo, $patientRow);
+                $qConds     = questionnaire_conditions($pdo, $pid);
+                $myHabits   = array_filter(array_map('trim', explode(',', (string)($patientRow['dental_habits'] ?? ''))));
+                $rDentists  = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+                $dobTxt     = trim(($patientRow['date_of_birth'] ? date('M j, Y', strtotime($patientRow['date_of_birth'])) . ' · ' : '')
+                                   . ($patientRow['age'] !== null && $patientRow['age'] !== '' ? $patientRow['age'] . ' yrs' : '')) ?: '–';
+                $ro = fn($v) => '<div class="ro-field">' . ($v !== '' && $v !== null ? e($v) : '–') . '</div>';
+            ?>
+            <div class="rv-sec" data-rv="info">
+            <!-- ===== 👤 PATIENT DETAILS: admin edits; the dentist sees them read-only ===== -->
+            <form method="POST">
+                <input type="hidden" name="action" value="update_patient_details">
                 <input type="hidden" name="patient_id" value="<?= $pid ?>">
                 <div class="card-box mb-3">
                     <div class="flex-between mb-3">
-                        <h6 class="mb-0">👤 Patient Information <small class="text-muted2">(editable)</small></h6>
-                        <button class="btn btn-teal btn-sm">💾 Save Changes</button>
+                        <h6 class="mb-0">👤 Patient details <small class="text-muted2"><?= $isAdminR ? '(admin / front desk)' : '(read only — the front desk updates these)' ?></small></h6>
+                        <?php if ($isAdminR): ?><button class="btn btn-teal btn-sm" data-keep-text>💾 Save details</button><?php endif; ?>
                     </div>
                     <div class="row g-3">
-                        <div class="col-md-4"><label class="field-label">Full Name</label>
-                            <input name="name" class="form-control" value="<?= e($patientRow['name']) ?>" required></div>
-                        <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
-                            <div class="col-md-4"><label class="field-label">Date of Birth / Age</label>
+                        <div class="col-md-4"><label class="field-label">Full name</label>
+                            <?= $isAdminR ? '<input name="name" class="form-control" value="' . e($patientRow['name']) . '" required>' : $ro($patientRow['name']) ?></div>
+                        <div class="col-md-4"><label class="field-label">Date of birth / Age</label>
+                            <?php if ($isAdminR): ?>
                                 <div class="d-flex gap-2">
                                     <input type="date" name="dob" class="form-control" value="<?= e($patientRow['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>">
-                                    <input type="number" name="age" class="form-control" style="max-width:90px;" min="0" max="120" step="1" data-digits value="<?= e($patientRow['age']) ?>" title="Filled in from the date of birth">
-                                </div></div>
-                        <?php else: ?>
-                            <!-- Only admin and staff can change the birthday / age. -->
-                            <div class="col-md-4"><label class="field-label">Date of Birth / Age</label>
-                                <input class="form-control" readonly style="background:#eef3f3;" title="Only the admin or staff can change this"
-                                       value="<?= e(trim(($patientRow['date_of_birth'] ? date('M j, Y', strtotime($patientRow['date_of_birth'])) . ' · ' : '') . ($patientRow['age'] !== null && $patientRow['age'] !== '' ? $patientRow['age'] . ' yrs' : ''))) ?>"></div>
-                        <?php endif; ?>
-                        <div class="col-md-4"><label class="field-label">Blood Type</label>
+                                    <input type="number" name="age" class="form-control" style="max-width:90px;" min="0" max="120" step="1" data-digits value="<?= e($patientRow['age']) ?>">
+                                </div>
+                            <?php else: ?><?= $ro($dobTxt) ?><?php endif; ?></div>
+                        <div class="col-md-4"><label class="field-label">Primary dentist</label>
+                            <?php if ($isAdminR): ?>
+                                <select name="primary_dentist" class="form-select">
+                                    <option value="">— Unassigned —</option>
+                                    <?php foreach ($rDentists as $dn): ?><option <?= $patientRow['primary_dentist'] === $dn ? 'selected' : '' ?>><?= e($dn) ?></option><?php endforeach; ?>
+                                    <?php if ($patientRow['primary_dentist'] && !in_array($patientRow['primary_dentist'], $rDentists, true)): ?><option selected><?= e($patientRow['primary_dentist']) ?></option><?php endif; ?>
+                                </select>
+                            <?php else: ?><?= $ro($patientRow['primary_dentist']) ?><?php endif; ?></div>
+
+                        <div class="col-md-4"><label class="field-label">Phone</label>
+                            <?= $isAdminR ? '<input name="phone" class="form-control" value="' . e($patientRow['phone']) . '" placeholder="09XX XXX XXXX" ' . phone_input_attrs() . '>' : $ro($patientRow['phone']) ?></div>
+                        <div class="col-md-4"><label class="field-label">Email <?= !empty($patientRow['user_id']) ? '<span class="text-muted2">(login)</span>' : '' ?></label>
+                            <?= $isAdminR ? '<input type="email" name="email" class="form-control" value="' . e($patientRow['email']) . '">' : $ro($patientRow['email']) ?>
+                            <?php if ($isAdminR && !empty($patientRow['user_id'])): ?><div class="text-muted2" style="font-size:.74rem;">A new login email must be confirmed from that address first.</div><?php endif; ?></div>
+                        <div class="col-md-4"><label class="field-label">📞 Emergency contact</label>
+                            <?php if ($isAdminR): ?>
+                                <div class="d-flex gap-2">
+                                    <input name="emergency_name" class="form-control" placeholder="Name" value="<?= e($patientRow['emergency_name'] ?? '') ?>">
+                                    <input name="emergency_phone" class="form-control" style="max-width:150px;" placeholder="Phone" value="<?= e($patientRow['emergency_phone'] ?? '') ?>" <?= phone_input_attrs() ?>>
+                                </div>
+                            <?php else: ?><?= $ro(trim(($patientRow['emergency_name'] ?? '') . (!empty($patientRow['emergency_phone']) ? ' · ' . $patientRow['emergency_phone'] : ''))) ?><?php endif; ?></div>
+
+                        <div class="col-md-4"><label class="field-label">Patient type <span class="text-muted2">(automatic)</span></label>
+                            <div class="ro-field"><?= e($patientRow['patient_type'] ?: 'New') ?> <small>— <?= ($patientRow['patient_type'] ?? '') === 'Returning' ? 'has completed a visit' : 'no completed visit yet' ?></small></div></div>
+                        <div class="col-md-4"><label class="field-label">Last visit <span class="text-muted2">(automatic)</span></label>
+                            <div class="ro-field"><?= $patientRow['last_visit'] ? date('M j, Y', strtotime($patientRow['last_visit'])) : '–' ?></div></div>
+                        <div class="col-md-4"><label class="field-label">Next visit <span class="text-muted2">(from bookings / follow-ups)</span></label>
+                            <div class="ro-field"><?= $nvDate ? date('M j, Y', strtotime($nvDate)) . ' <small>· ' . e($nvFrom) . '</small>' : '–' ?></div></div>
+                    </div>
+                </div>
+            </form>
+
+            <!-- ===== 🩺 CLINICAL INFORMATION: the dentist edits ===== -->
+            <form method="POST">
+                <input type="hidden" name="action" value="update_clinical">
+                <input type="hidden" name="patient_id" value="<?= $pid ?>">
+                <div class="card-box mb-3">
+                    <div class="flex-between mb-3">
+                        <h6 class="mb-0">🩺 Clinical information <small class="text-muted2">(dentist)</small></h6>
+                        <button class="btn btn-teal btn-sm" data-keep-text>💾 Save clinical info</button>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="field-label">Blood type</label>
                             <select name="blood_type" class="form-select">
                                 <option value="">Unknown</option>
                                 <?php foreach (['O+','O-','A+','A-','B+','B-','AB+','AB-'] as $bt): ?>
                                     <option <?= $patientRow['blood_type']===$bt?'selected':'' ?>><?= $bt ?></option>
                                 <?php endforeach; ?>
                             </select></div>
+                        <div class="col-md-9"><label class="field-label" style="color:#c0392b;">⚠️ Allergies <span class="text-muted2">(shown in red on the chart and schedule)</span></label>
+                            <input name="allergies" class="form-control" value="<?= e($patientRow['allergies'] ?? '') ?>" placeholder="e.g. Penicillin, latex, lidocaine — leave empty if none"></div>
 
-                        <div class="col-md-4"><label class="field-label">Phone</label>
-                            <input name="phone" class="form-control" value="<?= e($patientRow['phone']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
-                        <div class="col-md-4"><label class="field-label">Email</label>
-                            <input type="email" name="email" class="form-control" value="<?= e($patientRow['email']) ?>"></div>
-                        <div class="col-md-4"><label class="field-label">Patient Type</label>
-                            <select name="patient_type" class="form-select">
-                                <?php foreach (['New','Returning','Regular'] as $pt): ?>
-                                    <option <?= $patientRow['patient_type']===$pt?'selected':'' ?>><?= $pt ?></option>
-                                <?php endforeach; ?>
+                        <div class="col-md-6"><label class="field-label">💊 Current medications</label>
+                            <textarea name="medications" class="form-control" rows="2" placeholder="e.g. Aspirin (blood thinner), Metformin"><?= e($patientRow['medications'] ?? '') ?></textarea></div>
+                        <div class="col-md-6"><label class="field-label">🩺 Medical conditions</label>
+                            <?php if ($qConds): ?>
+                                <div class="mb-1" style="font-size:.84rem;"><span class="text-muted2">From the health questionnaire:</span>
+                                    <?php foreach ($qConds as $qc): ?><span class="badge-pill b-cancelled" style="font-size:.72rem;margin:0 3px 3px 0;"><?= e($qc) ?></span><?php endforeach; ?></div>
+                            <?php endif; ?>
+                            <textarea name="medical_conditions" class="form-control" rows="2" placeholder="Anything else, e.g. high blood pressure (controlled)"><?= e($patientRow['medical_conditions'] ?? '') ?></textarea></div>
+
+                        <div class="col-12"><label class="field-label">Medical alert <span class="text-muted2">(shown in red with the allergies)</span></label>
+                            <input name="medical_alert" class="form-control" value="<?= e($patientRow['medical_alert']) ?>" placeholder="e.g. Needs antibiotics before treatment"></div>
+
+                        <div class="col-md-4"><label class="field-label">🦷 Gum condition</label>
+                            <select name="gum_condition" class="form-select"><option value="">Not checked yet</option>
+                                <?php foreach (GUM_CONDITIONS as $g): ?><option <?= ($patientRow['gum_condition'] ?? '') === $g ? 'selected' : '' ?>><?= e($g) ?></option><?php endforeach; ?>
                             </select></div>
+                        <div class="col-md-4"><label class="field-label">🪥 Oral hygiene</label>
+                            <select name="oral_hygiene" class="form-select"><option value="">Not checked yet</option>
+                                <?php foreach (ORAL_HYGIENE as $g): ?><option <?= ($patientRow['oral_hygiene'] ?? '') === $g ? 'selected' : '' ?>><?= e($g) ?></option><?php endforeach; ?>
+                            </select></div>
+                        <div class="col-md-4"><label class="field-label">😟 Dental anxiety</label>
+                            <select name="dental_anxiety" class="form-select"><option value="">Not asked yet</option>
+                                <?php foreach (DENTAL_ANXIETY as $g): ?><option <?= ($patientRow['dental_anxiety'] ?? '') === $g ? 'selected' : '' ?>><?= e($g) ?></option><?php endforeach; ?>
+                            </select></div>
+                        <div class="col-12"><label class="field-label">Habits</label><div>
+                            <?php foreach (DENTAL_HABITS as $hb): ?>
+                                <label class="chip-check"><input type="checkbox" name="dental_habits[]" value="<?= e($hb) ?>" class="form-check-input m-0" <?= in_array($hb, $myHabits, true) ? 'checked' : '' ?>> <?= e($hb) ?></label>
+                            <?php endforeach; ?></div></div>
 
-                        <div class="col-md-4"><label class="field-label">Primary Dentist</label>
-                            <?php if (in_array(current_role(), ['admin','staff'])): ?>
-                                <input name="primary_dentist" class="form-control" value="<?= e($patientRow['primary_dentist']) ?>">
-                            <?php else: ?>
-                                <!-- Only admin and staff can change a patient's dentist. -->
-                                <input class="form-control" value="<?= e($patientRow['primary_dentist']) ?>" readonly style="background:#eef3f3;"
-                                       title="Only the admin or staff can change a patient's dentist">
-                            <?php endif; ?></div>
-                        <div class="col-md-4"><label class="field-label">Last Visit</label>
-                            <input type="date" name="last_visit" class="form-control" value="<?= e($patientRow['last_visit']) ?>"></div>
-                        <div class="col-md-4"><label class="field-label">Next Visit</label>
-                            <input type="date" name="next_visit" class="form-control" value="<?= e($patientRow['next_visit']) ?>"></div>
-
-                        <div class="col-12"><label class="field-label">Medical Alert</label>
-                            <input name="medical_alert" class="form-control" value="<?= e($patientRow['medical_alert']) ?>" placeholder="e.g. Allergic to Penicillin"></div>
-
-                        <div class="col-12"><label class="field-label">General Remarks</label>
+                        <div class="col-12"><label class="field-label">🔒 Dentist's remarks <span class="text-muted2">(clinic only — the patient does not see this)</span></label>
                             <textarea name="chart_remarks" class="form-control" rows="3" placeholder="General remarks about this patient's dental chart..."><?= e($patientRow['chart_remarks']) ?></textarea></div>
                     </div>
+                    <?php if (!empty($patientRow['clinical_updated_at'])): ?>
+                        <div class="text-muted2 mt-2" style="font-size:.78rem;">Last updated by <?= e($patientRow['clinical_updated_by'] ?: '–') ?> on <?= date('M j, Y g:i A', strtotime($patientRow['clinical_updated_at'])) ?></div>
+                    <?php endif; ?>
                 </div>
             </form>
+            </div>
 
             <div class="card-box rv-sec" data-rv="chart">
                 <h6 class="mb-1">🦷 Dental Chart (Odontogram) <small class="text-muted2">— view only (edit on the Odontogram page)</small></h6>

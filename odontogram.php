@@ -10,6 +10,7 @@
 require_once 'config/auth.php';
 require_login(['admin','dentist']);   // clinical charting - not front-desk staff
 require_once 'includes/teeth.php';
+require_once 'includes/clinical.php';   // allergy / medical alert banner
 
 // Helper: after a change, go back to the same patient + visit.
 function odo_back($pid, $sid) {
@@ -282,6 +283,9 @@ $active = 'odontogram';
                             <?php endforeach; ?>
                         </select>
                     </form>
+                    <?php // ⚠️ Allergies / medical alert — check before treating
+                          if ($pid) { $alq = $pdo->prepare("SELECT allergies, medical_alert FROM patients WHERE id = ?"); $alq->execute([$pid]);
+                                      $alRow = $alq->fetch(); if ($alRow && ($alB = patient_alert_banner($alRow))) echo '<div class="mt-2">' . clinical_styles() . $alB . '</div>'; } ?>
 
                     <!-- ===== VISIT TABS (the chart history) ===== -->
                     <label class="field-label mt-3 no-print">Visits</label>

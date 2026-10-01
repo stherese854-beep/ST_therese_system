@@ -130,6 +130,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newMsg = 'New patient added (no email given, so no login account yet).';
             }
         }
+        // Emergency contact (front desk keeps it; the dentist sees it in Records).
+        [$emPhone, $emErr] = validate_phone($_POST['emergency_phone'] ?? '', false);
+        $emTarget = $id ? (int)$id : (int)$pdo->lastInsertId();
+        if ($emTarget) {
+            try {
+                $pdo->prepare("UPDATE patients SET emergency_name = ?, emergency_phone = ? WHERE id = ?")
+                    ->execute([trim($_POST['emergency_name'] ?? '') ?: null, $emErr === '' ? ($emPhone ?: null) : null, $emTarget]);
+            } catch (Throwable $e) {}
+        }
         log_activity($pdo, $id ? 'Updated patient' : 'Added patient', $name);
         set_flash($id ? 'Patient updated.' . $emailNote : $newMsg,
                   strpos($emailNote, 'NOT') !== false || strpos($emailNote, 'cannot') !== false ? 'warning' : 'success');
@@ -641,6 +650,12 @@ $active = 'patients';
                     </select>
                 </div>
             </div>
+            <div class="row">
+                <div class="col"><label class="field-label">📞 Emergency contact</label>
+                    <input name="emergency_name" id="f-em-name" class="form-control mb-3" placeholder="Name (e.g. Maria — mother)"></div>
+                <div class="col"><label class="field-label">Emergency phone</label>
+                    <input name="emergency_phone" id="f-em-phone" class="form-control mb-3" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
+            </div>
 
             <div class="row">
                 <div class="col"><label class="field-label">Patient Type</label>
@@ -777,6 +792,8 @@ function validatePauseBooking(){
         document.getElementById('f-last').value = '';
         document.getElementById('f-email').value = '';
         document.getElementById('f-phone').value = '';
+        document.getElementById('f-em-name').value = '';
+        document.getElementById('f-em-phone').value = '';
         document.getElementById('f-status').value = 'Active';
         document.getElementById('f-ptype').value = 'New';
         document.getElementById('f-reason').value = '';
@@ -796,6 +813,8 @@ function validatePauseBooking(){
         document.getElementById('f-last').value  = parts.join(' ');
         document.getElementById('f-email').value = p.email || '';
         document.getElementById('f-phone').value = p.phone || '';
+        document.getElementById('f-em-name').value = p.emergency_name || '';
+        document.getElementById('f-em-phone').value = p.emergency_phone || '';
         document.getElementById('f-status').value = p.status;
         document.getElementById('f-ptype').value = p.patient_type || 'New';
         document.getElementById('f-reason').value = p.visit_reason || '';

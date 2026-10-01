@@ -70,6 +70,8 @@ if (!$__schemaOk) {
     require_once __DIR__ . '/../includes/teeth.php';
     cleanup_auto_chart_sessions($pdo);              // one time: blank visits the old Odontogram page made by itself
     migrate_text_scales_v2($pdo);                   // one time: text sizes one step bigger
+    require_once __DIR__ . '/../includes/clinical.php';
+    ensure_clinical_columns($pdo);                  // allergies, medications, dental notes, emergency contact
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
 
