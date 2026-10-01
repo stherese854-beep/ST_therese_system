@@ -103,9 +103,11 @@ function dentist_match_sql($column, $fullName, &$params) {
 //    3. nobody else already holds that slot with that dentist
 //  $ignoreId lets an appointment ignore itself when being moved.
 // ============================================================
-function appt_slot_is_open($pdo, $date, $time, $dentist, $ignoreId = 0) {
+function appt_slot_is_open($pdo, $date, $time, $dentist, $ignoreId = 0, $checkClinicHours = true) {
     // ---- 1. Is the clinic open that day? ----
-    try {
+    // (Skipped when moving an EXISTING appointment to another dentist: the
+    //  booking already exists, only the dentist's own availability matters.)
+    if ($checkClinicHours) try {
         $cfg = [];
         foreach ($pdo->query("SELECT setting_key, setting_value FROM settings
                               WHERE setting_key IN ('clinic_open_days','clinic_open_time','clinic_close_time')") as $r) {
@@ -217,4 +219,54 @@ function slots_blocked_by($slots, $busyTimes) {
         foreach ($busy as $b) if (abs($b - $m) < APPT_MINUTES) { $out[] = $s; break; }
     }
     return $out;
+}
+
+// ============================================================
+//  PATIENT MOVED TO ANOTHER DENTIST -> MOVE THEIR UPCOMING VISITS TOO
+// ============================================================
+//  When staff change a patient's dentist (Patients page, or a dentist is
+//  archived), their upcoming Pending / Approved appointments follow, so the
+//  new dentist sees them on their schedule. An appointment stays with the old
+//  dentist only if the new one is off that day or already booked at that time
+//  — those are listed so staff can sort them out. Each moved patient is emailed.
+//  Returns [moved count, [list of "Oct 5, 9:00 AM" that could not move]].
+// ============================================================
+function move_upcoming_to_dentist($pdo, $patientId, $newDentist) {
+    $newDentist = trim((string)$newDentist);
+    if ($newDentist === '' || (int)$patientId <= 0) return [0, []];
+    $q = $pdo->prepare("SELECT a.*, COALESCE(NULLIF(p.email,''), g.email, u.email) AS patient_email
+                          FROM appointments a
+                          JOIN patients p ON p.id = a.patient_id
+                     LEFT JOIN patients g ON g.id = p.guardian_patient_id
+                     LEFT JOIN users u ON u.id = COALESCE(g.user_id, p.user_id)
+                         WHERE a.patient_id = ? AND a.status IN ('Pending','Confirmed') AND a.appointment_date >= CURDATE()
+                         ORDER BY a.appointment_date, a.appointment_time");
+    $q->execute([(int)$patientId]);
+    $moved = 0; $stuck = [];
+    $same = function_exists('dentist_name_variants') ? dentist_name_variants($newDentist) : [$newDentist];
+    $mailReady = function_exists('mail_is_ready') && mail_is_ready($pdo);
+    foreach ($q->fetchAll() as $ap) {
+        if (in_array((string)$ap['dentist'], $same, true) || $ap['dentist'] === $newDentist) continue;   // already theirs
+        $when = date('M j', strtotime($ap['appointment_date'])) . ', ' . $ap['appointment_time'];
+        if (!appt_slot_is_open($pdo, $ap['appointment_date'], $ap['appointment_time'], $newDentist, (int)$ap['id'], false)) {
+            $stuck[] = $when;
+            continue;
+        }
+        $pdo->prepare("UPDATE appointments SET dentist = ? WHERE id = ?")->execute([$newDentist, (int)$ap['id']]);
+        log_activity($pdo, 'Appointment moved to another dentist',
+                     $ap['patient_name'] . " ($when) " . ($ap['dentist'] ?: 'unassigned') . " → $newDentist (patient's dentist changed)");
+        $moved++;
+        if ($mailReady && !empty($ap['patient_email'])) {
+            $day = date('l, F j, Y', strtotime($ap['appointment_date']));
+            $cat = message_catalogue()['appointment_updated'];
+            [$subj, $body] = tpl_message($pdo, 'appointment_updated', $cat['subject'], $cat['body'], [
+                'patient' => $ap['patient_name'], 'was' => $day . ' at ' . $ap['appointment_time'] . ' with ' . ($ap['dentist'] ?: 'the clinic'),
+                'date' => $day, 'time' => $ap['appointment_time'], 'treatment' => $ap['treatment'], 'dentist' => $newDentist,
+                'note' => 'Your dentist has been changed to ' . $newDentist . '. The date and time stay the same.',
+                'clinic' => clinic_name($pdo),
+            ]);
+            $err = ''; send_mail($pdo, $ap['patient_email'], $subj, $body, $err, 'appointment_updated');
+        }
+    }
+    return [$moved, $stuck];
 }

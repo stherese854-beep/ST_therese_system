@@ -133,6 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($orphans->fetchAll(PDO::FETCH_COLUMN) as $opid) {
                 $newDentist = pick_dentist_for_new_patient($pdo);   // least-loaded remaining dentist (or null if none left)
                 $pdo->prepare("UPDATE patients SET primary_dentist = ? WHERE id = ?")->execute([$newDentist, $opid]);
+                if ($newDentist) move_upcoming_to_dentist($pdo, $opid, $newDentist);   // their upcoming visits follow
                 $moved++;
             }
         }

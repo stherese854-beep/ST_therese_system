@@ -298,7 +298,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE patients SET primary_dentist=? WHERE id=?")
             ->execute([($_POST['dentist'] ?: null), (int)$_POST['id']]);
         log_activity($pdo, 'Assigned dentist', patient_name_of($pdo, (int)$_POST['id']) . ' → ' . ($_POST['dentist'] ?: 'Unassigned'));
-        set_flash($_POST['dentist'] ? ('Assigned to ' . $_POST['dentist'] . '.') : 'Patient unassigned.');
+        // Their upcoming appointments go to the new dentist too.
+        $msg = $_POST['dentist'] ? ('Assigned to ' . $_POST['dentist'] . '.') : 'Patient unassigned.';
+        $type = 'success';
+        if ($_POST['dentist']) {
+            [$movedN, $stuck] = move_upcoming_to_dentist($pdo, (int)$_POST['id'], $_POST['dentist']);
+            if ($movedN) $msg .= " $movedN upcoming appointment" . ($movedN > 1 ? 's were' : ' was') . ' moved to ' . $_POST['dentist'] . ' (same date and time).';
+            if ($stuck) {
+                $msg .= ' Not moved — ' . $_POST['dentist'] . ' is off or already booked: ' . implode('; ', $stuck) . '. Please change those in Appointments.';
+                $type = 'warning';
+            }
+        }
+        set_flash($msg, $type);
         $back = !empty($_POST['q']) ? '?q=' . urlencode($_POST['q']) : '';
         header("Location: patients$back"); exit;
     }
