@@ -191,6 +191,24 @@ $chartOrder = array_values(array_filter(
     ['perMonth', 'newPatients', 'status', 'treatments', 'dentists', 'weekdays', 'hours', 'ages', 'ratings', 'cancelledBy'],
     fn($id) => isset($charts[$id])));
 
+// The navbar above the charts: which charts belong to which section.
+$chartGroups = [
+    'all'          => '📊 All',
+    'appointments' => '📅 Appointments',
+    'busy'         => '⏰ Busy Times',
+    'patients'     => '👥 Patients',
+    'services'     => '🦷 Treatments & Dentists',
+    'cancels'      => '🚫 Cancellations',
+    'reviews'      => '⭐ Reviews',
+];
+$chartGroup = [
+    'perMonth' => 'appointments', 'status' => 'appointments',
+    'weekdays' => 'busy', 'hours' => 'busy',
+    'newPatients' => 'patients', 'ages' => 'patients',
+    'treatments' => 'services', 'dentists' => 'services',
+    'cancelledBy' => 'cancels', 'ratings' => 'reviews',
+];
+
 function clinic_name_for_print($pdo) {
     try {
         $n = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='clinic_name'")->fetchColumn();
@@ -204,7 +222,7 @@ $active = 'analytics';
 ?>
 <style>
 /* Chart chrome — one teal series, recessive grid/axes (see the dataviz rules) */
-.viz { --series-1: #0d9488; --series-1-hover: #0a7a70; --grid: #e6ecef; --axis: #c9d3d9;
+.viz { --series-1: var(--teal-mid, #0d9488); --series-1-hover: var(--teal, #0a7a70); --grid: #e6ecef; --axis: #c9d3d9;
        --ink: #1d2b33; --ink-2: #52606b; --muted: #7d8a95; }
 .viz-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .viz-grid .wide { grid-column: 1 / -1; }
@@ -261,6 +279,14 @@ $active = 'analytics';
     .print-chart-img { display: block !important; width: 100%; height: auto; max-height: 260px; object-fit: contain; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+.viz-nav { display: flex; gap: 4px; overflow-x: auto; background: #fff; border-radius: 14px; padding: 6px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 16px; scrollbar-width: thin; }
+.viz-nav button { border: 0; background: transparent; color: var(--ink-2); font-size: .86rem; font-weight: 600;
+                  padding: 8px 14px; border-radius: 10px; white-space: nowrap; flex: 0 0 auto; }
+.viz-nav button:hover { background: #eef7f6; color: var(--series-1); }
+.viz-nav button.on { background: var(--series-1); color: #fff; }
+.viz-grid .viz-card.is-hidden { display: none; }
+.viz-grid .viz-card.solo { grid-column: 1 / -1; }
 .range-row a { padding: 6px 12px; border-radius: 999px; font-size: .82rem; text-decoration: none; color: var(--ink-2); background: #fff; border: 1px solid #dde5ea; }
 .range-row a.on { background: var(--series-1); border-color: var(--series-1); color: #fff; font-weight: 600; }
 </style>
@@ -315,7 +341,14 @@ $active = 'analytics';
             <div class="kpi"><div class="label">Average rating</div><div class="value"><?= $rev['n'] ? number_format((float)$rev['avg'], 1) . ' ★' : '—' ?></div><div class="note"><?= (int)$rev['n'] ?> review<?= (int)$rev['n'] === 1 ? '' : 's' ?></div></div>
         </div>
 
-        <div class="viz-grid">
+        <!-- Section navbar: "All" shows every graph on one page; the others narrow it down -->
+        <nav class="viz-nav print-hide" aria-label="Chart sections" id="viz-nav">
+            <?php foreach ($chartGroups as $g => $lbl): ?>
+                <button type="button" data-show="<?= $g ?>" class="<?= $g === 'all' ? 'on' : '' ?>"><?= $lbl ?></button>
+            <?php endforeach; ?>
+        </nav>
+
+        <div class="viz-grid" id="viz-grid">
             <?php foreach ($chartOrder as $id):
                 [$title, $sub, $labels, $values, $unit, $orient] = $charts[$id];
                 $colors = $charts[$id][6] ?? [];
@@ -324,7 +357,7 @@ $active = 'analytics';
                 $tall = $orient === 'h' && count($labels) > 5;
                 $sum = max(1, array_sum($values));
             ?>
-            <section class="viz-card <?= $isWide ? 'wide' : '' ?>" id="sec-<?= $id ?>" aria-labelledby="t-<?= $id ?>">
+            <section class="viz-card <?= $isWide ? 'wide' : '' ?>" id="sec-<?= $id ?>" data-group="<?= $chartGroup[$id] ?? 'other' ?>" aria-labelledby="t-<?= $id ?>">
                 <h6 id="t-<?= $id ?>"><?= e($title) ?></h6>
                 <div class="sub"><?= e($sub) ?></div>
                 <?php if ($hasData): ?>
@@ -449,6 +482,9 @@ if (document.getElementById('clock')) startClock();
         if (tablesBox.checked) document.querySelectorAll('.viz-card details:not([open])').forEach(function (d) { d.open = true; opened.push(d); });
         var m = bootstrap.Modal.getInstance(document.getElementById('printModal'));
         if (m) m.hide();
+        // The print dialog's ticks decide what prints, even charts the navbar is hiding.
+        document.querySelectorAll('.viz-card.is-hidden').forEach(function (c) { c.classList.remove('is-hidden'); c.dataset.navHidden = '1'; });
+        if (window.Chart) Object.values(Chart.instances).forEach(function (ch) { ch.resize(); });
         snapshotCharts();
         setTimeout(function () { window.print(); }, 350);     // let the dialog close first
     }
@@ -456,6 +492,7 @@ if (document.getElementById('clock')) startClock();
         removeSnapshots();
         document.querySelectorAll('.pp-off').forEach(function (s) { s.classList.remove('pp-off'); });
         opened.forEach(function (d) { d.open = false; }); opened = [];
+        document.querySelectorAll('.viz-card[data-nav-hidden]').forEach(function (c) { c.classList.add('is-hidden'); delete c.dataset.navHidden; });
     });
     document.getElementById('pp-print').onclick = go;
     document.getElementById('pp-pdf').onclick   = go;          // same dialog: pick "Save as PDF" as the destination
@@ -592,6 +629,37 @@ if (document.getElementById('clock')) startClock();
             }
         });
     });
+})();
+</script>
+<script>
+// Analytics navbar: show one section, or "All" graphs on one page. Remembered per browser.
+(function () {
+    var nav = document.getElementById('viz-nav'), grid = document.getElementById('viz-grid');
+    if (!nav || !grid) return;
+    function show(g) {
+        var cards = grid.querySelectorAll('.viz-card'), visible = [];
+        cards.forEach(function (c) {
+            var on = g === 'all' || c.dataset.group === g;
+            c.classList.toggle('is-hidden', !on);
+            c.classList.remove('solo');
+            if (on) visible.push(c);
+        });
+        if (g !== 'all' && visible.length === 1) visible[0].classList.add('solo');   // a lone chart uses the full width
+        nav.querySelectorAll('button').forEach(function (b) {
+            b.classList.toggle('on', b.dataset.show === g);
+            b.setAttribute('aria-pressed', b.dataset.show === g ? 'true' : 'false');
+        });
+        try { localStorage.setItem('analytics_section', g); } catch (e) {}
+        window.dispatchEvent(new Event('resize'));                                  // let the charts fit their new size
+    }
+    nav.addEventListener('click', function (e) {
+        var b = e.target.closest('button[data-show]');
+        if (b) show(b.dataset.show);
+    });
+    var saved = 'all';
+    try { saved = localStorage.getItem('analytics_section') || 'all'; } catch (e) {}
+    if (!nav.querySelector('[data-show="' + saved + '"]')) saved = 'all';
+    show(saved);
 })();
 </script>
 </body></html>

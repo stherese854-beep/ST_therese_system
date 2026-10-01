@@ -103,15 +103,29 @@ include 'includes/head.php';
         <form method="POST">
             <input type="hidden" name="action" value="save_templates">
 
-            <?php foreach ($groups as $groupName => $items): ?>
-                <h5 class="mt-4 mb-2" style="color:var(--teal);"><?= e($groupName) ?></h5>
+            <div class="tpl-layout">
+            <!-- Navbar: one entry per message; the selected one shows on the right -->
+            <nav class="tpl-nav" id="tpl-nav" aria-label="Messages">
+                <?php foreach ($groups as $groupName => $items): ?>
+                    <div class="tpl-nav-group"><?= e($groupName) ?></div>
+                    <?php foreach ($items as $kind => $t):
+                        $navEdited = isEdited($saved, "tpl_{$kind}_subject") || isEdited($saved, "tpl_{$kind}_body"); ?>
+                        <button type="button" data-pane="<?= e($kind) ?>"><?= e($t['label']) ?><?= $navEdited ? ' <i class="tpl-dot" title="edited"></i>' : '' ?></button>
+                    <?php endforeach; ?>
+                <?php endforeach; ?>
+                <div class="tpl-nav-group">Printed</div>
+                <button type="button" data-pane="slip">Appointment slip</button>
+            </nav>
 
+            <div class="tpl-panes">
+            <?php foreach ($groups as $groupName => $items): ?>
                 <?php foreach ($items as $kind => $t):
                     $sKey = "tpl_{$kind}_subject";
                     $bKey = "tpl_{$kind}_body";
                     $edited = isEdited($saved, $sKey) || isEdited($saved, $bKey);
                 ?>
-                <div class="card-box mb-3">
+                <div class="card-box mb-3 tpl-pane" data-pane="<?= e($kind) ?>">
+                    <div class="text-muted2" style="font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;"><?= e($groupName) ?></div>
                     <div class="flex-between mb-1">
                         <h6 class="mb-0">
                             <?= e($t['label']) ?>
@@ -142,8 +156,8 @@ include 'includes/head.php';
             <?php endforeach; ?>
 
             <!-- ===== Appointment slip ===== -->
-            <h5 class="mt-4 mb-2" style="color:var(--teal);">Printed appointment slip</h5>
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 tpl-pane" data-pane="slip">
+                <h6 class="mb-2">Printed appointment slip</h6>
                 <div class="text-muted2 mb-3" style="font-size:.8rem;">
                     The slip a patient prints after their appointment is confirmed. The date, time, dentist
                     and reference number come from the appointment itself — only the wording below is editable.
@@ -159,8 +173,10 @@ include 'includes/head.php';
                     <div class="text-muted2 mb-3" style="font-size:.76rem;"><?= e($f['help']) ?></div>
                 <?php endforeach; ?>
             </div>
+            </div><!-- /.tpl-panes -->
+            </div><!-- /.tpl-layout -->
 
-            <div class="d-flex gap-2 mb-4">
+            <div class="d-flex gap-2 mb-4 flex-wrap">
                 <button class="btn btn-teal">💾 Save all messages</button>
                 <button type="button" class="btn btn-light" onclick="resetAll()">↺ Restore everything</button>
                 <a href="messaging" class="btn btn-light">✉️ Email settings</a>
@@ -180,8 +196,57 @@ include 'includes/head.php';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<style>
+.tpl-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 12px; }
+.tpl-nav { background: #fff; border-radius: 14px; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+           position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; }
+.tpl-nav-group { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+                 color: #8aa0a0; padding: 10px 10px 4px; }
+.tpl-nav button { border: 0; background: transparent; text-align: left; padding: 8px 10px; border-radius: 9px;
+                  font-size: .86rem; color: #3f5350; line-height: 1.3; }
+.tpl-nav button:hover { background: #eef7f6; color: var(--teal); }
+.tpl-nav button.on { background: var(--teal); color: #fff; font-weight: 600; }
+.tpl-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); vertical-align: 1px; margin-left: 3px; }
+.tpl-pane { display: none; }
+.tpl-pane.on { display: block; }
+@media (max-width: 860px) {
+    /* Phones/tablets: the navbar becomes one scrollable row above the message */
+    .tpl-layout { grid-template-columns: 1fr; }
+    .tpl-nav { position: static; flex-direction: row; overflow-x: auto; padding: 6px; }
+    .tpl-nav-group { display: none; }
+    .tpl-nav button { white-space: nowrap; flex: 0 0 auto; }
+}
+</style>
 <script>
 startClock();
+
+// Message navbar: show the chosen message; remembered per browser.
+(function () {
+    var nav = document.getElementById('tpl-nav');
+    if (!nav) return;
+    function show(k) {
+        var found = false;
+        document.querySelectorAll('.tpl-pane').forEach(function (p) {
+            var on = p.dataset.pane === k; p.classList.toggle('on', on); found = found || on;
+        });
+        if (!found) return false;
+        nav.querySelectorAll('button').forEach(function (b) {
+            var on = b.dataset.pane === k;
+            b.classList.toggle('on', on);
+            b.setAttribute('aria-current', on ? 'true' : 'false');
+            if (on && window.innerWidth <= 860) b.scrollIntoView({ block: 'nearest', inline: 'center' });
+        });
+        try { localStorage.setItem('tpl_pane', k); } catch (e) {}
+        return true;
+    }
+    nav.addEventListener('click', function (e) {
+        var b = e.target.closest('button[data-pane]');
+        if (b) show(b.dataset.pane);
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('tpl_pane'); } catch (e) {}
+    if (!saved || !show(saved)) show(nav.querySelector('button[data-pane]').dataset.pane);
+})();
 
 function resetOne(kind, label){
     askConfirm({ title: 'Restore original wording?', danger: true, okText: 'Yes, restore',

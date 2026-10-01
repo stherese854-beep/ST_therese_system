@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         log_activity($pdo, 'Confirmed no-show', ($row['patient_name'] ?? ('Appointment #' . $id)));
-        set_flash(($row['patient_name'] ?? 'Appointment') . ' marked as a no-show.' . $note);
+        set_flash(($row['patient_name'] ?? 'Appointment') . ' marked as a no-show.' . $note, 'danger');   // red: it counts against the patient
         header("Location: noshow?tab=review"); exit;
     }
 

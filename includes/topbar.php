@@ -18,7 +18,7 @@ $tbRole  = function_exists('current_role') ? current_role() : ($_SESSION['role']
 
 // Where does "Profile / Settings" go? Patients have their own portal page;
 // staff/admin/dentist use the shared settings page.
-$tbProfileLink = ($tbRole === 'patient') ? 'portal?view=profile' : 'settings';
+$tbProfileLink = ($tbRole === 'patient') ? 'portal?view=profile' : 'settings?view=profile';
 
 // The user's profile picture (users.photo). Falls back to their initial.
 $tbPhoto = null;

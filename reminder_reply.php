@@ -103,7 +103,7 @@ $when = $appt ? date('l, F j, Y', strtotime($appt['appointment_date'])) . ' at '
     <?php elseif ($state === 'cancelled'): ?>
         <div style="font-size:2rem;">🗓️</div>
         <p>The appointment on <b><?= e($when) ?></b> has been <b>cancelled</b>, and the clinic has been told.</p>
-        <?php if (!empty($cancelNotice)): $cc = ['info' => '#0f766e', 'warning' => '#c79a5c', 'danger' => '#c0392b'][$cancelNotice['level']]; ?>
+        <?php if (!empty($cancelNotice)): $cc = '#c0392b'; ?>
         <div style="text-align:left;border-left:5px solid <?= $cc ?>;background:#f7fafa;border-radius:10px;padding:12px 14px;margin:12px 0;">
             <div style="font-weight:700;color:<?= $cc ?>;margin-bottom:4px;"><?= e($cancelNotice['title']) ?></div>
             <div style="font-size:.9rem;color:#3f5350;"><?= nl2br(e(preg_replace('/^Your appointment was cancelled[^

@@ -156,12 +156,12 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 #calendar td.cal-day { position: relative; padding: 7px 0; color: #475569; border-radius: 8px; }
 #calendar td.cal-day.pickable { cursor: pointer; }
 #calendar td.cal-day.pickable:hover { background: #e8f5f3; }
-#calendar td.cal-day.is-today { background: #0f766e; color: #fff; }
+#calendar td.cal-day.is-today { background: var(--teal-mid); color: #fff; }
 #calendar td.cal-day.is-picked { box-shadow: inset 0 0 0 2px #f0a531; font-weight: 700; }
 .cal-dot { display: none; position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%);
            width: 5px; height: 5px; border-radius: 50%; background: #f0a531; }
 #calendar td.has-appts .cal-dot { display: block; }
-#calendar td.is-today .cal-dot { background: #fff; }
+#calendar td.is-today .cal-dot { background: var(--card, #fff); }
 
 /* ---- Delete several at once (bulk_bar / bulk_pick in config/auth.php) ---- */
 .bulk-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px;
@@ -186,7 +186,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .btn-gold:hover { background: #b1864a; color: #fff; }
 .btn-dark-navy { background: #143a4a; color: #fff; border: none; }
 .btn-dark-navy:hover { background: #0d2935; color: #fff; }
-.btn-outline-teal { border: 1px solid var(--teal-mid); color: var(--teal-mid); background: #fff; }
+.btn-outline-teal { border: 1px solid var(--teal-mid); color: var(--teal-mid); background: var(--card, #fff); }
 .btn-outline-teal:hover { background: var(--teal-mid); color: #fff; }
 
 /* Small action buttons in tables */
@@ -219,7 +219,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
         font-size: 1.4rem;
         box-shadow: 0 2px 8px rgba(0,0,0,.15);
     }
-    .auth-close:hover { background: #fff; color: var(--teal-dark); }
+    .auth-close:hover { background: var(--card, #fff); color: var(--teal-dark); }
 }
 .auth-page  { background: var(--teal); }
 .auth-left {
@@ -234,7 +234,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .auth-left h1 .gold { color: var(--gold); font-style: italic; }
 .auth-left p { color: #bcd6d2; margin-top: 18px; max-width: 360px; }
 .auth-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px; }
-.auth-card { background: #fff; border-radius: 18px; padding: 28px; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+.auth-card { background: var(--card, #fff); border-radius: 18px; padding: 28px; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
 .auth-tabs { display: flex; background: #f1ede6; border-radius: 12px; padding: 5px; margin-bottom: 22px; }
 .auth-tabs button { flex: 1; border: none; background: transparent; padding: 10px; border-radius: 9px; font-weight: 600; color: #97917f; cursor: pointer; }
 .auth-tabs button.active { background: var(--teal); color: #fff; }
@@ -342,7 +342,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .booking-hero .eyebrow { color: var(--gold); letter-spacing: 2px; font-size: .8rem; font-weight: 700; }
 .booking-hero h1 { font-size: 2.8rem; font-weight: 800; margin: 6px 0; }
 .booking-body { background: #f6f1e9; min-height: 60vh; padding: 0 16px 50px; }
-.wizard-card { background: #fff; border-radius: 16px; max-width: 540px; margin: -60px auto 0; padding: 26px; box-shadow: 0 8px 30px rgba(0,0,0,.12); }
+.wizard-card { background: var(--card, #fff); border-radius: 16px; max-width: 540px; margin: -60px auto 0; padding: 26px; box-shadow: 0 8px 30px rgba(0,0,0,.12); }
 
 /* Back-to-dashboard control on the booking page — a real button instead of
    bare arrow text, so it's clearly clickable. */
@@ -351,7 +351,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
     width: 34px; height: 34px;
     display: flex; align-items: center; justify-content: center;
     border: 1px solid #e1e8e7; border-radius: 50%;
-    background: #fff; color: var(--teal-dark);
+    background: var(--card, #fff); color: var(--teal-dark);
     font-size: 1.1rem; text-decoration: none;
     box-shadow: 0 1px 4px rgba(0,0,0,.06);
     transition: background .15s, transform .15s;
@@ -363,7 +363,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .steps .step.done .dot, .steps .step.active .dot { background: var(--teal); color: #fff; }
 .steps .step small { font-size: .72rem; color: var(--muted); }
 .slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.slot { border: 1px solid var(--teal-mid); border-radius: 10px; padding: 12px; text-align: center; cursor: pointer; font-weight: 600; color: var(--text); background: #fff; }
+.slot { border: 1px solid var(--teal-mid); border-radius: 10px; padding: 12px; text-align: center; cursor: pointer; font-weight: 600; color: var(--text); background: var(--card, #fff); }
 .slot.taken { color: #bbb; border-color: #ddd; text-decoration: line-through; cursor: not-allowed; }
 .slot.selected { background: var(--teal); color: #fff; }
 
@@ -394,7 +394,7 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
    Shared by odontogram.php (staff) and portal.php (patient).
    ============================================================ */
 .sess-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin:10px 0 4px;}
-.sess-tab{display:block;padding:8px 14px;border-radius:10px;border:1px solid #e3e9ee;background:#fff;
+.sess-tab{display:block;padding:8px 14px;border-radius:10px;border:1px solid #e3e9ee;background: var(--card, #fff);
           text-decoration:none;color:#44585a;transition:.15s;}
 .sess-tab:hover{border-color:var(--teal-light);color:var(--teal);}
 .sess-tab.on{background:var(--teal);border-color:var(--teal);color:#fff;box-shadow:0 6px 16px rgba(12,50,48,.16);}
@@ -507,7 +507,7 @@ a.recent-name:hover strong { color: var(--teal, #0f766e); text-decoration: under
 
 /* ---- Printing / PDF: elements that only exist on paper ---- */
 .print-only { display: none; }
-.odo-print-head { border-bottom: 2px solid #0d3b3b; padding-bottom: 8px; margin-bottom: 12px; }
+.odo-print-head { border-bottom: 2px solid var(--teal-dark); padding-bottom: 8px; margin-bottom: 12px; }
 .odo-print-info { width: 100%; margin-top: 8px; font-size: 12px; border-collapse: collapse; }
 .odo-print-info td { padding: 3px 6px 3px 0; }
 .odo-print-findings { margin-top: 14px; font-size: 12px; line-height: 2; }

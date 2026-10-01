@@ -34,6 +34,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($fbErr !== '') { set_flash($fbErr, 'error'); header("Location: landing_edit"); exit; }
             $_POST['land_contact_facebook'] = $fbUrl;
         }
+        // System colours: main (green) + background (white). The background must
+        // stay light, or dark text on it would become unreadable.
+        if (isset($_POST['theme_primary'], $_POST['theme_bg'])) {
+            $tp = strtolower(trim($_POST['theme_primary'])); $tb = strtolower(trim($_POST['theme_bg']));
+            if (!theme_hex_ok($tp) || !theme_hex_ok($tb)) {
+                set_flash('Please pick the colours with the colour boxes.', 'error'); header("Location: landing_edit"); exit;
+            }
+            if (theme_luminance($tb) < 0.8) {
+                set_flash('The background colour is too dark — text would be hard to read. Please pick a light colour.', 'error');
+                header("Location: landing_edit"); exit;
+            }
+            if (theme_luminance($tp) > 0.75) {
+                set_flash('The main colour is too light — white text on buttons would be hard to read. Please pick a darker colour.', 'error');
+                header("Location: landing_edit"); exit;
+            }
+            save_setting($pdo, 'theme_primary', $tp);
+            save_setting($pdo, 'theme_bg', $tb);
+        }
         // Save every "land_*" field that was submitted.
         foreach ($_POST as $k => $v) {
             if (strpos($k, 'land_') === 0) {
@@ -173,7 +191,7 @@ $active = 'landing_edit';
 ?>
 <div class="app-wrap">
     <?php include 'includes/sidebar.php'; ?>
-    <main class="main">
+    <main class="main le-main">
         <div class="page-head">
             <div><h1>Edit Landing Page</h1><div class="sub">Change any text shown on the public homepage</div></div>
             <div class="d-flex gap-2">
@@ -188,11 +206,41 @@ $active = 'landing_edit';
             <code>Title | Description</code>. Leave a box blank to use the built-in default text.
         </div>
 
-        <form method="POST">
+        <div class="le-split">
+        <div class="le-edit">
+        <form method="POST" id="le-form">
             <input type="hidden" name="action" value="save_landing">
 
+            <!-- ===== SYSTEM COLOURS ===== -->
+            <?php [$curPrimary, $curBg] = theme_colors($pdo); ?>
+            <div class="card-box mb-3 le-card" data-section="home">
+                <h5 class="mb-1">🎨 System Colours</h5>
+                <div class="text-muted2 mb-3" style="font-size:.85rem;">
+                    The two main colours of the whole system (landing page, sidebar, buttons, headings).
+                    The lighter and darker shades are made from the main colour automatically.
+                </div>
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <label class="field-label" for="theme_primary">Main colour <span class="text-muted2">(originally green)</span></label>
+                        <div class="le-color">
+                            <input type="color" name="theme_primary" id="theme_primary" value="<?= e($curPrimary) ?>">
+                            <code id="theme_primary_txt"><?= e($curPrimary) ?></code>
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="field-label" for="theme_bg">Background colour <span class="text-muted2">(originally white)</span></label>
+                        <div class="le-color">
+                            <input type="color" name="theme_bg" id="theme_bg" value="<?= e($curBg) ?>">
+                            <code id="theme_bg_txt"><?= e($curBg) ?></code>
+                        </div>
+                    </div>
+                </div>
+                <div id="le-color-warn" class="text-danger small mt-2" style="display:none;"></div>
+                <button type="button" class="btn btn-sm btn-light mt-2" onclick="leResetColors()" data-keep-text>↺ Back to the original green &amp; white</button>
+            </div>
+
             <!-- ===== HERO ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="home">
                 <h5 class="mb-3">🏠 Hero (top of the page)</h5>
                 <label class="field-label">Small label above the title</label>
                 <input name="land_hero_eyebrow" class="form-control mb-3" value="<?= e(v('land_hero_eyebrow','🦷 Modern Dental Care, Simplified')) ?>">
@@ -216,7 +264,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== LOGIN / SIGN-IN PAGE ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="login">
                 <h5 class="mb-3">🔐 Login &amp; Create Account Page</h5>
                 <div class="text-muted2 mb-3" style="font-size:.82rem;">
                     The text on the left side of the login and create-account screens.
@@ -234,7 +282,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== ABOUT ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="about">
                 <h5 class="mb-3">ℹ️ About the System</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -261,7 +309,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== FEATURES ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="features">
                 <h5 class="mb-3">⭐ Features</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -278,7 +326,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== HOW IT WORKS ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="how">
                 <h5 class="mb-3">🔢 How It Works</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -295,7 +343,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== SERVICES ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="services">
                 <h5 class="mb-3">🦷 Dental Services</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -312,7 +360,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== WHY CHOOSE ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="why">
                 <h5 class="mb-3">✅ Why Choose Our System</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -330,7 +378,7 @@ $active = 'landing_edit';
 
             <!-- ===== HMO PROVIDERS ===== -->
             <?php $hmoOn = v('land_hmo_show','0') === '1'; ?>
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="hmo">
                 <div class="flex-between mb-1">
                     <h5 class="mb-0">🏥 Trusted by Major HMO Providers</h5>
                     <div class="form-check form-switch mb-0">
@@ -380,7 +428,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== DENTISTS ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="dentists">
                 <h5 class="mb-1">👨‍⚕️ Meet Our Dentists</h5>
                 <div class="text-muted2 mb-3" style="font-size:.85rem;">The dentist cards are pulled automatically from your <a href="admin_dentists">Dentists</a> list. Only the section headings are edited here.</div>
                 <div class="row">
@@ -396,7 +444,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== TESTIMONIALS ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="testimonials">
                 <h5 class="mb-3">💬 Testimonials</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -416,7 +464,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== FAQ ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="faq">
                 <h5 class="mb-3">❓ FAQ</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -431,7 +479,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== CONTACT ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="contact">
                 <h5 class="mb-3">📍 Contact</h5>
                 <div class="row">
                     <div class="col-md-4"><label class="field-label">Small label</label>
@@ -476,7 +524,7 @@ $active = 'landing_edit';
 
             <!-- ===== TERMS & PRIVACY (admin only — this whole page is admin only) ===== -->
             <?php require_once 'includes/policies.php'; $polDef = policy_defaults(); ?>
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="policy">
                 <h5 class="mb-1">📜 Terms &amp; Conditions and Privacy Policy</h5>
                 <div class="text-muted2 mb-3" style="font-size:.85rem;">
                     Shown in the home page footer and when patients book. Separate sections with an
@@ -490,7 +538,7 @@ $active = 'landing_edit';
             </div>
 
             <!-- ===== CTA + FOOTER ===== -->
-            <div class="card-box mb-3">
+            <div class="card-box mb-3 le-card" data-section="cta">
                 <h5 class="mb-3">📣 Call-to-Action &amp; Footer</h5>
                 <label class="field-label">CTA heading</label>
                 <input name="land_cta_heading" class="form-control mb-3" value="<?= e(v('land_cta_heading','Ready to schedule your dental appointment?')) ?>">
@@ -500,9 +548,10 @@ $active = 'landing_edit';
                 <textarea name="land_footer_desc" class="form-control" rows="2"><?= e(v('land_footer_desc','Making dental appointments simple, fast, and convenient for patients and clinic staff alike.')) ?></textarea>
             </div>
 
-            <div class="d-flex gap-2 mb-4">
+            <div class="le-savebar">
                 <button class="btn btn-teal">💾 Save Landing Page</button>
-                <a href="./" target="_blank" class="btn btn-light">👁 Preview</a>
+                <a href="./" target="_blank" class="btn btn-light">👁 Open the real page</a>
+                <span class="text-muted2" style="font-size:.78rem;">The preview is not saved until you press Save.</span>
             </div>
         </form>
 
@@ -582,10 +631,163 @@ $active = 'landing_edit';
                 <button class="btn btn-light" style="color:#c0392b;">↺ Reset Landing Page</button>
             </form>
         </div>
+        </div><!-- /.le-edit -->
+
+        <!-- ===== LIVE PREVIEW: shows the section being edited, updates as you type ===== -->
+        <aside class="le-preview" id="le-preview" aria-label="Live preview">
+            <div class="le-pv-bar">
+                <strong>👁 Live preview</strong>
+                <span class="le-pv-sec" id="le-pv-sec"></span>
+                <div class="le-pv-dev" role="group" aria-label="Preview size">
+                    <button type="button" data-dev="desktop" class="on">🖥 Desktop</button>
+                    <button type="button" data-dev="phone">📱 Phone</button>
+                </div>
+                <button type="button" class="le-pv-close" onclick="lePreviewOpen(false)" aria-label="Close preview">✕</button>
+            </div>
+            <div class="le-pv-stage" id="le-pv-stage">
+                <iframe name="le-frame" id="le-frame" src="./" title="Landing page preview"></iframe>
+                <div class="le-pv-note" id="le-pv-note" style="display:none;"></div>
+            </div>
+        </aside>
+        </div><!-- /.le-split -->
+        <button type="button" class="btn btn-teal le-pv-fab" onclick="lePreviewOpen(true)">👁 Live preview</button>
     </main>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<style>
+.le-main { overflow: visible !important; overflow-x: clip !important; }   /* "hidden" would stop the preview from staying in view */
+.le-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.le-card { transition: box-shadow .2s, outline-color .2s; outline: 2px solid transparent; }
+.le-card.le-active { outline-color: var(--teal-light); box-shadow: 0 6px 22px rgba(15,118,110,.14); }
+.le-savebar { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+              background: var(--card, #fff); padding: 12px 14px; border-radius: 14px; margin-bottom: 18px;
+              box-shadow: 0 -4px 18px rgba(0,0,0,.08); }
+.le-color { display: flex; align-items: center; gap: 10px; }
+.le-color input[type=color] { width: 54px; height: 40px; border: 1px solid #dde5ea; border-radius: 10px; padding: 3px; background: #fff; cursor: pointer; }
+.le-preview { position: sticky; top: 72px; height: calc(100vh - 84px); display: flex; flex-direction: column;
+              background: var(--card, #fff); border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+.le-pv-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #e6ecef; flex-wrap: wrap; font-size: .86rem; }
+.le-pv-sec { color: var(--teal-mid); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.le-pv-dev { display: flex; gap: 2px; background: #eef2f5; border-radius: 9px; padding: 2px; }
+.le-pv-dev button { border: 0; background: transparent; font-size: .76rem; padding: 4px 9px; border-radius: 7px; color: #52606b; }
+.le-pv-dev button.on { background: #fff; color: var(--teal-mid); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.le-pv-close { display: none; border: 0; background: #eef2f5; border-radius: 8px; width: 32px; height: 32px; }
+.le-pv-stage { position: relative; flex: 1; overflow: hidden; background: #e9eef1; }
+.le-pv-stage iframe { position: absolute; top: 0; left: 0; border: 0; background: #fff; transform-origin: 0 0; }
+.le-pv-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+              padding: 24px; color: #52606b; background: rgba(233,238,241,.94); font-size: .92rem; }
+.le-pv-fab { display: none; }
+@media (max-width: 1100px) {
+    /* Small screens: the editor takes the full width; the preview opens full-screen from a button. */
+    .le-split { grid-template-columns: 1fr; }
+    .le-preview { display: none; }
+    .le-preview.open { display: flex; position: fixed; inset: 0; height: 100vh; z-index: 9500; border-radius: 0; }
+    .le-pv-close { display: block; }
+    .le-pv-fab { display: block; position: fixed; right: 16px; bottom: 84px; z-index: 9400; border-radius: 999px;
+                 box-shadow: 0 8px 22px rgba(0,0,0,.25); padding: 10px 18px; }
+}
+</style>
+<script>
+// Live preview: the real landing page in a side frame. Typing re-draws it with the
+// unsaved text (posted to index.php in preview mode — nothing is saved), and it
+// scrolls to the section being edited.
+(function () {
+    var form = document.getElementById('le-form'), frame = document.getElementById('le-frame'),
+        stage = document.getElementById('le-pv-stage'), note = document.getElementById('le-pv-note'),
+        secLabel = document.getElementById('le-pv-sec');
+    if (!form || !frame) return;
+
+    var NOTES = {
+        login:  'This text is shown on the Login & Create Account page, not on the landing page. Save, then open the login page to see it.',
+        policy: 'The Terms & Privacy text opens from the links in the landing page footer and on the booking page.'
+    };
+    var current = 'home', device = 'desktop', timer = null, busy = false, again = false;
+
+    // The page is drawn at a real desktop (1280px) or phone (390px) width, then scaled to fit.
+    function fit() {
+        var w = device === 'phone' ? 390 : 1280, box = stage.getBoundingClientRect();
+        if (!box.width) return;
+        var scale = Math.min(1, box.width / w);
+        frame.style.width = w + 'px';
+        frame.style.height = (box.height / scale) + 'px';
+        frame.style.transform = 'scale(' + scale + ')';
+        frame.style.left = Math.max(0, (box.width - w * scale) / 2) + 'px';
+    }
+    window.addEventListener('resize', fit);
+    document.querySelectorAll('.le-pv-dev button').forEach(function (b) {
+        b.addEventListener('click', function () {
+            device = b.dataset.dev;
+            document.querySelectorAll('.le-pv-dev button').forEach(function (x) { x.classList.toggle('on', x === b); });
+            fit(); setTimeout(goTo, 60);
+        });
+    });
+
+    function goTo() {
+        note.style.display = NOTES[current] ? 'flex' : 'none';
+        if (NOTES[current]) note.textContent = NOTES[current];
+        try {
+            var w = frame.contentWindow, d = frame.contentDocument;
+            var id = (current === 'login' || current === 'policy') ? 'home' : current;
+            var el = d && d.getElementById(id);
+            if (el) w.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + w.scrollY - 70));
+        } catch (e) {}
+    }
+    frame.addEventListener('load', function () { busy = false; goTo(); if (again) { again = false; refresh(); } });
+
+    function setSection(card) {
+        if (!card || !card.dataset.section) return;
+        document.querySelectorAll('.le-card.le-active').forEach(function (c) { c.classList.remove('le-active'); });
+        card.classList.add('le-active');
+        var h = card.querySelector('h5');
+        secLabel.textContent = h ? h.textContent.trim() : '';
+        if (card.dataset.section !== current) { current = card.dataset.section; goTo(); }
+    }
+    form.addEventListener('focusin', function (e) { setSection(e.target.closest('.le-card')); });
+    form.addEventListener('click',   function (e) { setSection(e.target.closest('.le-card')); });
+
+    function refresh() {
+        if (busy) { again = true; return; }
+        busy = true;
+        var act = form.querySelector('input[name=action]'), oldAct = act.value;
+        act.value = 'preview_landing';
+        form.action = './?preview=1'; form.target = 'le-frame';
+        form.submit();
+        act.value = oldAct; form.removeAttribute('action'); form.removeAttribute('target');
+    }
+    function later() { clearTimeout(timer); timer = setTimeout(refresh, 600); }
+    form.addEventListener('input', later);
+    form.addEventListener('change', later);
+
+    // Colours: show the code and warn about picks that would be hard to read.
+    function lum(hex) { var n = parseInt(hex.slice(1), 16); return (0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255)) / 255; }
+    function checkColors() {
+        var p = document.getElementById('theme_primary').value, b = document.getElementById('theme_bg').value, msg = '';
+        document.getElementById('theme_primary_txt').textContent = p;
+        document.getElementById('theme_bg_txt').textContent = b;
+        if (lum(b) < 0.8) msg = 'The background colour is too dark — text would be hard to read. Please pick a light colour.';
+        else if (lum(p) > 0.75) msg = 'The main colour is too light — white text on buttons would be hard to read.';
+        var box = document.getElementById('le-color-warn');
+        box.textContent = msg; box.style.display = msg ? 'block' : 'none';
+    }
+    ['theme_primary', 'theme_bg'].forEach(function (id) { document.getElementById(id).addEventListener('input', checkColors); });
+    window.leResetColors = function () {
+        document.getElementById('theme_primary').value = '<?= THEME_DEFAULT_PRIMARY ?>';
+        document.getElementById('theme_bg').value = '<?= THEME_DEFAULT_BG ?>';
+        checkColors(); refresh();
+    };
+
+    // Small screens: the preview opens full-screen.
+    window.lePreviewOpen = function (on) {
+        document.getElementById('le-preview').classList.toggle('open', on);
+        document.body.style.overflow = on ? 'hidden' : '';
+        if (on) setTimeout(function () { fit(); goTo(); }, 30);
+    };
+
+    setSection(document.querySelector('.le-card'));
+    fit();
+})();
+</script>
 </body>
 </html>

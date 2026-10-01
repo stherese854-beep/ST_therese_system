@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             set_flash('Name cannot be empty.', 'error');
         }
-        header("Location: settings"); exit;
+        header("Location: settings?view=profile"); exit;
     }
 
     // ---- Upload a profile picture (same feature patients have) ----
@@ -123,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else { set_flash('Could not save the picture.', 'error'); }
             } else { set_flash('Please choose an image (jpg, png, gif, webp).', 'error'); }
         } else { set_flash('Please choose a picture first.', 'error'); }
-        header("Location: settings"); exit;
+        header("Location: settings?view=profile"); exit;
     }
 
     // ---- Remove the profile picture ----
@@ -135,24 +135,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE users SET photo=NULL WHERE id=?")->execute([$_SESSION['user_id']]);
         log_activity($pdo, 'Removed profile picture', 'Own account');
         set_flash('Profile picture removed.', 'info');
-        header("Location: settings"); exit;
+        header("Location: settings?view=profile"); exit;
     }
 
     // Step 1: check the passwords, then send a code (see pw_change_start()).
     if ($action === 'change_password') {
         $pwError = pw_change_start($pdo, $_POST['current_password'] ?? '', $_POST['new_password'] ?? '', $_POST['confirm_password'] ?? '');
-        if ($pwError === '') { header("Location: settings#pw-card"); exit; }
+        if ($pwError === '') { header("Location: settings?view=profile#pw-card"); exit; }
         // otherwise fall through and show the error below
     }
     // Step 2: the right code changes the password.
     if ($action === 'verify_password_code') {
         $pwError = pw_change_finish($pdo, $_POST['code'] ?? '');
-        if ($pwError === '') { set_flash('Your password has been changed.'); header("Location: settings"); exit; }
+        if ($pwError === '') { set_flash('Your password has been changed.'); header("Location: settings?view=profile"); exit; }
     }
     if ($action === 'cancel_password_change') {
         unset($_SESSION['pw_change']);
         set_flash('Password change cancelled. Your password stays the same.', 'info');
-        header("Location: settings"); exit;
+        header("Location: settings?view=profile"); exit;
     }
 }
 
@@ -166,6 +166,11 @@ foreach ($pdo->query("SELECT setting_key, setting_value FROM settings") as $row)
 function cfg($cfg, $key, $default = '') { return $cfg[$key] ?? $default; }
 
 $isAdmin = (current_role() === 'admin');
+// The admin's own profile + password live under the profile menu ("Profile & Settings"
+// -> settings?view=profile); the System tab only shows clinic-wide settings.
+// Dentists and staff have no System settings, so they always see their profile.
+$profileView = !$isAdmin || ($_GET['view'] ?? '') === 'profile'
+            || in_array($_POST['action'] ?? '', ['save_profile','upload_avatar','remove_avatar','change_password','verify_password_code'], true);
 
 // The logged-in user's own account (for the My Profile card).
 $meStmt = $pdo->prepare("SELECT name, email, contact, photo, role FROM users WHERE id=?");
@@ -174,25 +179,26 @@ $meUser = $meStmt->fetch() ?: ['name'=>'','email'=>'','contact'=>'','photo'=>'',
 $myHasPhoto = !empty($meUser['photo']) && is_file(__DIR__ . '/' . $meUser['photo']);
 $myInitial  = strtoupper(substr(trim($meUser['name']), 0, 1)) ?: 'U';
 
-$page_title = "System Settings";
+$page_title = $profileView ? "My Profile & Settings" : "System Settings";
 include 'includes/head.php';
-$active = 'settings';
+$active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is not the System menu item
 ?>
 <div class="app-wrap">
     <?php include 'includes/sidebar.php'; ?>
     <main class="main">
         <div class="page-head">
             <div>
-                <h1 style="color:var(--teal-light)">System Settings</h1>
-                <div class="sub">Clinic info, security, and data management</div>
+                <h1 style="color:var(--teal-light)"><?= $profileView ? 'My Profile &amp; Settings' : 'System Settings' ?></h1>
+                <div class="sub"><?= $profileView ? 'Your own account: picture, name, contact and password' : 'Clinic info, hours, security and sign-in' ?></div>
             </div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock">--:--</span><br><span id="clock-date"></span></div>
             </div>
         </div>
 
-        <?php if ($isAdmin) include 'includes/admin_tabs.php'; ?>
+        <?php if ($isAdmin && !$profileView) include 'includes/admin_tabs.php'; ?>
 
+        <?php if ($profileView): ?>
         <!-- ===== MY PROFILE (same feature patients have) ===== -->
         <div class="card-box mb-3">
             <h5 class="mb-3">👤 My Profile</h5>
@@ -251,7 +257,9 @@ $active = 'settings';
             </div>
         </div>
 
-        <?php if ($isAdmin): /* Clinic info, security, and backup are admin-only */ ?>
+        <?php endif; /* $profileView */ ?>
+
+        <?php if ($isAdmin && !$profileView): /* Clinic info, security, and backup are admin-only */ ?>
         <div class="row g-3">
             <!-- ===== Clinic Information ===== -->
             <div class="col-lg-6">
@@ -332,7 +340,7 @@ $active = 'settings';
 
         <?php endif; /* end admin-only clinic/security/backup */ ?>
 
-        <?php if ($isAdmin): ?>
+        <?php if ($isAdmin && !$profileView): ?>
         <!-- ===== Clinic Hours & Open Days (controls what the booking page allows) ===== -->
         <?php
             $openDays  = cfg($cfg, 'clinic_open_days', 'Mon,Tue,Wed,Thu,Fri,Sat');
@@ -414,6 +422,7 @@ $active = 'settings';
         </div>
         <?php endif; ?>
 
+        <?php if ($profileView): ?>
         <!-- ===== Change My Password (any logged-in user) ===== -->
         <div class="card-box mt-3" id="pw-card">
             <h5 class="mb-1">🔑 Change My Password</h5>
@@ -458,6 +467,7 @@ $active = 'settings';
             </form>
             <?php endif; ?>
         </div>
+        <?php endif; /* $profileView */ ?>
     </main>
 </div>
 

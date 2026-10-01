@@ -1415,7 +1415,7 @@ include 'includes/head.php';
         // How many cancellations this account has used so far — warn before cancelling.
         require_once 'includes/patient_notices.php';
         $mcPre = cancel_prewarning(account_cancel_total($pdo, $pid));
-        $mcCol = ['info' => ['#eef7f6','#0f766e'], 'warning' => ['#fff6e0','#8a6d2f'], 'danger' => ['#fdecea','#c0392b']][$mcPre['level']];
+        $mcCol = ['#fdecea', '#c0392b'];   // the cancellation warning is always red
         ?>
         <div class="alert" style="background:<?= $mcCol[0] ?>;border:1px solid <?= $mcCol[1] ?>;color:<?= $mcCol[1] ?>;font-size:.84rem;">
           <div style="font-weight:700;margin-bottom:3px;"><?= e($mcPre['title']) ?></div>

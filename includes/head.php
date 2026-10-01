@@ -24,6 +24,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
     <!-- Our custom theme (versioned by file time so browsers always fetch
          the latest copy after a deploy, instead of serving a stale cache) -->
     <link href="css/style.css?v=<?= @filemtime(__DIR__ . '/../css/style.css') ?: time() ?>" rel="stylesheet">
+    <?php if (isset($pdo) && function_exists('theme_style_tag')) echo theme_style_tag($pdo, 'system');   // admin's chosen colours ?>
     <script>
     // ---- Number fields: digits only ----
     // Phone numbers, ages, codes, counts... (type="tel", type="number" or
@@ -524,7 +525,7 @@ if (isset($pdo) && function_exists('current_role') && current_role() === 'patien
     $__notices = take_patient_notices($pdo, $_SESSION['user_id']);
 }
 if ($__notices):
-    $__lvl = ['info' => '#0f766e', 'warning' => '#c79a5c', 'danger' => '#c0392b'];
+    $__lvl = ['info' => '#c0392b', 'warning' => '#c0392b', 'danger' => '#c0392b'];   // warnings are always red
 ?>
 <div id="pn-backdrop" role="dialog" aria-modal="true" aria-labelledby="pn-title-0">
   <div id="pn-box">
@@ -534,7 +535,7 @@ if ($__notices):
         <div class="pn-body"><?= nl2br(e($__n['body'])) ?></div>
       </div>
     <?php endforeach; ?>
-    <button type="button" id="pn-ok" class="btn btn-teal w-100"
+    <button type="button" id="pn-ok" class="btn w-100" style="background:#c0392b;color:#fff;font-weight:600;"
             onclick="document.getElementById('pn-backdrop').remove();document.body.style.overflow='';">I understand</button>
   </div>
 </div>

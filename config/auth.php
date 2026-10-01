@@ -1095,3 +1095,60 @@ function save_setting($pdo, $key, $value) {
          ON DUPLICATE KEY UPDATE setting_value = ?"
     )->execute([$key, $value, $value]);
 }
+
+// ============================================================
+//  THEME COLOURS  (Edit Landing Page → System Colours)
+// ============================================================
+//  The admin picks two colours: the MAIN colour (green by default) and
+//  the BACKGROUND colour (white by default). The darker/lighter shades
+//  the design needs are worked out from the main colour, so one pick
+//  re-colours the sidebar, buttons, headings and the landing page.
+// ============================================================
+define('THEME_DEFAULT_PRIMARY', '#0f766e');
+define('THEME_DEFAULT_BG', '#ffffff');
+
+function theme_hex_ok($h) { return is_string($h) && preg_match('/^#[0-9a-f]{6}$/i', $h); }
+
+function theme_mix($hex, $with, $amount) {       // blend $hex toward $with by $amount (0..1)
+    $a = sscanf($hex, '#%02x%02x%02x'); $b = sscanf($with, '#%02x%02x%02x');
+    $o = '#';
+    for ($i = 0; $i < 3; $i++) $o .= sprintf('%02x', (int)round($a[$i] + ($b[$i] - $a[$i]) * $amount));
+    return $o;
+}
+function theme_luminance($hex) {
+    [$r, $g, $b] = sscanf($hex, '#%02x%02x%02x');
+    return (0.2126 * $r + 0.7152 * $g + 0.0722 * $b) / 255;
+}
+
+// [primary, background] — saved values, or the overrides given (used by the live preview).
+function theme_colors($pdo, $primary = null, $bg = null) {
+    static $saved = null;
+    if ($saved === null) {
+        $saved = [THEME_DEFAULT_PRIMARY, THEME_DEFAULT_BG];
+        try {
+            $q = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('theme_primary','theme_bg')");
+            foreach ($q as $r) {
+                if ($r['setting_key'] === 'theme_primary' && theme_hex_ok($r['setting_value'])) $saved[0] = strtolower($r['setting_value']);
+                if ($r['setting_key'] === 'theme_bg'      && theme_hex_ok($r['setting_value'])) $saved[1] = strtolower($r['setting_value']);
+            }
+        } catch (Throwable $e) {}
+    }
+    return [theme_hex_ok($primary) ? strtolower($primary) : $saved[0], theme_hex_ok($bg) ? strtolower($bg) : $saved[1]];
+}
+
+// The CSS variables, for the system pages ($scope 'system') or the public
+// landing page ($scope 'landing' — it names its shades differently). Empty when nothing changed.
+function theme_style_tag($pdo, $scope = 'system', $primary = null, $bg = null, $force = false) {
+    [$p, $w] = theme_colors($pdo, $primary, $bg);
+    if (!$force && $p === THEME_DEFAULT_PRIMARY && $w === THEME_DEFAULT_BG) return '';
+    $dark  = theme_mix($p, '#000000', .55);
+    $deep  = theme_mix($p, '#000000', .30);
+    $light = theme_mix($p, '#ffffff', .25);
+    $soft  = theme_mix($p, $w, .92);             // pale tint of the main colour on the background
+    $page  = theme_mix($w, '#000000', .05);      // a touch darker than the cards
+    $vars = $scope === 'landing'
+        ? "--blue:$p;--blue-600:$deep;--teal:$p;--teal-600:$deep;--teal-dark:$dark;--teal-light:$light;"
+          . "--sky:$soft;--mint:$soft;--white:$w;--grad:linear-gradient(135deg,$dark 0%,$p 55%,$light 100%);"
+        : "--teal-dark:$dark;--teal:$deep;--teal-mid:$p;--teal-light:$light;--card:$w;--bg:$page;";
+    return "<style id=\"theme-colors\">:root{{$vars}--theme-p:$p;--theme-bg:$w;}</style>";
+}

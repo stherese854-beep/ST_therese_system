@@ -92,7 +92,7 @@ function cancel_prewarning($used) {
                          . "If you only need another time, please use Reschedule instead."];
     }
     if ($used === 0) {
-        return ['level' => 'info', 'title' => "ℹ️ Before you cancel",
+        return ['level' => 'info', 'title' => "⚠️ Before you cancel",
                 'body'  => "You can cancel up to $limit appointments online (this counts every person you book for). "
                          . "This will be your 1st. After $limit cancellations, online booking is blocked until the "
                          . "clinic reviews your account. If you only need another time, use Reschedule instead."];
@@ -122,7 +122,7 @@ function cancel_notice($used) {
     }
     $left = $limit - $used;
     if ($used === 1) {
-        return ['level' => 'info', 'title' => "Appointment cancelled (1 of $limit)",
+        return ['level' => 'info', 'title' => "⚠️ Appointment cancelled (1 of $limit)",
                 'body'  => "Your appointment was cancelled and the clinic has been notified.\n\n"
                          . "Please note: each account can cancel up to $limit appointments online. This was your 1st, "
                          . "so you have $left left. After $limit, online booking is blocked until the clinic reviews your "
@@ -151,7 +151,7 @@ function noshow_notice($missed, $who, $when) {
     }
     $left = $limit - $missed;
     return ['level' => $missed === 1 ? 'info' : 'warning',
-            'title' => ($missed === 1 ? '' : '⚠️ ') . "Missed appointment ($missed of $limit)",
+            'title' => "⚠️ Missed appointment ($missed of $limit)",
             'body'  => "$who missed the appointment on $when. This is the " . ordinal_word($missed) . " missed appointment "
                      . "on your account.\n\n"
                      . ($left === 1 ? 'One more missed appointment will block online booking on your account.'

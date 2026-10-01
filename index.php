@@ -52,6 +52,18 @@ try { foreach ($pdo->query("SELECT setting_key,setting_value FROM settings WHERE
 function h($s){ return htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8'); }
 function lc($k,$def=''){ global $LC; return (isset($LC[$k]) && trim($LC[$k])!=='') ? $LC[$k] : $def; }
 function lc_rows($k,$def){ global $LC; if(empty($LC[$k])) return $def; $out=[]; foreach(preg_split('/\r?\n/',trim($LC[$k])) as $ln){ $ln=trim($ln); if($ln==='')continue; $out[]=array_map('trim',explode('|',$ln)); } return $out?:$def; }
+
+// ---- Live preview for the admin's "Edit Landing Page" (nothing is saved) ----
+// The editor posts its unsaved form here into a side frame; the posted values
+// replace the saved ones for this one render only.
+$isPreview = false; $pvPrimary = null; $pvBg = null;
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'preview_landing'
+    && function_exists('current_role') && current_role() === 'admin') {
+    foreach ($_POST as $k => $v) if (strpos($k, 'land_') === 0 && is_string($v)) $LC[$k] = trim($v);
+    $pvPrimary = $_POST['theme_primary'] ?? null;
+    $pvBg      = $_POST['theme_bg'] ?? null;
+    $isPreview = true;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -92,9 +104,9 @@ section{scroll-margin-top:88px}
 .btn svg{width:18px;height:18px}
 .btn-primary{background:var(--grad);color:#fff;box-shadow:0 10px 24px rgba(15,118,110,.28)}
 .btn-primary:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(15,118,110,.36)}
-.btn-ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+.btn-ghost{background:var(--white);color:var(--ink);border-color:var(--line)}
 .btn-ghost:hover{border-color:var(--blue);color:var(--blue);transform:translateY(-2px)}
-.btn-white{background:#fff;color:var(--blue-600)}
+.btn-white{background:var(--white);color:var(--blue-600)}
 .btn-white:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
 .btn-clear{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.4)}
 .btn-clear:hover{background:rgba(255,255,255,.24)}
@@ -114,7 +126,7 @@ section{scroll-margin-top:88px}
 .nav-links a.active{color:var(--blue-600);background:var(--sky);font-weight:600}
 .nav-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
 .nav-actions .btn{padding:10px 18px;font-size:.9rem}
-.hamburger{display:none;margin-left:auto;width:44px;height:44px;border-radius:12px;border:1.5px solid var(--line);background:#fff;cursor:pointer;align-items:center;justify-content:center}
+.hamburger{display:none;margin-left:auto;width:44px;height:44px;border-radius:12px;border:1.5px solid var(--line);background:var(--white);cursor:pointer;align-items:center;justify-content:center}
 .hamburger svg{width:22px;height:22px;color:var(--ink)}
 
 /* hero */
@@ -136,7 +148,7 @@ section{scroll-margin-top:88px}
 .hero-art{position:relative;height:470px;display:grid;place-items:center}
 .blob{position:absolute;border-radius:44% 56% 60% 40%/50% 42% 58% 50%;background:var(--grad);filter:blur(2px);opacity:.16;animation:float 9s ease-in-out infinite;z-index:0}
 .blob.b1{width:300px;height:300px;top:20px;right:10px}
-.blob.b2{width:210px;height:210px;bottom:0;left:0;background:linear-gradient(120deg,#14B8A6,#0f766e);opacity:.14;animation-delay:-3s}
+.blob.b2{width:210px;height:210px;bottom:0;left:0;background:linear-gradient(120deg,var(--teal-light),var(--teal));opacity:.14;animation-delay:-3s}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
 
 /* The big tooth illustration (pure SVG - no image file needed) */
@@ -176,7 +188,7 @@ section{scroll-margin-top:88px}
 .g4{grid-template-columns:repeat(4,1fr)}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g2{grid-template-columns:repeat(2,1fr)}
-.feature{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:26px;transition:transform .2s,box-shadow .2s,border-color .2s}
+.feature{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:26px;transition:transform .2s,box-shadow .2s,border-color .2s}
 .feature:hover{transform:translateY(-5px);box-shadow:var(--shadow);border-color:transparent}
 .feature .ic{width:50px;height:50px;border-radius:14px;background:var(--sky);display:grid;place-items:center;margin-bottom:16px;transition:background .2s}
 .feature:hover .ic{background:var(--grad)}
@@ -187,14 +199,14 @@ section{scroll-margin-top:88px}
 
 /* steps */
 .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:22px;position:relative}
-.step{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:28px 24px;text-align:center;position:relative;z-index:1}
+.step{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:28px 24px;text-align:center;position:relative;z-index:1}
 .step .num{width:56px;height:56px;border-radius:50%;background:var(--grad);color:#fff;font-family:'Poppins';font-weight:700;font-size:1.3rem;display:grid;place-items:center;margin:0 auto 16px;box-shadow:0 10px 22px rgba(15,118,110,.3)}
 .step h3{font-size:1.05rem;font-weight:600;margin-bottom:8px}
 .step p{font-size:.88rem;color:var(--muted)}
 .steps::before{content:"";position:absolute;top:56px;left:12%;right:12%;height:2px;background:linear-gradient(90deg,var(--blue),var(--teal));opacity:.25;z-index:0}
 
 /* services */
-.svc{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:24px;display:flex;gap:16px;align-items:flex-start;transition:transform .2s,box-shadow .2s}
+.svc{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:24px;display:flex;gap:16px;align-items:flex-start;transition:transform .2s,box-shadow .2s}
 .svc:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
 .svc .ic{width:52px;height:52px;border-radius:14px;flex:none;display:grid;place-items:center;background:var(--mint)}
 .svc .ic svg{width:26px;height:26px;color:var(--teal-600)}
@@ -202,7 +214,7 @@ section{scroll-margin-top:88px}
 .svc p{font-size:.88rem;color:var(--muted)}
 
 /* why choose */
-.why{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:26px;transition:transform .2s,box-shadow .2s}
+.why{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:26px;transition:transform .2s,box-shadow .2s}
 .why:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
 .why .ic{width:46px;height:46px;border-radius:12px;background:var(--grad);display:grid;place-items:center;margin-bottom:14px}
 .why .ic svg{width:22px;height:22px;color:#fff}
@@ -216,7 +228,7 @@ section{scroll-margin-top:88px}
    of space. No code change needed when the admin adds another dentist. */
 .docs{display:flex;flex-wrap:wrap;gap:22px;justify-content:center}
 .docs .doc{flex:1 1 300px;max-width:360px}
-.doc{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:26px;text-align:center;transition:transform .2s,box-shadow .2s}
+.doc{background:var(--white);border:1px solid var(--line);border-radius:var(--r-lg);padding:26px;text-align:center;transition:transform .2s,box-shadow .2s}
 .doc:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg)}
 .doc .ph{width:96px;height:96px;border-radius:50%;margin:0 auto 16px;background:var(--grad);display:grid;place-items:center;color:#fff;font-family:'Poppins';font-weight:700;font-size:1.8rem;box-shadow:0 12px 26px rgba(15,118,110,.28);border:4px solid #fff;outline:2px solid var(--sky)}
 .doc h3{font-size:1.12rem;font-weight:600}
@@ -228,7 +240,7 @@ section{scroll-margin-top:88px}
 .tcar{max-width:760px;margin:0 auto;position:relative}
 .ttrack{overflow:hidden;border-radius:var(--r-lg)}
 .tflex{display:flex;transition:transform .5s cubic-bezier(.4,0,.2,1)}
-.tcard{min-width:100%;padding:44px;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);text-align:center}
+.tcard{min-width:100%;padding:44px;background:var(--white);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);text-align:center}
 .stars{color:#F5B301;font-size:1.15rem;letter-spacing:2px;margin-bottom:16px}
 .tcard .quote{font-size:1.18rem;line-height:1.6;color:var(--ink);font-weight:500;margin-bottom:22px}
 .tcard .who{display:flex;align-items:center;justify-content:center;gap:12px}
@@ -239,13 +251,13 @@ section{scroll-margin-top:88px}
 .tdots{display:flex;gap:8px}
 .tdot{width:9px;height:9px;border-radius:50%;background:var(--line);border:none;cursor:pointer;transition:width .2s,background .2s;padding:0}
 .tdot.on{width:26px;background:var(--grad)}
-.tarrow{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:#fff;cursor:pointer;display:grid;place-items:center;transition:.18s}
+.tarrow{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--line);background:var(--white);cursor:pointer;display:grid;place-items:center;transition:.18s}
 .tarrow:hover{border-color:var(--blue);color:var(--blue);transform:scale(1.06)}
 .tarrow svg{width:18px;height:18px}
 
 /* faq */
 .faq{max-width:800px;margin:0 auto}
-.qa{background:#fff;border:1px solid var(--line);border-radius:16px;margin-bottom:14px;overflow:hidden;transition:box-shadow .2s,border-color .2s}
+.qa{background:var(--white);border:1px solid var(--line);border-radius:16px;margin-bottom:14px;overflow:hidden;transition:box-shadow .2s,border-color .2s}
 .qa.open{box-shadow:var(--shadow);border-color:transparent}
 .qa button{width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:20px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px;font-family:'Poppins';font-weight:600;font-size:1.02rem;color:var(--ink)}
 .qa .ans{max-height:0;overflow:hidden;transition:max-height .3s ease}
@@ -258,7 +270,7 @@ section{scroll-margin-top:88px}
 /* contact */
 .contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:stretch}
 .cinfo{display:grid;gap:16px;align-content:start}
-.crow{display:flex;gap:16px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.crow{display:flex;gap:16px;align-items:flex-start;background:var(--white);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
 .crow .ic{width:46px;height:46px;border-radius:12px;background:var(--sky);display:grid;place-items:center;flex:none}
 .crow .ic svg{width:22px;height:22px;color:var(--blue-600)}
 .crow h4{font-size:.95rem;font-weight:600}
@@ -271,7 +283,7 @@ section{scroll-margin-top:88px}
 .cmap .pin svg{width:54px;height:54px;margin:0 auto 8px}
 .cmap .grid-lines{position:absolute;inset:0;background-image:linear-gradient(rgba(15,118,110,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(15,118,110,.08) 1px,transparent 1px);background-size:40px 40px}
 .socials{display:flex;gap:10px;margin-top:6px}
-.socials a{width:44px;height:44px;border-radius:12px;background:#fff;border:1px solid var(--line);display:grid;place-items:center;transition:.18s}
+.socials a{width:44px;height:44px;border-radius:12px;background:var(--white);border:1px solid var(--line);display:grid;place-items:center;transition:.18s}
 .socials a:hover{background:var(--grad);border-color:transparent;transform:translateY(-3px)}
 .socials a svg{width:20px;height:20px;color:var(--ink);transition:color .18s}
 .socials a:hover svg{color:#fff}
@@ -334,7 +346,7 @@ section{scroll-margin-top:88px}
   .hero-trust .t{font-size:.78rem}
 }
 @media(max-width:900px){
-  .nav-menu{display:none;position:absolute;top:72px;left:0;right:0;flex-direction:column;background:#fff;padding:16px;gap:10px;box-shadow:var(--shadow);border-top:1px solid var(--line)}
+  .nav-menu{display:none;position:absolute;top:72px;left:0;right:0;flex-direction:column;background:var(--white);padding:16px;gap:10px;box-shadow:var(--shadow);border-top:1px solid var(--line)}
   .nav.open .nav-menu{display:flex}
   .nav-menu .nav-links{display:flex;flex-direction:column;gap:4px;margin:0}
   .nav-menu .nav-links a{width:100%}
@@ -359,7 +371,7 @@ section{scroll-margin-top:88px}
 .hmo-card h3{font-size:clamp(1.5rem,3vw,2.1rem);font-weight:800;color:var(--teal-dark);line-height:1.1}
 .hmo-card .sub{font-size:.86rem;color:var(--muted);margin-top:8px}
 .hmo-chips{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px;position:relative;z-index:1}
-.hmo-chip{background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px 10px;text-align:center;
+.hmo-chip{background:var(--white);border:1px solid var(--line);border-radius:10px;padding:11px 10px;text-align:center;
           font-size:.82rem;font-weight:600;color:var(--ink);box-shadow:var(--shadow-sm)}
 .hmo-wave{position:absolute;left:-8%;right:-8%;bottom:-34px;height:88px;background:var(--grad);
           border-radius:50% 50% 0 0;z-index:0}
@@ -382,14 +394,14 @@ section{scroll-margin-top:88px}
    THEMED TO MATCH THE LOGIN / APP  (teal + gold)
    ============================================================ */
 .eyebrow{color:var(--gold-ink);background:var(--gold-soft)}
-.grad-text{background:linear-gradient(120deg,#0f766e,#14b8a6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.grad-text{background:linear-gradient(120deg,var(--teal),var(--teal-light));-webkit-background-clip:text;background-clip:text;color:transparent}
 .stars{color:#d9a441}
 
 /* Hero = dark teal branding panel (like the login) with a gold accent word */
 .hero{background:
   radial-gradient(900px 460px at 84% -10%,rgba(20,184,166,.30),transparent 60%),
   radial-gradient(720px 460px at 6% 8%,rgba(199,154,92,.18),transparent 60%),
-  linear-gradient(135deg,#0d3b3b 0%,#14524f 60%,#0f5f58 100%)}
+  linear-gradient(135deg,var(--teal-dark) 0%,var(--teal-600) 60%,var(--teal) 100%)}
 .hero h1{color:#fff}
 .hero .lead{color:#c3dbd7}
 .hero .eyebrow{background:rgba(255,255,255,.10);color:#eccfa0}
@@ -402,7 +414,7 @@ section{scroll-margin-top:88px}
 .hero .btn-primary:hover{background:#d2a862;color:#123331;transform:translateY(-2px);box-shadow:0 16px 32px rgba(199,154,92,.42)}
 .hero .btn-ghost{background:rgba(255,255,255,.10);color:#fff;border-color:rgba(255,255,255,.34)}
 .hero .btn-ghost:hover{background:rgba(255,255,255,.2);color:#fff;border-color:rgba(255,255,255,.5)}
-.blob.b1{background:linear-gradient(120deg,#14b8a6,#3fd0c0);opacity:.20}
+.blob.b1{background:linear-gradient(120deg,var(--teal-light),var(--teal-light));opacity:.20}
 .blob.b2{background:linear-gradient(120deg,#e6c88f,#c79a5c);opacity:.16}
 
 /* Solid white navbar with black text (readable over the dark hero) */
@@ -411,12 +423,14 @@ section{scroll-margin-top:88px}
 .brand small{color:#5a5a5a}
 .nav-links a{color:#1f1f1f}
 .nav-links a:hover{color:#000;background:var(--sky)}
-.nav-links a.active{color:#0d5f58;background:var(--sky)}
+.nav-links a.active{color:var(--teal-600);background:var(--sky)}
 
 /* Footer: deep teal instead of navy */
 .foot{background:#0a2725}
 .foot .brand small{color:#d9b989}
 </style>
+<?php if (function_exists('theme_style_tag')) echo theme_style_tag($pdo, 'landing', $pvPrimary, $pvBg, $isPreview); ?>
+<?php if ($isPreview): ?><style>.reveal{opacity:1!important;transform:none!important}</style><?php endif; ?>
 </head>
 <body>
 <?php include __DIR__ . '/includes/inapp_banner.php';   // "open in your browser" notice inside Messenger/Facebook/etc. ?>
@@ -907,7 +921,7 @@ section{scroll-margin-top:88px}
 </section>
 
 <!-- ============ CTA ============ -->
-<section class="pad" style="padding-top:20px">
+<section class="pad" id="cta" style="padding-top:20px">
   <div class="wrap">
     <div class="cta-band reveal">
       <h2><?= h(lc('land_cta_heading','Ready to schedule your dental appointment?')) ?></h2>
@@ -966,7 +980,7 @@ section{scroll-margin-top:88px}
 <!-- ===== Privacy Policy / Terms & Conditions (same content as the booking page) ===== -->
 <div id="landingPolicy" style="display:none;position:fixed;inset:0;z-index:9999;">
   <div onclick="closeLandingPolicy()" style="position:absolute;inset:0;background:rgba(6,28,27,.55);"></div>
-  <div style="position:relative;max-width:680px;width:calc(100% - 24px);margin:5vh auto;background:#fff;border-radius:16px;
+  <div style="position:relative;max-width:680px;width:calc(100% - 24px);margin:5vh auto;background:var(--white);border-radius:16px;
               max-height:90vh;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.35);">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:20px 26px;
                 border-bottom:1px solid #e6efee;">
