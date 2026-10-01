@@ -58,9 +58,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tooth  = $_POST['tooth'] ?? '';
         $status = $_POST['status'];
 
-        if ($tooth === '' || !$sid) {
+        if ($tooth === '') {
             set_flash('Please click a tooth first.', 'error');
             odo_back($pid, $sid);
+        }
+        if (!$sid) {
+            // First time this patient is charted: this is their first visit (today).
+            $pdo->prepare("INSERT INTO chart_sessions (patient_id,visit_date,title,created_by) VALUES (?,CURDATE(),'Initial Chart',?)")
+                ->execute([$pid, $_SESSION['name'] ?? '']);
+            $sid = (int)$pdo->lastInsertId();
+            log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — first visit');
         }
 
         // Does this tooth already have a row in THIS visit? Update it, else insert.
@@ -153,8 +160,9 @@ if ($pid && !in_array($pid, $allowedPids, true)) {
     deny_access("Dental chart of patient #$pid");
 }
 
-// Every patient needs at least one chart, so create one the first time.
-if ($pid) ensure_chart_session($pdo, $pid, $_SESSION['name'] ?? 'System');
+// No visit is created just by opening the page: a patient who has not been
+// seen yet has an EMPTY chart history. The first visit is made when the
+// dentist starts it ("+ Start first visit") or marks the first tooth.
 
 // All of this patient's visits (newest first).
 $sessions = $pid ? get_chart_sessions($pdo, $pid) : [];
@@ -277,6 +285,12 @@ $active = 'odontogram';
 
                     <!-- ===== VISIT TABS (the chart history) ===== -->
                     <label class="field-label mt-3 no-print">Visits</label>
+                    <?php if (!$sessions): ?>
+                        <div class="no-print" style="background:#f7fafa;border:1px dashed #cfe0dd;border-radius:10px;padding:12px 14px;font-size:.9rem;color:#52606b;margin-bottom:8px;">
+                            📭 <b>No visits yet.</b> This patient has not been charted, so the chart is empty.
+                            <?= $canEditChart ? 'Start the first visit when you see the patient — or just click a tooth and the first visit (today) is created.' : 'The dentist starts it at the first visit.' ?>
+                        </div>
+                    <?php endif; ?>
                     <div class="sess-tabs no-print">
                         <?php $oldestFirst = array_reverse($sessions); ?>
                         <?php foreach ($oldestFirst as $i => $s): ?>
@@ -288,8 +302,8 @@ $active = 'odontogram';
                         <?php endforeach; ?>
 
                         <?php if ($canEditChart): ?>
-                        <button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#newSessionModal" title="Add a chart for a new visit">
-                            + New Chart
+                        <button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#newSessionModal" title="Add a chart for a new visit" data-keep-text>
+                            <?= $sessions ? '+ New Chart' : '+ Start first visit' ?>
                         </button>
                         <?php if (count($sessions) > 1 && $session): ?>
                             <!-- Move the visit being viewed to the Archive (at least one visit always stays) -->
@@ -530,7 +544,7 @@ $active = 'odontogram';
         <input type="hidden" name="action" value="new_session">
         <input type="hidden" name="patient_id" value="<?= $pid ?>">
         <div class="modal-header">
-            <h5 class="modal-title">Add a chart for a new visit</h5>
+            <h5 class="modal-title"><?= $sessions ? 'Add a chart for a new visit' : 'Start the first visit chart' ?></h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
@@ -538,9 +552,13 @@ $active = 'odontogram';
             <input type="date" name="visit_date" class="form-control mb-3" value="<?= date('Y-m-d') ?>">
 
             <label class="field-label">Label</label>
-            <input name="title" class="form-control mb-3" value="Follow-up Visit"
+            <input name="title" class="form-control mb-3" value="<?= $sessions ? 'Follow-up Visit' : 'Initial Chart' ?>"
                    placeholder="e.g. Follow-up, Cleaning, Second Session">
 
+            <?php if (!$sessions): ?>
+                <input type="hidden" name="copy_from" value="0">
+                <div class="text-muted2" style="font-size:.85rem;">The chart starts with every tooth as Healthy — mark what you find.</div>
+            <?php else: ?>
             <label class="field-label">Start this chart from...</label>
             <div class="form-check">
                 <input class="form-check-input" type="radio" name="copy_from" id="cp1"
@@ -559,6 +577,7 @@ $active = 'odontogram';
                     <span class="text-muted2" style="font-size:.8rem;">Every tooth starts as Healthy.</span>
                 </label>
             </div>
+            <?php endif; ?>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>

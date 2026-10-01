@@ -104,4 +104,21 @@ function build_tooth_map($pdo, $patient_id, $session_id = null) {
     }
     return $map;
 }
-?>
+
+/**
+ * ONE-TIME CLEAN-UP: the Odontogram page used to create an "Initial Chart" visit
+ * just by being opened. Remove those blank ones — no teeth marked, no notes —
+ * for patients who have never actually been seen (no Completed/Arrived visit),
+ * so their chart history is empty until the dentist records a real visit.
+ */
+function cleanup_auto_chart_sessions($pdo) {
+    try {
+        if ($pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'chart_autoclean_v1'")->fetchColumn()) return;
+        $n = $pdo->exec(
+            "DELETE s FROM chart_sessions s
+              WHERE s.archived_at IS NULL AND s.title = 'Initial Chart' AND COALESCE(s.notes, '') = ''
+                AND NOT EXISTS (SELECT 1 FROM odontogram o WHERE o.session_id = s.id)
+                AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id = s.patient_id AND a.status IN ('Completed','Arrived'))");
+        save_setting($pdo, 'chart_autoclean_v1', date('Y-m-d H:i:s') . " ($n removed)");
+    } catch (Throwable $e) { /* try again after the next update */ }
+}
