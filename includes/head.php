@@ -76,7 +76,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
                       'message': '✉️', 'print': '🖨', 'export': '⬇', 'upload': '⬆', 'filter': '🔍', 'search': '🔍',
                       'clear': '✕', 'arrived': '✓', 'did attend': '✓', 'confirm no-show': '✗', 'see all': '👁', 'pause': '⏸' };
         function iconize(b) {
-            if (b.dataset.iconized || b.id || b.hasAttribute('data-keep-text')) return;
+            if (b.dataset.iconized || b.id || b.hasAttribute('data-keep-text') || b.dataset.tip) return;   // already an icon with its own label
             if (b.closest('.modal, .bulk-bar, [data-keep-text], #topbarWidgets, .wizard-step')) return;
             if (b.querySelector('img, svg, input, select')) return;
             var txt = b.textContent.replace(/\s+/g, ' ').trim();

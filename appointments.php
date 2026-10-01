@@ -638,7 +638,7 @@ $active = 'appointments';
                     <thead><tr>
                         <th>Patient</th><?php if (!$isDentist): ?><th>Dentist</th><?php endif; /* a dentist only sees their own */ ?><th>Date</th><th>Time</th>
                         <?php // A dentist's other tabs are view only; "Your Appointments" has the actions.
-                              $showActions = !$isDentist || $filter === 'Mine' || $filter === 'Arrived'; ?>
+                              $showActions = !$isDentist || in_array($filter, ['Mine', 'Arrived', 'Pending'], true); ?>
                         <th>Treatment</th><th>Status</th><?php if ($showActions): ?><th>Actions</th><?php endif; ?>
                     </tr></thead>
                     <tbody>
@@ -682,38 +682,55 @@ $active = 'appointments';
                             <?php if ($showActions): ?>
                             <td>
                                 <div class="d-flex gap-1 align-items-center">
-                                <?php if ($isDentist && $filter === 'Mine'): ?>
-                                    <?php // ---- Dentist, "Your Appointments": Arrived (today) · health questionnaire · Cancel (3+ days away) ----
-                                          $daysAway = (int)floor((strtotime($a['appointment_date']) - strtotime('today')) / 86400); ?>
-                                    <?php if ($a['appointment_date'] === date('Y-m-d')): ?>
+                                <?php if ($isDentist):
+                                    // ---- Dentist: icon buttons; pointing at one shows what it does ----
+                                    $hfA = !empty($a['health_form']) ? (json_decode($a['health_form'], true) ?: []) : [];
+                                    $hfFlag = $hfA ? health_form_flags($hfA) : [];
+                                    $hfBtn = function () use ($a, $hfA, $hfFlag) {
+                                        if (!$hfA) return '<span class="icon-btn icon-off" data-tip="No health questionnaire filled in">🩺</span>';
+                                        return '<button type="button" class="btn btn-sm icon-btn" style="background:' . ($hfFlag ? '#fdecec' : '#eaf7ef') . ';color:' . ($hfFlag ? '#c0392b' : '#1f8a54') . ';"'
+                                             . ' data-tip="' . e('Health questionnaire' . ($hfFlag ? ' — ⚠ ' . implode(', ', $hfFlag) : '')) . '" aria-label="Health questionnaire"'
+                                             . ' onclick="showHealthForm(' . (int)$a['id'] . ')">🩺</button>'
+                                             . '<template id="hf-' . (int)$a['id'] . '"><h6 class="mb-2">' . e($a['patient_name']) . '</h6>' . health_form_view($hfA) . '</template>';
+                                    };
+                                    $cancelJs = fn($pending) => "openCancelAppt(" . e(json_encode(["pending" => $pending, "id" => $a["id"], "name" => $a["patient_name"],
+                                                    "date" => $a["appointment_date"], "time" => $a["appointment_time"], "treat" => $a["treatment"]])) . ")";
+                                ?>
+                                    <?php if ($filter === 'Mine'): ?>
+                                        <?php $daysAway = (int)floor((strtotime($a['appointment_date']) - strtotime('today')) / 86400); ?>
+                                        <?php if ($a['appointment_date'] === date('Y-m-d')): ?>
+                                            <form method="POST" class="d-inline m-0">
+                                                <input type="hidden" name="action" value="arrived"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
+                                                <input type="hidden" name="filter" value="Mine">
+                                                <button class="btn btn-sm icon-btn" style="background:#d7f5e3;color:#138a4e;" data-tip="Arrived — the patient is here" aria-label="Arrived">✓</button>
+                                            </form>
+                                        <?php endif; ?>
+                                        <?= $hfBtn() ?>
+                                        <?php if ($daysAway >= DENTIST_CANCEL_DAYS): ?>
+                                            <button type="button" class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;" data-tip="Cancel this appointment" aria-label="Cancel"
+                                                    onclick="<?= $cancelJs(false) ?>">✕</button>
+                                        <?php else: ?>
+                                            <span class="icon-btn icon-off" data-tip="Cancel — only <?= DENTIST_CANCEL_DAYS ?>+ days ahead. Closer than that, ask the front desk.">✕</span>
+                                        <?php endif; ?>
+
+                                    <?php elseif ($filter === 'Pending'): ?>
                                         <form method="POST" class="d-inline m-0">
-                                            <input type="hidden" name="action" value="arrived"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
-                                            <input type="hidden" name="filter" value="Mine">
-                                            <button class="btn btn-sm" style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here" data-keep-text>✓ Arrived</button>
+                                            <input type="hidden" name="id" value="<?= (int)$a['id'] ?>"><input type="hidden" name="status" value="Confirmed">
+                                            <input type="hidden" name="filter" value="Pending">
+                                            <button class="btn btn-sm icon-btn" style="background:#d7f5e3;color:#138a4e;" data-tip="Approve this booking" aria-label="Approve">✓</button>
                                         </form>
-                                    <?php endif; ?>
-                                    <?php if (!empty($a['health_form'])): $hfA = json_decode($a['health_form'], true) ?: []; $hfFlag = health_form_flags($hfA); ?>
-                                        <button type="button" class="btn btn-sm" data-keep-text style="white-space:nowrap;background:<?= $hfFlag ? '#fdecec' : '#eaf7ef' ?>;color:<?= $hfFlag ? '#c0392b' : '#1f8a54' ?>;"
-                                                title="Health questionnaire<?= $hfFlag ? ' — ' . e(implode(', ', $hfFlag)) : '' ?>"
-                                                onclick="showHealthForm(<?= (int)$a['id'] ?>)">🩺 Health form<?= $hfFlag ? ' ⚠' : '' ?></button>
-                                        <template id="hf-<?= (int)$a['id'] ?>"><?= '<h6 class="mb-2">' . e($a['patient_name']) . '</h6>' . health_form_view($hfA) ?></template>
+                                        <button type="button" class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;" data-tip="Disapprove (you give the reason)" aria-label="Disapprove"
+                                                onclick="<?= $cancelJs(true) ?>">✕</button>
+                                        <?= $hfBtn() ?>
+
+                                    <?php elseif ($filter === 'Arrived' && !empty($a['arrived_at']) && $a['appointment_date'] === date('Y-m-d')): ?>
+                                        <button type="button" class="btn btn-sm icon-btn" style="background:#eef7f6;color:var(--teal-mid);"
+                                                data-tip="Add a procedure to this visit (with the patient's agreement)" aria-label="Add procedure" data-addproc="<?= (int)$a['id'] ?>"
+                                                onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"], "allergies" => $a["allergies"] ?? "", "alert" => $a["medical_alert"] ?? ""], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕</button>
+                                        <?= $hfBtn() ?>
                                     <?php else: ?>
-                                        <span class="text-muted2" style="font-size:.78rem;white-space:nowrap;" title="The patient has not filled in the health questionnaire">🩺 none</span>
+                                        <span class="text-muted2">–</span>
                                     <?php endif; ?>
-                                    <?php if ($daysAway >= DENTIST_CANCEL_DAYS): ?>
-                                        <button type="button" class="btn btn-sm" data-keep-text style="background:#fbdcdc;color:#c0392b;white-space:nowrap;" title="Cancel this appointment"
-                                                onclick='openCancelAppt(<?= json_encode(["pending" => false, "id" => $a["id"], "name" => $a["patient_name"],
-                                                    "date" => $a["appointment_date"], "time" => $a["appointment_time"], "treat" => $a["treatment"]], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>✕ Cancel</button>
-                                    <?php else: ?>
-                                        <span class="text-muted2" style="font-size:.74rem;white-space:nowrap;" title="Less than <?= DENTIST_CANCEL_DAYS ?> days away — the front desk can still cancel it">✕ only <?= DENTIST_CANCEL_DAYS ?>+ days ahead</span>
-                                    <?php endif; ?>
-                                <?php elseif ($isDentist): ?>
-                                    <?php // ---- Dentist, Arrived tab: only "Add procedure" for today's visit ----
-                                          if (!empty($a['arrived_at']) && $a['appointment_date'] === date('Y-m-d')): ?>
-                                        <button type="button" class="btn btn-sm" data-keep-text style="background:#eef7f6;color:var(--teal-mid);font-weight:600;white-space:nowrap;"
-                                                title="Add a procedure to this visit (with the patient's agreement)" data-addproc="<?= (int)$a['id'] ?>"
-                                                onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"], "allergies" => $a["allergies"] ?? "", "alert" => $a["medical_alert"] ?? ""], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕ Add procedure</button>
-                                    <?php else: ?><span class="text-muted2">–</span><?php endif; ?>
                                 <?php else: ?>
                                 <?php if (in_array($a['status'], ['Confirmed','Arrived'], true) && $a['appointment_date'] === date('Y-m-d')): ?>
                                     <form method="POST" class="d-inline m-0">
@@ -1179,6 +1196,8 @@ function validateCancelAppt(){
 </div>
 <?php if (in_array(current_role(), ['dentist','admin'], true)): require_once 'includes/followups.php'; ?>
 <?= clinical_styles() ?>
+<style>.icon-off { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px;
+                   background:#f1f4f5; color:#b6c2c6; cursor:help; filter:grayscale(1); }</style>
 <!-- ===== Add a procedure to the visit the patient is at ===== -->
 <div class="modal fade" id="addProcModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
