@@ -149,6 +149,7 @@ if ($user) {
     $_SESSION['user_id'] = $user['id'];
     $_SESSION['name']    = $user['name'];
     $_SESSION['role']    = $user['role'];
+    $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
     log_activity($pdo, 'Logged in', ucfirst($user['role']) . ' (Google)');
     set_flash('Welcome back, ' . $user['name'] . '!');
     redirect_after_login();

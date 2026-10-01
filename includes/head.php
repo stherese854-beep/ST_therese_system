@@ -517,6 +517,20 @@ if ($__flash):
 </script>
 <?php endif; ?>
 
+<?php if (($_GET['toast'] ?? '') === 'updated' && empty($_SESSION['user_id'])): ?>
+<!-- ---- Signed out because the clinic updated the system (see config/auth.php) ---- -->
+<div id="upd-backdrop" role="dialog" aria-modal="true" aria-labelledby="upd-title"
+     style="position:fixed;inset:0;z-index:100000;background:rgba(15,30,30,.55);display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:16px;max-width:430px;width:100%;padding:26px 22px 20px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.3);">
+    <div style="font-size:2.4rem;line-height:1;">🙏</div>
+    <h4 id="upd-title" style="margin:10px 0 8px;color:var(--teal-mid,#0f766e);font-weight:700;">Sorry for the interruption!</h4>
+    <p style="color:#3f5350;font-size:.98rem;margin:0 0 6px;">The clinic just updated the system, so we signed you out to show you the newest version.</p>
+    <p style="color:#6b7b8c;font-size:.88rem;margin:0 0 16px;">Please sign in again. If you were in the middle of something, it may need to be done again — we apologize for the trouble.</p>
+    <button type="button" class="btn btn-teal w-100" data-keep-text onclick="document.getElementById('upd-backdrop').remove()">OK, sign in again</button>
+  </div>
+</div>
+<?php endif; ?>
+
 <?php
 // ---- Patient warning pop-up (cancellation / missed-visit count, booking blocked) ----
 // Each notice shows once. See includes/patient_notices.php.

@@ -62,7 +62,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         log_activity($pdo, 'Updated landing page content');
-        set_flash('Landing page updated.');
+        // Sign everyone else out, so they all get the new look (they see an apology when they come back).
+        if (!empty($_POST['logout_others'])) {
+            save_setting($pdo, 'force_logout_at', (string)time());
+            $_SESSION['login_at'] = time() + 1;            // the admin who saved stays signed in
+            log_activity($pdo, 'Signed everyone out after an update', 'Landing page / system look saved');
+            set_flash('Landing page saved. Everyone else was signed out and will see the update (with an apology) when they sign in again.');
+        } else {
+            set_flash('Landing page updated.');
+        }
         header("Location: landing_edit"); exit;
     }
 
@@ -561,9 +569,13 @@ $active = 'landing_edit';
             </div>
 
             <div class="le-savebar">
-                <button class="btn btn-teal">💾 Save Landing Page</button>
+                <button class="btn btn-teal" data-keep-text>💾 Save Landing Page</button>
                 <a href="./" target="_blank" class="btn btn-light">👁 Open the real page</a>
-                <span class="text-muted2" style="font-size:.78rem;">The preview is not saved until you press Save.</span>
+                <span class="text-muted2" style="font-size:.78rem;">Changes only show in the preview until you press Save.</span>
+                <label class="d-flex align-items-center gap-2 w-100 mt-1" style="font-size:.84rem;cursor:pointer;">
+                    <input type="checkbox" name="logout_others" value="1" class="form-check-input m-0" checked>
+                    <span>When saved, <b>sign everyone else out</b> so they see the update (they get a “sorry” message when they come back)</span>
+                </label>
             </div>
         </form>
 
@@ -798,6 +810,19 @@ $active = 'landing_edit';
     function later() { clearTimeout(timer); timer = setTimeout(refresh, 600); }
     form.addEventListener('input', later);
     form.addEventListener('change', later);
+
+    // Saving with "sign everyone else out" ticked asks first (the preview's own submits skip this).
+    var saveOk = false;
+    form.addEventListener('submit', function (e) {
+        var lo = form.querySelector('[name=logout_others]');
+        if (saveOk || !lo || !lo.checked) return;
+        e.preventDefault();
+        askConfirm({ title: 'Save and sign everyone out?', okText: 'Yes, save', icon: '💾',
+                     message: 'The changes go live now, and everyone else who is signed in (staff, dentists, patients) '
+                            + 'will be signed out so they see the update. They will get a “sorry” message.\n\n'
+                            + 'To save without signing anyone out, untick the box first.' })
+            .then(function (ok) { if (ok) { saveOk = true; form.querySelector('input[name=action]').value = 'save_landing'; form.submit(); } });
+    });
 
     // Colours: show the code and warn about picks that would be hard to read.
     function lum(hex) { var n = parseInt(hex.slice(1), 16); return (0.2126 * (n >> 16 & 255) + 0.7152 * (n >> 8 & 255) + 0.0722 * (n & 255)) / 255; }

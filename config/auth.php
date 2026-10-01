@@ -1204,3 +1204,27 @@ function text_scale_style($pdo, $override = null) {
     $s = text_scale_ok($override) ? (int)$override : (user_text_scale($pdo) ?? system_text_scale($pdo));
     return '<style id="text-scale">html{font-size:' . $s . '%}</style>';
 }
+
+// ============================================================
+//  SIGN EVERYONE OUT AFTER A SITE UPDATE
+// ============================================================
+//  When the admin saves the landing page / system look with "Sign everyone
+//  else out" ticked, settings.force_logout_at is stamped. Anyone who signed
+//  in BEFORE that moment is signed out on their next click and sees a short
+//  apology on the login page (?toast=updated), so everybody gets the new look.
+// ============================================================
+if (php_sapi_name() !== 'cli' && !empty($_SESSION['user_id'])) {
+    try {
+        $__fl = (int)$pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'force_logout_at'")->fetchColumn();
+    } catch (Throwable $e) { $__fl = 0; }
+    if ($__fl > 0 && (int)($_SESSION['login_at'] ?? 0) < $__fl) {
+        $_SESSION = [];
+        session_regenerate_id(true);
+        if (strpos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false
+            || strpos($_SERVER['SCRIPT_NAME'] ?? '', 'notif_seen') !== false || strpos($_SERVER['SCRIPT_NAME'] ?? '', 'text_size') !== false) {
+            header('Content-Type: application/json'); echo json_encode(['ok' => false, 'signed_out' => true]); exit;
+        }
+        header('Location: ' . app_url('login?toast=updated'));
+        exit;
+    }
+}

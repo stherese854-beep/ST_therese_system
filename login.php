@@ -87,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
                 $_SESSION['user_id'] = $newId;
                 $_SESSION['name']    = $name;
                 $_SESSION['role']    = 'patient';
+                $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
                 $_SESSION['just_registered']    = true;
                 $_SESSION['show_welcome_popup'] = true;
                 log_activity($pdo, 'Created account', $name . ' (patient, Google sign-up)');
@@ -130,6 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['name']    = $user['name'];
                 $_SESSION['role']    = $user['role'];
+                $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
 
                 // A blank last_login means this is the very first time this
                 // account has ever signed in — greet them as "Welcome" instead
@@ -314,6 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             $_SESSION['user_id'] = $newId;
             $_SESSION['name']    = $p['name'];
             $_SESSION['role']    = 'patient';
+            $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
             $_SESSION['just_registered']    = true;   // portal greets them differently, once
             $_SESSION['show_welcome_popup'] = true;   // portal shows a one-time pop-up greeting
             log_activity($pdo, 'Created account', $p['name'] . ' (patient, self-registered)');

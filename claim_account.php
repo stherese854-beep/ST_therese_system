@@ -31,6 +31,7 @@ if ($inv && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id'] = $uid;
             $_SESSION['name']    = $inv['name'];
             $_SESSION['role']    = 'patient';
+            $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
             $_SESSION['show_welcome_popup'] = true;
             $_SESSION['just_registered']    = true;
             $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")->execute([$uid]);
