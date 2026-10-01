@@ -141,4 +141,8 @@ function run_daily_reminders($pdo) {
     } catch (Throwable $e) { return; }
     @set_time_limit(60);
     try { send_due_reminders($pdo); } catch (Throwable $e) { /* never break the page */ }
+    try {                                                   // follow-ups due soon and not booked yet
+        require_once __DIR__ . '/followups.php';
+        send_followup_reminders($pdo);
+    } catch (Throwable $e) {}
 }

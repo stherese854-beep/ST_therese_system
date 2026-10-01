@@ -497,6 +497,11 @@ $bookPatients = staff_bookable_patients($pdo);
 $bookDentists = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
 $bookSlots    = clinic_time_slots($pdo);
 $bookPrefill  = (int)($_GET['book'] ?? 0);           // ?book=<patient id> opens the form with that patient chosen
+// "Book follow-up" (Records / Dashboard) also fills in the treatment, date, dentist and a note.
+$bookTreat    = isset(clinic_treatments()[$_GET['treatment'] ?? '']) ? [$_GET['treatment']] : [];
+$bookDate     = (preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'] ?? '') && $_GET['date'] >= date('Y-m-d')) ? $_GET['date'] : date('Y-m-d', strtotime('+1 day'));
+$bookDentist  = (string)($_GET['dentist'] ?? '');
+$bookNote     = mb_substr(trim((string)($_GET['note'] ?? '')), 0, 200);
 $bookHealth   = [];                                  // patient id => their latest questionnaire (prefill)
 foreach ($bookPatients as $bp) { [$ans] = patient_health($pdo, $bp['id']); if ($ans) $bookHealth[(int)$bp['id']] = $ans; }
 
@@ -839,11 +844,11 @@ $active = 'appointments';
           </div>
           <div class="col-12">
             <div class="field-label">Treatment * <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— choose 1 to <?= MAX_TREATMENTS ?></span></div>
-            <?= treatment_picker([], 'sb') ?>
+            <?= treatment_picker($bookTreat, 'sb') ?>
           </div>
           <div class="col-md-3">
             <label class="field-label">Date *</label>
-            <input type="date" name="date" id="sb-date" class="form-control" min="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d', strtotime('+1 day')) ?>" required onchange="sbTimes()">
+            <input type="date" name="date" id="sb-date" class="form-control" min="<?= date('Y-m-d') ?>" value="<?= e($bookDate) ?>" required onchange="sbTimes()">
           </div>
           <div class="col-md-3">
             <label class="field-label">Time *</label>
@@ -858,13 +863,13 @@ $active = 'appointments';
             <?php else: ?>
               <select name="dentist" class="form-select">
                 <option value="auto">Automatic — their own dentist if free, otherwise the least busy</option>
-                <?php foreach ($bookDentists as $dn): ?><option value="<?= e($dn) ?>"><?= e($dn) ?></option><?php endforeach; ?>
+                <?php foreach ($bookDentists as $dn): ?><option value="<?= e($dn) ?>" <?= $bookDentist === $dn ? 'selected' : '' ?>><?= e($dn) ?></option><?php endforeach; ?>
               </select>
             <?php endif; ?>
           </div>
           <div class="col-md-6">
             <label class="field-label">Notes <span class="text-muted2">(optional)</span></label>
-            <input name="notes" class="form-control" maxlength="500" placeholder="e.g. follow-up after extraction">
+            <input name="notes" class="form-control" maxlength="500" placeholder="e.g. follow-up after extraction" value="<?= e($bookNote) ?>">
           </div>
         </div>
         <div id="sb-warn" class="text-danger small mt-2" style="display:none;"></div>

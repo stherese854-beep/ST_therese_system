@@ -92,6 +92,14 @@ try {
             if ($cr > 0) $tbAdd('freqcancel', $cr, '🔁', "$cr patient" . ($cr > 1 ? 's' : '') . " with frequent cancellations to review", 'noshow?tab=cancels');
         } catch (Throwable $e) {}
 
+        // Follow-ups (braces, root canal sessions…) due soon or overdue, not booked yet.
+        try {
+            require_once __DIR__ . '/followups.php';
+            $fu = followups_due($pdo);
+            if ($fu) $tbAdd('followup', max(array_column($fu, 'id')) . '-' . count($fu), '🔁',
+                            count($fu) . ' follow-up' . (count($fu) > 1 ? 's' : '') . ' due — not booked yet', 'dashboard');
+        } catch (Throwable $e) {}
+
         // Patients asking for a printed copy of their dental chart.
         try {
             $r = $pdo->query("SELECT COUNT(*) c, MAX(id) m FROM chart_requests WHERE done_at IS NULL")->fetch();

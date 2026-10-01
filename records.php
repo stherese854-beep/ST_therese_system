@@ -17,6 +17,7 @@
 require_once 'config/auth.php';
 require_login(['admin','dentist']);   // clinical records - not front-desk staff
 require_once 'includes/teeth.php';     // for the read-only dental chart in Overview
+require_once 'includes/followups.php'; // follow-up plans (braces, root canal sessions, check-ups)
 require_once 'includes/health_form.php';   // latest health questionnaire in Overview
 
 // Only REAL patients (exclude staff/dentist/admin accounts).
@@ -138,9 +139,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         complete_arrived_visit($pdo, $pid, $_POST['treatment_date'] ?? null);   // arrived today -> Completed
         log_activity($pdo, 'Added treatment', patient_name_of($pdo, $pid) . ' — ' . trim($_POST['treatment_name']));
-        set_flash('Treatment record added.');
+        // Follow-up: a session of an existing plan, or a new plan ("Needs follow-up" ticked).
+        $fuMsg = ($_POST['status'] ?? '') === 'Planned' ? '' : followup_after_treatment($pdo, $pid, $_POST['treatment_name'], $_POST['tooth'] ?? '',
+                     $_POST['treatment_date'] ?: date('Y-m-d'), $_POST, $_SESSION['name'] ?? '');
+        set_flash('Treatment record added.' . $fuMsg);
         header("Location: records?patient=$pid&tab=treatments"); exit;
     }
+    // ---- Follow-up plan: finish, stop, or change the next due date ----
+    if (in_array($action, ['plan_complete', 'plan_stop', 'plan_due'], true)) {
+        $planId = (int)($_POST['plan_id'] ?? 0);
+        $pl = $pdo->prepare("SELECT * FROM treatment_plans WHERE id = ? AND patient_id = ?");
+        $pl->execute([$planId, $pid]);
+        if ($plan = $pl->fetch()) {
+            if ($action === 'plan_due') {
+                $nd = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['next_due'] ?? '') ? $_POST['next_due'] : null;
+                $pdo->prepare("UPDATE treatment_plans SET next_due = ?, last_reminder_for = NULL WHERE id = ?")->execute([$nd, $planId]);
+                set_flash('Next ' . $plan['treatment_name'] . ' visit moved to ' . ($nd ? date('M j, Y', strtotime($nd)) : '–') . '.');
+            } else {
+                $pdo->prepare("UPDATE treatment_plans SET status = ?, completed_at = NOW(), next_due = NULL WHERE id = ?")
+                    ->execute([$action === 'plan_complete' ? 'Completed' : 'Stopped', $planId]);
+                set_flash($plan['treatment_name'] . ($action === 'plan_complete' ? ' plan marked as finished.' : ' plan stopped.'), 'info');
+            }
+            sync_next_visit($pdo, $pid);
+            log_activity($pdo, 'Updated follow-up plan', patient_name_of($pdo, $pid) . ' — ' . $plan['treatment_name'] . ' (' . $action . ')');
+        }
+        header("Location: records?patient=$pid&tab=treatments#plans"); exit;
+    }
+
     if ($action === 'delete_treatment') {
         $done = 0;
         foreach (bulk_ids() as $tid) {             // one record, or several ticked ones
@@ -464,9 +489,70 @@ $active = 'records';
                               placeholder="e.g. Avoid chewing on the right side for 24 hours. Come back in 2 weeks to check the filling."></textarea>
                     <label class="field-label mt-2">🔒 Clinic-only note <span class="text-muted2">(the patient does not see this)</span></label>
                     <input name="clinic_notes" class="form-control mb-3" placeholder="Optional, for the clinic team only">
+
+                    <!-- Follow-up: braces adjustments, root canal sessions, check-ups -->
+                    <div class="fu-box mb-3">
+                        <label class="d-flex align-items-center gap-2 m-0" style="cursor:pointer;font-weight:600;">
+                            <input type="checkbox" name="followup" value="1" class="form-check-input m-0"
+                                   onchange="document.getElementById('fu-more').style.display = this.checked ? '' : 'none'">
+                            🔁 Needs follow-up — the patient must come back
+                        </label>
+                        <div class="text-muted2" style="font-size:.8rem;margin:2px 0 0 26px;">
+                            Recording the same treatment again later counts as the next session automatically.</div>
+                        <div id="fu-more" class="row g-2 mt-1" style="display:none;">
+                            <div class="col-md-5"><label class="field-label">Come back</label>
+                                <select name="followup_every" class="form-select">
+                                    <?php foreach (FOLLOWUP_INTERVALS as $fd => $fl): ?>
+                                        <option value="<?= $fd ?>" <?= $fd === 28 ? 'selected' : '' ?>><?= e($fl) ?></option>
+                                    <?php endforeach; ?>
+                                </select></div>
+                            <div class="col-md-4"><label class="field-label">…or on this date</label>
+                                <input type="date" name="followup_date" class="form-control" min="<?= date('Y-m-d') ?>"></div>
+                            <div class="col-md-3"><label class="field-label">Total sessions</label>
+                                <input type="number" name="followup_sessions" class="form-control" min="2" max="99" placeholder="e.g. 24"></div>
+                        </div>
+                    </div>
                     <button class="btn btn-teal">Add Record</button>
                 </form>
             </div>
+
+            <?php $plans = all_plans($pdo, $pid); $nextBooked = next_booked_appointment($pdo, $pid); ?>
+            <?php if ($plans): ?>
+            <div class="card-box mb-3" id="plans">
+                <h6 class="mb-2">🔁 Follow-up plans</h6>
+                <?php foreach ($plans as $pl):
+                    $overdue = $pl['status'] === 'Active' && $pl['next_due'] && $pl['next_due'] < date('Y-m-d'); ?>
+                    <div class="flex-between flex-wrap gap-2 py-2 border-bottom">
+                        <div>
+                            <strong><?= e($pl['treatment_name']) ?></strong><?= $pl['tooth'] ? ' · Tooth #' . e($pl['tooth']) : '' ?>
+                            <span class="badge-pill <?= $pl['status']==='Active' ? ($overdue ? 'b-cancelled' : 'b-pending') : 'b-completed' ?>"><?= e($overdue ? 'Overdue' : $pl['status']) ?></span><br>
+                            <small class="text-muted2"><?= e(followup_session_text($pl)) ?>
+                                <?= $pl['interval_days'] ? ' · every ' . (int)$pl['interval_days'] . ' days' : '' ?>
+                                <?php if ($pl['status'] === 'Active'): ?>
+                                    · next due <b><?= $pl['next_due'] ? date('M j, Y', strtotime($pl['next_due'])) : '–' ?></b>
+                                    · <?= $nextBooked ? 'booked ' . date('M j', strtotime($nextBooked['appointment_date'])) . ' ' . e($nextBooked['appointment_time']) : '<span style="color:#c0392b;">not booked</span>' ?>
+                                <?php endif; ?></small>
+                        </div>
+                        <?php if ($pl['status'] === 'Active'): ?>
+                        <div class="d-flex gap-1 flex-wrap align-items-center" data-keep-text>
+                            <?php if (!$nextBooked): ?><a href="<?= e(followup_book_link($pl)) ?>" class="btn btn-sm btn-teal">📅 Book follow-up</a><?php endif; ?>
+                            <form method="POST" class="d-flex gap-1 m-0">
+                                <input type="hidden" name="action" value="plan_due"><input type="hidden" name="patient_id" value="<?= $pid ?>">
+                                <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>">
+                                <input type="date" name="next_due" class="form-control form-control-sm" style="width:150px;" value="<?= e($pl['next_due']) ?>">
+                                <button class="btn btn-sm btn-light">Save date</button>
+                            </form>
+                            <form method="POST" class="m-0"><input type="hidden" name="action" value="plan_complete"><input type="hidden" name="patient_id" value="<?= $pid ?>">
+                                <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>"><button class="btn btn-sm btn-light" style="color:#1f8a54;">✔ Finished</button></form>
+                            <form method="POST" class="m-0" onsubmit="return confirm('Stop this follow-up plan? The patient will no longer be reminded.')">
+                                <input type="hidden" name="action" value="plan_stop"><input type="hidden" name="patient_id" value="<?= $pid ?>">
+                                <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>"><button class="btn btn-sm btn-light" style="color:#c0392b;">Stop</button></form>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
 
             <div class="card-box">
                 <h6 class="mb-2">History <span class="text-muted2" style="font-size:.85rem;">(<?= count($treatments) ?> record<?= count($treatments)==1?'':'s' ?>)</span></h6>
@@ -612,5 +698,6 @@ $active = 'records';
     show(nav.querySelector('[data-rv="' + saved + '"]') ? saved : 'all');
 })();
 </script>
+<style>.fu-box { background: #f7fafa; border: 1px dashed #cfe0dd; border-radius: 10px; padding: 10px 12px; }</style>
 </body>
 </html>

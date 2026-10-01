@@ -329,6 +329,37 @@ $active = 'dashboard';
             </div>
         </div>
 
+        <?php
+        // ===== Follow-ups due: patients who must come back (braces, root canal sessions, check-ups) =====
+        // Due within 7 days or overdue, and nothing booked yet. A dentist sees only their own patients.
+        require_once 'includes/followups.php';
+        $fuDue = followups_due($pdo, $isDentist ? $myName : null);
+        if ($fuDue): ?>
+        <div class="card-box mb-3" style="border-left:5px solid var(--gold);">
+            <div class="flex-between mb-2">
+                <h5 class="mb-0">🔁 Follow-ups due <span class="badge-pill b-pending"><?= count($fuDue) ?></span></h5>
+                <small class="text-muted2">Due within <?= FOLLOWUP_DUE_WINDOW ?> days or overdue · not booked yet</small>
+            </div>
+            <div class="table-responsive">
+                <table class="data">
+                    <thead><tr><th>Patient</th><th>Follow-up</th><th>Progress</th><th>Due</th><th>Dentist</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ($fuDue as $f): $late = $f['next_due'] < date('Y-m-d'); ?>
+                        <tr>
+                            <td><strong><?= e($f['patient_name']) ?></strong><?= $f['phone'] ? '<br><small class="text-muted2">📞 ' . e($f['phone']) . '</small>' : '' ?></td>
+                            <td><?= e($f['treatment_name']) ?><?= $f['tooth'] ? ' · Tooth #' . e($f['tooth']) : '' ?></td>
+                            <td><?= e(followup_session_text($f)) ?></td>
+                            <td><span class="badge-pill <?= $late ? 'b-cancelled' : 'b-pending' ?>"><?= $late ? 'Overdue · ' : '' ?><?= date('M j', strtotime($f['next_due'])) ?></span></td>
+                            <td><?= e($f['dentist'] ?: $f['primary_dentist']) ?></td>
+                            <td data-keep-text><a href="<?= e(followup_book_link($f)) ?>" class="btn btn-sm btn-teal">📅 Book</a></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="row row-match">
             <!-- ===== Recent patients ===== -->
             <div class="col-lg-6">

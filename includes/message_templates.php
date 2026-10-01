@@ -177,6 +177,22 @@ function message_catalogue() {
                    . "If you did not ask for this, please contact the clinic right away.",
     ],
 
+    'followup_due' => [
+        'group'   => 'To the patient',
+        'label'   => 'Follow-up visit due',
+        'when'    => 'Sent about 5 days before a follow-up (braces adjustment, next root canal session, check-up) when the patient has not booked yet.',
+        'vars'    => ['patient','treatment','date','session','dentist','clinic'],
+        'subject' => 'Your {treatment} follow-up is due',
+        'body'    => "Hello {patient},
+
+"
+                   . "This is a friendly reminder from {clinic}: your next {treatment} visit (session {session}) is due on {date}.
+
+"
+                   . "You have not booked it yet. Please book it from your patient portal or call the clinic, "
+                   . "so {dentist} can keep your treatment on track.",
+    ],
+
     'password_reset' => [
         'group'   => 'To the patient',
         'label'   => 'Password reset code',

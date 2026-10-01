@@ -17,6 +17,7 @@
 // ============================================================
 require_once __DIR__ . '/dental_summary.php';      // tooth_name(), TOOTH_PLAIN, chart visibility, copy requests
 require_once __DIR__ . '/treatments.php';          // clinic_treatments()
+require_once __DIR__ . '/followups.php';           // follow-up plans (braces, root canal sessions, check-ups)
 
 // Built-in aftercare tips, matched on the treatment's name.
 function aftercare_tip($treatment) {
@@ -89,7 +90,20 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
                        . ($tr['notes'] ? ' · “' . $tr['notes'] . '”' : ''), booking_treatment_for($tr['treatment_name'])];
         }
     }
-    $next = (!empty($patient['next_visit']) && $patient['next_visit'] >= date('Y-m-d')) ? $patient['next_visit'] : null;
+    // Follow-up plans: "Braces adjustment — session 6 of 24 done — next visit due Oct 15".
+    $booked = next_booked_appointment($pdo, $pid);
+    $planDue = [];
+    foreach (active_plans($pdo, $pid) as $pl) {
+        if (!$pl['next_due']) continue;
+        $planDue[] = $pl['next_due'];
+        $late = $pl['next_due'] < date('Y-m-d');
+        $todo[] = ['🔁', $pl['treatment_name'] . ($pl['tooth'] ? ' (' . tooth_label($pl['tooth']) . ')' : '') . ' — '
+                  . followup_session_text($pl) . ' — next visit ' . ($late ? 'was due ' : 'due ') . date('l, F j, Y', strtotime($pl['next_due']))
+                  . ($booked ? ' · booked for ' . date('M j', strtotime($booked['appointment_date'])) . ' at ' . $booked['appointment_time']
+                             : ($late ? ' · overdue — please book or call the clinic' : ' · not booked yet')), ''];
+    }
+    $next = (!empty($patient['next_visit']) && $patient['next_visit'] >= date('Y-m-d')
+             && !in_array($patient['next_visit'], $planDue, true)) ? $patient['next_visit'] : null;   // not twice
     $req  = open_chart_request($pdo, $pid);
 
     // ---------- 2. Visits (one card per day) ----------

@@ -65,6 +65,8 @@ if (!$__schemaOk) {
     ensure_account_transfer_tables($pdo);           // own-account invites, login email changes
     require_once __DIR__ . '/../includes/dental_summary.php';
     ensure_chart_requests_table($pdo);              // patients asking for a printed dental chart
+    require_once __DIR__ . '/../includes/followups.php';
+    ensure_followup_table($pdo);                    // follow-ups / treatment plans (braces, root canal sessions)
     require_once __DIR__ . '/../includes/teeth.php';
     cleanup_auto_chart_sessions($pdo);              // one time: blank visits the old Odontogram page made by itself
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
