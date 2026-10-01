@@ -92,6 +92,12 @@ try {
             if ($cr > 0) $tbAdd('freqcancel', $cr, '🔁', "$cr patient" . ($cr > 1 ? 's' : '') . " with frequent cancellations to review", 'noshow?tab=cancels');
         } catch (Throwable $e) {}
 
+        // Patients asking for a printed copy of their dental chart.
+        try {
+            $r = $pdo->query("SELECT COUNT(*) c, MAX(id) m FROM chart_requests WHERE done_at IS NULL")->fetch();
+            if ($r['c'] > 0) $tbAdd('chartreq', $r['m'], '📄', "{$r['c']} printed dental chart" . ($r['c'] > 1 ? 's' : '') . " requested by patients", 'reports?type=profile#chart-requests');
+        } catch (Throwable $e) {}
+
         // reviews table may not exist on older DBs — guard it
         try {
             $r = $pdo->query("SELECT COUNT(*) c, MAX(id) m FROM reviews WHERE status='Pending'")->fetch();

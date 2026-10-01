@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // These actions change clinic-wide settings and must be admin-only, even if
     // someone crafts the POST by hand. Personal actions (profile, avatar,
     // password) are allowed for everyone and are handled further down.
-    $adminOnly = ['save_clinic','save_security','save_hours','save_google'];
+    $adminOnly = ['save_clinic','save_security','save_hours','save_google','save_portal'];
     if (in_array($action, $adminOnly) && current_role() !== 'admin') {
         set_flash('You do not have permission to change that.', 'error');
         header("Location: settings"); exit;
@@ -57,6 +57,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'sec_login_audit',      isset($_POST['login_audit'])      ? '1' : '0');
         save_setting($pdo, 'sec_session_timeout',  isset($_POST['session_timeout'])  ? '1' : '0');
         save_setting($pdo, 'sec_password_expiry',  isset($_POST['password_expiry'])  ? '1' : '0');
+        set_flash('Settings saved.'); header("Location: settings"); exit;
+    }
+
+    // What patients see in their portal.
+    if ($action === 'save_portal') {
+        save_setting($pdo, 'patient_chart_visible', isset($_POST['patient_chart_visible']) ? '1' : '0');
+        log_activity($pdo, 'Changed patient portal settings',
+                     'Dental chart shown to patients: ' . (isset($_POST['patient_chart_visible']) ? 'yes' : 'no'));
         set_flash('Settings saved.'); header("Location: settings"); exit;
     }
 
@@ -347,6 +355,27 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
             $openDaysArr = array_map('trim', explode(',', $openDays));
             $allDays = ['Mon'=>'Monday','Tue'=>'Tuesday','Wed'=>'Wednesday','Thu'=>'Thursday','Fri'=>'Friday','Sat'=>'Saturday','Sun'=>'Sunday'];
         ?>
+        <!-- ===== Patient Portal: what patients can see ===== -->
+        <div class="card-box mt-3">
+            <h5 class="mb-1">👤 Patient Portal</h5>
+            <div class="text-muted2 mb-2" style="font-size:.85rem;">What patients can see in their own account.</div>
+            <form method="POST">
+                <input type="hidden" name="action" value="save_portal">
+                <div class="flex-between py-2 border-bottom gap-3">
+                    <div>
+                        <strong>Show the dental chart (odontogram) to patients</strong>
+                        <div class="text-muted2" style="font-size:.8rem;">When off, patients do not see the tooth chart. They still see a
+                            plain-words <b>Dental Summary</b> in My Records (e.g. “Tooth 14 — has a cavity”) and can
+                            <b>request a printed copy</b>, which you print from Generate Reports → Patient Profile.</div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="patient_chart_visible" <?= cfg($cfg,'patient_chart_visible','1')!=='0'?'checked':'' ?>>
+                    </div>
+                </div>
+                <button class="btn btn-teal mt-3" data-keep-text>💾 Save</button>
+            </form>
+        </div>
+
         <div class="card-box mt-3">
             <h5 class="mb-1">🗓️ Clinic Hours &amp; Open Days</h5>
             <div class="text-muted2 mb-3" style="font-size:.85rem;">Patients can only book on the days and within the hours you set here.</div>

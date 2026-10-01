@@ -63,6 +63,8 @@ if (!$__schemaOk) {
     ensure_patient_notices_table($pdo);             // cancellation / no-show pop-ups
     require_once __DIR__ . '/../includes/account_transfer.php';
     ensure_account_transfer_tables($pdo);           // own-account invites, login email changes
+    require_once __DIR__ . '/../includes/dental_summary.php';
+    ensure_chart_requests_table($pdo);              // patients asking for a printed dental chart
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
 

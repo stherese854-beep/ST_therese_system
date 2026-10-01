@@ -573,7 +573,7 @@ if (isset($pdo) && function_exists('current_role') && current_role() === 'patien
     $__notices = take_patient_notices($pdo, $_SESSION['user_id']);
 }
 if ($__notices):
-    $__lvl = ['info' => '#c0392b', 'warning' => '#c0392b', 'danger' => '#c0392b'];   // warnings are always red
+    $__lvl = ['info' => '#c0392b', 'warning' => '#c0392b', 'danger' => '#c0392b', 'good' => '#0f766e'];   // warnings are always red; good news is green
 ?>
 <div id="pn-backdrop" role="dialog" aria-modal="true" aria-labelledby="pn-title-0">
   <div id="pn-box">
@@ -583,7 +583,8 @@ if ($__notices):
         <div class="pn-body"><?= nl2br(e($__n['body'])) ?></div>
       </div>
     <?php endforeach; ?>
-    <button type="button" id="pn-ok" class="btn w-100" style="background:#c0392b;color:#fff;font-weight:600;"
+    <?php $__allGood = !array_filter($__notices, fn($n) => $n['level'] !== 'good'); ?>
+    <button type="button" id="pn-ok" class="btn w-100" style="background:<?= $__allGood ? '#0f766e' : '#c0392b' ?>;color:#fff;font-weight:600;"
             onclick="document.getElementById('pn-backdrop').remove();document.body.style.overflow='';">I understand</button>
   </div>
 </div>

@@ -35,6 +35,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     header("Location: reports?type=profile&patient_id=$pid&saved=1"); exit;
 }
 
+// ---- A patient's request for a printed dental chart is done ----
+// The account holder gets a pop-up in their portal that the copy is ready.
+require_once 'includes/dental_summary.php';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'chart_request_done') {
+    ensure_chart_requests_table($pdo);
+    $rq = $pdo->prepare("SELECT r.*, p.name FROM chart_requests r JOIN patients p ON p.id = r.patient_id WHERE r.id = ? AND r.done_at IS NULL");
+    $rq->execute([(int)($_POST['request_id'] ?? 0)]);
+    if ($req = $rq->fetch()) {
+        $pdo->prepare("UPDATE chart_requests SET done_at = NOW(), done_by = ? WHERE id = ?")->execute([$_SESSION['name'] ?? 'Clinic', (int)$req['id']]);
+        require_once 'includes/patient_notices.php';
+        $forSelf = (int)$req['patient_id'] === (int)$req['holder_id'];
+        add_patient_notice($pdo, (int)$req['holder_id'], 'chart_copy', 'good', '📄 Your printed dental chart is ready',
+            'The printed copy of ' . ($forSelf ? 'your' : $req['name'] . '’s') . ' dental chart is ready. '
+            . 'You can pick it up at the clinic on your next visit.');
+        log_activity($pdo, 'Printed dental chart copy ready', $req['name']);
+        set_flash($req['name'] . '’s request is marked done. The patient was told it is ready.');
+    }
+    header("Location: reports?type=profile#chart-requests"); exit;
+}
+$chartRequests = [];
+try {
+    ensure_chart_requests_table($pdo);
+    $chartRequests = $pdo->query("SELECT r.id, r.patient_id, r.created_at, p.name, h.name AS holder
+                                    FROM chart_requests r JOIN patients p ON p.id = r.patient_id
+                               LEFT JOIN patients h ON h.id = r.holder_id
+                                   WHERE r.done_at IS NULL ORDER BY r.created_at")->fetchAll();
+} catch (Throwable $e) {}
+
 // Which report + which patient are we showing?
 $type      = $_GET['type'] ?? 'profile';                 // profile / treatment / appointments / patients
 $patientId = (int)($_GET['patient_id'] ?? 0);
@@ -257,6 +285,29 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                 <?php endforeach; ?>
             </div>
         </div>
+
+        <?php if ($type === 'profile' && $chartRequests): ?>
+        <!-- ===== Patients who asked for a printed copy of their dental chart ===== -->
+        <div class="card-box mt-3" id="chart-requests" style="border-left:5px solid var(--gold);">
+            <h6 class="mb-1">📄 Printed dental chart requests <span class="badge-pill b-pending"><?= count($chartRequests) ?></span></h6>
+            <div class="text-muted2 mb-2" style="font-size:.85rem;">Open the patient's report, print it, then press <b>Done</b> — the patient is told it is ready to pick up.</div>
+            <?php foreach ($chartRequests as $cr): ?>
+                <div class="flex-between flex-wrap gap-2 py-2 border-bottom">
+                    <div><strong><?= e($cr['name']) ?></strong>
+                        <small class="text-muted2">· requested <?= date('M j, g:i A', strtotime($cr['created_at'])) ?>
+                            <?= $cr['holder'] && $cr['holder'] !== $cr['name'] ? ' by ' . e($cr['holder']) : '' ?></small></div>
+                    <div class="d-flex gap-2">
+                        <a href="reports?type=profile&patient_id=<?= (int)$cr['patient_id'] ?>" class="btn btn-sm btn-outline-teal" data-keep-text>🖨 Open report</a>
+                        <form method="POST" class="m-0">
+                            <input type="hidden" name="action" value="chart_request_done">
+                            <input type="hidden" name="request_id" value="<?= (int)$cr['id'] ?>">
+                            <button class="btn btn-sm btn-teal" data-keep-text>✔ Done</button>
+                        </form>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
 
         <div class="row g-3 mt-1">
             <!-- ===== Left: configuration (scrolls on its own) ===== -->

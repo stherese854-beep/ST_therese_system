@@ -12,6 +12,7 @@ require_once 'config/auth.php';
 require_once 'includes/health_form.php';   // My Health Questionnaire
 require_login(['patient']);
 require_once 'includes/teeth.php';
+require_once 'includes/dental_summary.php';   // plain-words dental summary + printed-copy requests
 require_once 'includes/mailer.php';   // clinic notifications
 require_once 'includes/assign.php';   // appt_slot_is_open()
 
@@ -150,6 +151,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         header("Location: portal?view=family#member-" . $mid); exit;
+    }
+
+    // ---- Ask the clinic for a printed copy of a dental chart (own, or a booked-for person's) ----
+    if ($action === 'request_chart_copy' && $pid) {
+        $mid = (int)($_POST['member_id'] ?? 0);
+        $forId = $pid; $forName = $me['name'] ?? 'Patient';
+        if ($mid) {
+            $own = $pdo->prepare("SELECT id, name FROM patients WHERE id = ? AND guardian_patient_id = ?");
+            $own->execute([$mid, $pid]);
+            $m = $own->fetch();
+            if (!$m) { set_flash('That person could not be found.', 'error'); header("Location: portal?view=records"); exit; }
+            $forId = (int)$m['id']; $forName = $m['name'];
+        }
+        if (open_chart_request($pdo, $forId)) {
+            set_flash('A printed copy was already requested — the clinic will let you know when it is ready.', 'info');
+        } else {
+            $pdo->prepare("INSERT INTO chart_requests (patient_id, holder_id) VALUES (?, ?)")->execute([$forId, $pid]);
+            log_activity($pdo, 'Requested a printed dental chart', $forName);
+            set_flash('Request sent! The clinic will print your dental chart and let you know when it is ready.');
+        }
+        header("Location: portal?view=" . ($mid ? 'family#member-' . $mid : 'records')); exit;
     }
 
     // ---- Give a booked-for adult their own account (emailed invite) ----
@@ -411,6 +433,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Which section is open? Default is appointments so patients see their schedule first.
 $view = $_GET['view'] ?? 'appointments';
+// The clinic can hide the dental chart from patients (System → Patient Portal).
+// They then get the plain-words Dental Summary in My Records instead.
+if ($view === 'chart' && !patient_chart_visible($pdo)) $view = 'records';
 
 // My Activity: only this patient's own entries.
 $actQ    = trim($_GET['q'] ?? '');
@@ -616,7 +641,9 @@ include 'includes/head.php';
     <aside class="sidebar">
         <div class="brand"><div class="logo">🦷</div><div>Patient Portal</div></div>
         <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">📅 Appointments</a>
+        <?php if (patient_chart_visible($pdo)): ?>
         <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">🦷 My Dental Chart</a>
+        <?php endif; ?>
         <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">📋 My Records</a>
         <a class="nav-item <?= $view==='family'?'active':'' ?>" href="portal?view=family">👥 People I Book For
             <?php if ($family): ?><span id="book-for-badge" class="badge-pill b-confirmed" style="font-size:.65rem;display:none;"
@@ -1197,6 +1224,7 @@ include 'includes/head.php';
         <?php elseif ($view === 'family'): ?>
             <!-- ===== MY FAMILY: relatives this account books for ===== -->
             <?= health_form_styles() ?>
+            <?= dental_summary_styles() ?>
             <div class="card-box mb-3">
                 <h5 class="mb-1">👥 People I Book For</h5>
                 <div class="text-muted2" style="font-size:.85rem;">
@@ -1234,7 +1262,9 @@ include 'includes/head.php';
                                 · Born <?= $fm['date_of_birth'] ? date('M j, Y', strtotime($fm['date_of_birth'])) : '–' ?>
                                 · Age <?= !empty($fm['age']) ? e($fm['age']) : '–' ?></div></div>
                     </div>
+                    <?php if (patient_chart_visible($pdo)): ?>
                     <a href="portal?view=chart&member=<?= $fmId ?>" class="btn btn-sm btn-outline-teal" data-keep-text>🦷 View / print dental chart</a>
+                    <?php endif; ?>
                 </div>
 
                 <div class="row g-3">
@@ -1266,6 +1296,9 @@ include 'includes/head.php';
                             <?php endforeach; ?>
                             <?php if (!$fmUpcoming): ?><div class="text-muted2">– (none booked)</div><?php endif; ?>
                         </div>
+
+                        <!-- Their teeth in plain words, and a printed copy on request -->
+                        <?= dental_summary_card($pdo, $fmId, $fm['name'], $fmId, true) ?>
 
                         <!-- Their own account: an emailed invite (adults only) -->
                         <?php
@@ -1446,6 +1479,10 @@ include 'includes/head.php';
             </div>
 
         <?php else: ?>
+            <!-- ===== MY DENTAL SUMMARY (plain words; works with the chart on or off) ===== -->
+            <?= dental_summary_styles() ?>
+            <?= dental_summary_card($pdo, $pid, $me['name'] ?? '') ?>
+
             <!-- ===== MY RECORDS (treatment history) ===== -->
             <div class="card-box">
                 <h5>Treatment History</h5>

@@ -184,7 +184,7 @@ function accept_account_invite($pdo, $inv, $password, $phone) {
     }
     // Tell the person who used to book for them (pop-up in their portal).
     if (!function_exists('add_patient_notice')) require_once __DIR__ . '/patient_notices.php';
-    add_patient_notice($pdo, (int)$inv['guardian_patient_id'], 'own_account', 'info',
+    add_patient_notice($pdo, (int)$inv['guardian_patient_id'], 'own_account', 'good',
         $inv['name'] . ' now has their own account',
         $inv['name'] . " accepted the invite and now signs in with their own account. Their appointments and dental "
         . "records moved with them, so they no longer appear under People I Book For.");
