@@ -198,9 +198,14 @@ $countNoshow      = 0;
 $countCancelled   = 0;
 $countRescheduled = 0;
 $countReview      = 0;
+$countLateCancel  = 0;      // cancelled less than 24 hours before the appointment
 foreach ($missed as $m) {
     if ($m['status'] === 'No-show')      $countNoshow++;
     if ($m['status'] === 'Cancelled')    $countCancelled++;
+    if ($m['status'] === 'Cancelled' && !empty($m['cancelled_at'])) {
+        $apptTs = strtotime($m['appointment_date'] . ' ' . $m['appointment_time']);
+        if ($apptTs && $apptTs - strtotime($m['cancelled_at']) < 86400) $countLateCancel++;
+    }
     if ($m['status'] === 'Rescheduled')  $countRescheduled++;
     if ($m['status'] === 'Needs Review') $countReview++;
 }
@@ -422,7 +427,7 @@ function tabLink($key, $label, $count, $current) {
 
         <div class="row g-3">
             <!-- ===== Table + tabs ===== -->
-            <div class="col-lg-9">
+            <div class="col-lg-9" id="ns-left">
                 <div class="mb-2">
                     <?php
                         tabLink('review',    'Needs Review',    $countReview,           $tab);
@@ -543,11 +548,11 @@ function tabLink($key, $label, $count, $current) {
 
             <!-- ===== Status breakdown ===== -->
             <div class="col-lg-3">
-                <div class="card-box">
+                <div class="card-box" id="ns-breakdown" style="overflow:auto;">
                     <h6 class="mb-3">Status Breakdown</h6>
                     <div class="flex-between py-2 border-bottom"><span>🔴 No-show</span><strong><?= $countNoshow ?></strong></div>
                     <div class="flex-between py-2 border-bottom"><span>🟠 Cancelled</span><strong><?= $countCancelled ?></strong></div>
-                    <div class="flex-between py-2 border-bottom"><span>🔵 Late Cancel</span><strong>2</strong></div>
+                    <div class="flex-between py-2 border-bottom"><span title="Cancelled less than 24 hours before the appointment">🔵 Late Cancel</span><strong><?= $countLateCancel ?></strong></div>
                     <div class="flex-between py-2"><span>🟢 Rescheduled</span><strong><?= $countRescheduled ?></strong></div>
                 </div>
             </div>
@@ -557,4 +562,19 @@ function tabLink($key, $label, $count, $current) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<script>
+// Status Breakdown lines up with the table card beside it: same top, same height.
+(function () {
+    function align() {
+        var left = document.getElementById('ns-left'), bd = document.getElementById('ns-breakdown');
+        if (!left || !bd) return;
+        var card = left.querySelector(':scope > .card-box');
+        if (!card || window.innerWidth < 992) { bd.style.marginTop = ''; bd.style.height = ''; return; }
+        bd.style.marginTop = (card.getBoundingClientRect().top - left.getBoundingClientRect().top) + 'px';
+        bd.style.height = card.offsetHeight + 'px';
+    }
+    window.addEventListener('load', function () { align(); setTimeout(align, 500); });
+    window.addEventListener('resize', function () { setTimeout(align, 200); });
+})();
+</script>
 </body></html>

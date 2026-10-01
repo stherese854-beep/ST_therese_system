@@ -224,7 +224,7 @@ $active = 'analytics';
 /* Chart chrome — one teal series, recessive grid/axes (see the dataviz rules) */
 .viz { --series-1: var(--teal-mid, #0d9488); --series-1-hover: var(--teal, #0a7a70); --grid: #e6ecef; --axis: #c9d3d9;
        --ink: #1d2b33; --ink-2: #52606b; --muted: #7d8a95; }
-.viz-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.viz-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-content: start; padding: 2px 6px 6px 2px; }
 .viz-grid .wide { grid-column: 1 / -1; }
 @media (max-width: 900px) { .viz-grid { grid-template-columns: 1fr; } }
 .viz-card { background: #fff; border-radius: 16px; padding: 18px 18px 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); min-width: 0; }
@@ -348,7 +348,8 @@ $active = 'analytics';
             <?php endforeach; ?>
         </nav>
 
-        <div class="viz-grid" id="viz-grid">
+        <!-- Only the charts scroll; the numbers, date range and section navbar stay in view -->
+        <div class="viz-grid" id="viz-grid" data-fit-screen>
             <?php foreach ($chartOrder as $id):
                 [$title, $sub, $labels, $values, $unit, $orient] = $charts[$id];
                 $colors = $charts[$id][6] ?? [];
@@ -651,6 +652,7 @@ if (document.getElementById('clock')) startClock();
         });
         try { localStorage.setItem('analytics_section', g); } catch (e) {}
         window.dispatchEvent(new Event('resize'));                                  // let the charts fit their new size
+        if (window.fitScreen) window.fitScreen();
     }
     nav.addEventListener('click', function (e) {
         var b = e.target.closest('button[data-show]');

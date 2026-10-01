@@ -544,3 +544,26 @@ a.recent-name:hover strong { color: var(--teal, #0f766e); text-decoration: under
     .card-box:has(table), .card-box:has(.table-responsive) { break-inside: auto !important; page-break-inside: auto !important; }
     .table-responsive { overflow: visible !important; }
 }
+
+/* ----------------- SCROLL ONLY THE LIST, NOT THE PAGE ----------------- */
+/* Long tables (and a few chosen panels marked data-fit-screen) scroll inside
+   their own box, sized by includes/head.php to end at the bottom of the
+   screen. Search bars, filters, tabs and buttons above them stay in view,
+   and the table's header row stays pinned at the top while scrolling. */
+.table-responsive, .tbl-scroll, [data-fit-screen] { overflow: auto; max-height: 70vh; }
+.tbl-scroll { width: 100%; }
+.table-responsive thead th, .tbl-scroll thead th, .match-scroll thead th { position: sticky; top: 0; z-index: 3; }
+table.table thead th { background: var(--card, #fff); }
+[data-fit-screen] .table-responsive, [data-fit-screen] .tbl-scroll { max-height: none; overflow: visible; }
+[data-fit-screen] .table-responsive { overflow-x: auto; }
+
+/* Dashboard: a card that is exactly as tall as its neighbour, its list scrolling inside */
+.row-match > [class*="col-"] { display: flex; flex-direction: column; }
+.row-match > [class*="col-"] > .card-box { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.row-match .match-scroll { flex: 1 1 0; min-height: 260px; overflow: auto; max-height: none; }
+@media (max-width: 991.98px) { .row-match .match-scroll { flex: none; max-height: 420px; } }
+
+@media print {
+    .table-responsive, .tbl-scroll, [data-fit-screen], .row-match .match-scroll { max-height: none !important; overflow: visible !important; }
+    .table-responsive thead th, .tbl-scroll thead th { position: static; }
+}

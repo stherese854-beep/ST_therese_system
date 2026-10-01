@@ -282,7 +282,8 @@ $active = 'dashboard';
         include 'includes/announcements_card.php';
         ?>
 
-        <div class="row">
+        <!-- row-match: the appointments card is exactly as tall as the calendar; its list scrolls inside -->
+        <div class="row row-match">
             <!-- ===== Today's appointments table ===== -->
             <div class="col-lg-8">
                 <div class="card-box">
@@ -290,7 +291,7 @@ $active = 'dashboard';
                         <h5 class="mb-0" id="day-title">Today's Appointments</h5>
                         <a href="appointments" class="btn btn-sm btn-outline-teal">View All →</a>
                     </div>
-                    <div class="table-responsive">
+                    <div class="match-scroll">
                         <table class="data">
                             <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th></tr></thead>
                             <tbody id="day-rows">
@@ -328,7 +329,7 @@ $active = 'dashboard';
             </div>
         </div>
 
-        <div class="row">
+        <div class="row row-match">
             <!-- ===== Recent patients ===== -->
             <div class="col-lg-6">
                 <div class="card-box">
@@ -357,6 +358,7 @@ $active = 'dashboard';
             <div class="col-lg-6">
                 <div class="card-box">
                     <h5>Treatment Breakdown</h5>
+                    <div class="match-scroll" style="padding-right:6px;">
                     <?php
                     $barColors = ['#3b82f6','#22c55e','#ec4899','#14b8a6','#f59e0b'];
                     foreach ($breakdown as $i => $b):
@@ -369,6 +371,7 @@ $active = 'dashboard';
                             </div>
                         </div>
                     <?php endforeach; ?>
+                    </div>
                 </div>
             </div>
         </div>

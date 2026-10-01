@@ -225,6 +225,39 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
     })();
 
+    // ---- Scroll only the list, not the whole page ----
+    // Every data table sits in its own scroll box (one is added if the page has none),
+    // and each box — plus panels marked data-fit-screen — is sized to end at the
+    // bottom of the screen. So the search bar / filters above never scroll away.
+    // data-fit-screen="90" leaves 90px below it (e.g. for a Save bar).
+    (function () {
+        function wrapTables(root) {
+            (root.querySelectorAll ? root : document).querySelectorAll('table.data, table.table').forEach(function (t) {
+                if (t.closest('.table-responsive, .tbl-scroll, [data-fit-screen], .match-scroll, #report-area, .modal, [data-no-scroll], .hf-view, #calendar')) return;
+                var w = document.createElement('div'); w.className = 'tbl-scroll';
+                t.parentNode.insertBefore(w, t); w.appendChild(t);
+            });
+        }
+        function fit() {
+            var vh = window.innerHeight, phone = window.innerWidth < 768;
+            document.querySelectorAll('.table-responsive, .tbl-scroll, [data-fit-screen]').forEach(function (el) {
+                if (el.closest('[data-fit-screen]') !== el && el.closest('[data-fit-screen]')) return;   // inside a fitted panel
+                if (el.closest('.match-scroll, .modal')) return;
+                if (!el.offsetParent) return;                                                         // hidden right now
+                var extra = parseInt(el.getAttribute('data-fit-screen') || '0', 10) || 0;
+                var top = el.getBoundingClientRect().top + window.scrollY;
+                var h = vh - top - 24 - extra;
+                if (phone || h < 300) h = Math.round(vh * (phone ? 0.7 : 0.75)) - extra;
+                el.style.maxHeight = Math.max(240, h) + 'px';
+            });
+        }
+        window.fitScreen = fit;
+        function start() { wrapTables(document); fit(); setTimeout(fit, 400); }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+        window.addEventListener('load', fit);
+        var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(fit, 120); });
+    })();
+
     // ---- Delete several at once: tick boxes + "Delete selected" bar ----
     function bulkPicks(id) { return Array.prototype.slice.call(document.querySelectorAll('.bulk-pick[form="' + id + '"]')); }
     function bulkSync(id) {

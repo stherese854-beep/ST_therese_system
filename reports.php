@@ -259,8 +259,9 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
         </div>
 
         <div class="row g-3 mt-1">
-            <!-- ===== Left: configuration ===== -->
+            <!-- ===== Left: configuration (scrolls on its own) ===== -->
             <div class="col-lg-4">
+                <div data-fit-screen class="rep-left">
                 <div class="card-box mb-3">
                     <h5 class="mb-1"><?= e($reportTypes[$type][1]) ?> Report</h5>
                     <div class="text-muted2 mb-3" style="font-size:.85rem;">Configure the report options below.</div>
@@ -396,9 +397,10 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                         <label class="form-check-label" for="sec-letterhead">Include clinic letterhead</label>
                     </div>
                 </div>
+                </div><!-- /.rep-left -->
             </div>
 
-            <!-- ===== Right: live preview ===== -->
+            <!-- ===== Right: live preview (only the report scrolls) ===== -->
             <div class="col-lg-8">
                 <div class="card-box">
                     <div class="flex-between mb-3">
@@ -410,7 +412,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                     </div>
 
                     <!-- the printable report area -->
-                    <div id="report-area"<?= in_array($type, ['profile','treatment'], true) ? ' data-fit-one-page' : '' ?> style="border:1px solid #e3e9ee;border-radius:10px;padding:22px;background:#fff;">
+                    <div id="report-area" data-fit-screen<?= in_array($type, ['profile','treatment'], true) ? ' data-fit-one-page' : '' ?> style="border:1px solid #e3e9ee;border-radius:10px;padding:22px;background:#fff;">
 
                         <!-- letterhead -->
                         <div data-section="letterhead" class="flex-between" style="border-bottom:2px solid var(--teal-dark);padding-bottom:10px;margin-bottom:16px;">

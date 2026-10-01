@@ -122,7 +122,8 @@ include 'includes/head.php';
                 </select>
             </div>
 
-            <div class="tpl-panes">
+            <!-- Only the message scrolls; the Save buttons below always stay on screen -->
+            <div class="tpl-panes" data-fit-screen="72">
             <?php foreach ($groups as $groupName => $items): ?>
                 <?php foreach ($items as $kind => $t):
                     $sKey = "tpl_{$kind}_subject";
@@ -181,7 +182,7 @@ include 'includes/head.php';
             </div><!-- /.tpl-panes -->
             </div><!-- /.tpl-layout -->
 
-            <div class="d-flex gap-2 mb-4 flex-wrap">
+            <div class="d-flex gap-2 mb-4 mt-3 flex-wrap tpl-actions">
                 <button class="btn btn-teal">💾 Save all messages</button>
                 <button type="button" class="btn btn-light" onclick="resetAll()">↺ Restore everything</button>
                 <a href="messaging" class="btn btn-light">✉️ Email settings</a>
@@ -205,6 +206,11 @@ include 'includes/head.php';
 .tpl-layout { margin-top: 12px; }
 .tpl-pick { padding: 14px 18px; margin-bottom: 14px; }
 .tpl-pick select { max-width: 520px; font-weight: 600; }
+.tpl-panes { border-radius: 14px; }
+/* Save / Restore / Email settings stay pinned at the bottom of the screen */
+.tpl-actions { position: sticky; bottom: 0; z-index: 10; background: var(--card, #fff); padding: 10px 12px;
+               border-radius: 14px; box-shadow: 0 -4px 18px rgba(0,0,0,.08); }
+.tpl-panes .tpl-pane { margin-bottom: 0 !important; }
 .tpl-pane { display: none; }
 .tpl-pane.on { display: block; }
 /* Message boxes grow to fit their text, so nothing needs scrolling inside them */
@@ -226,6 +232,7 @@ function tplFit(t) { t.style.height = 'auto'; t.style.height = (t.scrollHeight +
         });
         if (!found) return false;
         sel.value = k;
+        if (window.fitScreen) window.fitScreen();
         try { localStorage.setItem('tpl_pane', k); } catch (e) {}
         return true;
     }
