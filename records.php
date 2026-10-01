@@ -465,6 +465,17 @@ $active = 'records';
 
         <?php elseif ($tab === 'treatments'): ?>
             <!-- ===== TREATMENTS ===== -->
+            <?php // The patient is at the clinic today -> add the procedure to that visit (keeps the consent record).
+                  $hereQ = $pdo->prepare("SELECT id, treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
+                                           AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");
+                  $hereQ->execute([$pid]); $here = $hereQ->fetch(); ?>
+            <?php if ($here): ?>
+                <div class="card-box mb-3 flex-between flex-wrap gap-2" style="border-left:5px solid var(--teal-light);">
+                    <div>🟢 <b>The patient is at the clinic today</b> for <?= e($here['treatment']) ?> (<?= e($here['appointment_time']) ?>).
+                        <div class="text-muted2" style="font-size:.84rem;">Doing something extra? Add it to this visit, with the patient's agreement.</div></div>
+                    <a href="appointments?filter=All&addproc=<?= (int)$here['id'] ?>" class="btn btn-teal btn-sm" data-keep-text>➕ Add procedure to today's visit</a>
+                </div>
+            <?php endif; ?>
             <div class="card-box mb-3">
                 <h6 class="mb-3">➕ Add Treatment Record</h6>
                 <form method="POST">

@@ -287,6 +287,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
     header($back); exit;
 }
 
+// ---------- Additional procedure during a visit (dentist / admin) ----------
+// The patient is at the clinic (Arrived, or seen today) for e.g. a Consultation and the
+// dentist finds they also need a filling. With the patient's agreement, the procedure is
+// added to THIS visit: the visit's treatment list, a treatment record (note for the
+// patient + clinic-only note), an optional follow-up, and a pop-up for the patient.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_procedure') {
+    $aid = (int)($_POST['id'] ?? 0);
+    $back = "Location: appointments" . (!empty($_POST['filter']) ? "?filter=" . urlencode($_POST['filter']) : '');
+    $q = $pdo->prepare("SELECT a.*, p.primary_dentist, p.guardian_patient_id FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id WHERE a.id = ?");
+    $q->execute([$aid]); $ap = $q->fetch();
+    $mine = true;
+    if ($ap && current_role() === 'dentist') {
+        $me = $_SESSION['name'] ?? '';
+        $mine = in_array($me, array_merge(dentist_name_variants($ap['dentist'] ?? ''), dentist_name_variants($ap['primary_dentist'] ?? '')), true)
+             || ($ap['dentist'] ?? '') === $me || ($ap['primary_dentist'] ?? '') === $me;
+    }
+    $extra = array_values(array_intersect(array_keys(clinic_treatments()), array_map('strval', (array)($_POST['treatments'] ?? []))));
+    if (!in_array(current_role(), ['dentist', 'admin'], true)) {
+        set_flash('Only the dentist can add a procedure to a visit.', 'error');
+    } elseif (!$ap || !$mine || empty($ap['patient_id'])) {
+        set_flash('That appointment could not be found.', 'error');
+    } elseif (!in_array($ap['status'], ['Arrived', 'Completed'], true) || $ap['appointment_date'] !== date('Y-m-d')) {
+        set_flash('A procedure can only be added while the patient is at the clinic (today\'s arrived visit).', 'error');
+    } elseif (!$extra) {
+        set_flash('Please choose the procedure to add.', 'error');
+    } elseif (empty($_POST['consent'])) {
+        set_flash('Please confirm that the patient agreed to the additional procedure.', 'error');
+    } else {
+        require_once 'includes/followups.php';
+        require_once 'includes/patient_notices.php';
+        require_once 'includes/dental_care.php';      // tooth_label(): "Tooth 16 (upper right first molar)"
+        $dentistName = $_SESSION['name'] ?? '';
+        $tooth  = trim((string)($_POST['tooth'] ?? ''));
+        $status = in_array($_POST['status'] ?? '', ['Completed', 'In Progress'], true) ? $_POST['status'] : 'Completed';
+        $note   = trim((string)($_POST['notes'] ?? ''));
+        $cnote  = trim((string)($_POST['clinic_notes'] ?? ''));
+
+        // 1. The visit now lists the extra procedure(s): "Consultation, Dental Filling".
+        $have = array_filter(array_map('trim', explode(',', (string)$ap['treatment'])));
+        $newList = implode(', ', array_values(array_unique(array_merge($have, $extra))));
+        $consentLine = '[' . date('M j g:i A') . '] Added during the visit: ' . implode(', ', $extra) . ($tooth !== '' ? " (Tooth $tooth)" : '')
+                     . ' — patient agreed; recorded by ' . $dentistName;
+        $pdo->prepare("UPDATE appointments SET treatment = ?, notes = TRIM(CONCAT(COALESCE(notes, ''), ?)) WHERE id = ?")
+            ->execute([$newList, "\n" . $consentLine, $aid]);
+
+        // 2. A treatment record for each (shows in Records and in the patient's My Visits).
+        $fuMsg = '';
+        foreach ($extra as $tname) {
+            $pdo->prepare("INSERT INTO treatments (patient_id, patient_name, treatment_name, tooth, dentist, treatment_date, status, notes, clinic_notes)
+                           VALUES (?,?,?,?,?,?,?,?,?)")
+                ->execute([(int)$ap['patient_id'], $ap['patient_name'], $tname, $tooth, $dentistName, date('Y-m-d'), $status, $note, $cnote ?: null]);
+            $fuMsg .= followup_after_treatment($pdo, (int)$ap['patient_id'], $tname, $tooth, date('Y-m-d'), $_POST, $dentistName);
+        }
+        if ($status === 'Completed') complete_arrived_visit($pdo, (int)$ap['patient_id']);
+
+        // 3. Tell the patient (pop-up in their portal; the account holder for a family member).
+        $holder = (int)($ap['guardian_patient_id'] ?: $ap['patient_id']);
+        add_patient_notice($pdo, $holder, 'extra_procedure', 'good', '🦷 Added during your visit',
+            ($holder !== (int)$ap['patient_id'] ? $ap['patient_name'] . '’s visit' : 'During your visit') . ' today, ' . $dentistName
+            . ' also did: ' . implode(', ', $extra) . ($tooth !== '' ? ' (' . (function_exists('tooth_label') ? tooth_label($tooth) : "Tooth $tooth") . ')' : '') . '.'
+            . ($note !== '' ? "\n\nNote from your dentist: " . $note : '')
+            . "\n\nYou can see it any time under My Records → My Visits.");
+
+        log_activity($pdo, 'Added procedure during visit', $ap['patient_name'] . ' — ' . implode(', ', $extra)
+                     . ($tooth !== '' ? " (Tooth $tooth)" : '') . ' · patient agreed');
+        set_flash(implode(', ', $extra) . ' added to ' . $ap['patient_name'] . '’s visit. The patient was notified.' . $fuMsg);
+    }
+    header($back); exit;
+}
+
 // ---------- Arrived / undo (today's confirmed appointments) ----------
 // Marks that the patient is physically here. The no-show scan then treats
 // the visit as attended for certain, instead of guessing from records.
@@ -595,6 +665,12 @@ $active = 'appointments';
                                             <button class="btn btn-sm btn-light" style="font-size:.72rem;white-space:nowrap;" title="Undo the arrival mark">Undo</button>
                                         <?php endif; ?>
                                     </form>
+                                <?php endif; ?>
+                                <?php if (in_array(current_role(), ['dentist','admin'], true) && !empty($a['arrived_at'])
+                                          && in_array($a['status'], ['Arrived','Completed'], true) && $a['appointment_date'] === date('Y-m-d')): ?>
+                                    <button type="button" class="btn btn-sm" data-keep-text style="background:#eef7f6;color:var(--teal-mid);font-weight:600;white-space:nowrap;"
+                                            title="Add a procedure to this visit (with the patient's agreement)" data-addproc="<?= (int)$a['id'] ?>"
+                                            onclick='openAddProc(<?= json_encode(["id" => (int)$a["id"], "name" => $a["patient_name"], "treatment" => $a["treatment"]], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>➕ Add procedure</button>
                                 <?php endif; ?>
                                 <?php if ($a['status'] === 'Pending'): ?>
                                     <form method="POST" class="d-inline">
@@ -1038,5 +1114,91 @@ function validateCancelAppt(){
     </div>
   </div>
 </div>
+<?php if (in_array(current_role(), ['dentist','admin'], true)): require_once 'includes/followups.php'; ?>
+<!-- ===== Add a procedure to the visit the patient is at ===== -->
+<div class="modal fade" id="addProcModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <form method="POST" class="modal-content" onsubmit="return checkAddProc()">
+      <input type="hidden" name="action" value="add_procedure">
+      <input type="hidden" name="id" id="ap-id">
+      <input type="hidden" name="filter" value="<?= e($filter ?? '') ?>">
+      <div class="modal-header">
+        <h5 class="modal-title">➕ Add a procedure to this visit</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="card-box mb-3" style="background:#f7fafa;padding:12px 14px;">
+          <div class="text-muted2" style="font-size:.8rem;">Patient at the clinic</div>
+          <div style="font-weight:600;" id="ap-name"></div>
+          <div class="text-muted2" style="font-size:.85rem;">Booked for: <span id="ap-treat"></span></div>
+        </div>
+        <label class="field-label">Additional procedure(s)</label>
+        <?= treatment_picker([], 'ap') ?>
+        <div class="row g-2 mt-1">
+          <div class="col-md-4"><label class="field-label">Tooth # <span class="text-muted2">(optional)</span></label>
+            <input name="tooth" class="form-control" placeholder="e.g. 16"></div>
+          <div class="col-md-4"><label class="field-label">Status</label>
+            <select name="status" class="form-select"><option>Completed</option><option>In Progress</option></select></div>
+        </div>
+        <label class="field-label mt-2">💬 Note for the patient <span class="text-muted2">(they see this)</span></label>
+        <textarea name="notes" class="form-control" rows="2" placeholder="e.g. Avoid hard food on the right side for 24 hours."></textarea>
+        <label class="field-label mt-2">🔒 Clinic-only note <span class="text-muted2">(the patient does not see this)</span></label>
+        <input name="clinic_notes" class="form-control" placeholder="Optional">
+
+        <div class="fu-box mt-3" style="background:#f7fafa;border:1px dashed #cfe0dd;border-radius:10px;padding:10px 12px;">
+          <label class="d-flex align-items-center gap-2 m-0" style="cursor:pointer;font-weight:600;">
+            <input type="checkbox" name="followup" value="1" class="form-check-input m-0"
+                   onchange="document.getElementById('ap-fu').style.display = this.checked ? '' : 'none'"> 🔁 Needs follow-up
+          </label>
+          <div id="ap-fu" class="row g-2 mt-1" style="display:none;">
+            <div class="col-md-5"><label class="field-label">Come back</label>
+              <select name="followup_every" class="form-select">
+                <?php foreach (FOLLOWUP_INTERVALS as $fd => $fl): ?><option value="<?= $fd ?>" <?= $fd === 28 ? 'selected' : '' ?>><?= e($fl) ?></option><?php endforeach; ?>
+              </select></div>
+            <div class="col-md-4"><label class="field-label">…or on this date</label><input type="date" name="followup_date" class="form-control" min="<?= date('Y-m-d') ?>"></div>
+            <div class="col-md-3"><label class="field-label">Total sessions</label><input type="number" name="followup_sessions" class="form-control" min="2" max="99"></div>
+          </div>
+        </div>
+
+        <label class="d-flex gap-2 align-items-start mt-3 p-2" style="background:#fff8e8;border-radius:8px;cursor:pointer;">
+          <input type="checkbox" name="consent" value="1" class="form-check-input mt-1" id="ap-consent">
+          <span><b>✅ The patient agreed to this additional procedure.</b><br>
+            <small class="text-muted2">Required. It is recorded on the visit and in the Activity Log with your name and the time.</small></span>
+        </label>
+        <div id="ap-warn" class="text-danger small mt-2" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-teal" data-keep-text>➕ Add to visit</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function openAddProc(a) {
+    document.getElementById('ap-id').value = a.id;
+    document.getElementById('ap-name').textContent = a.name;
+    document.getElementById('ap-treat').textContent = a.treatment || '–';
+    document.querySelectorAll('#addProcModal input[name="treatments[]"]').forEach(function (b) { b.checked = false; b.disabled = false; });
+    document.getElementById('ap-consent').checked = false;
+    document.getElementById('ap-warn').style.display = 'none';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('addProcModal')).show();
+}
+function checkAddProc() {
+    var w = document.getElementById('ap-warn'), msg = '';
+    if (!document.querySelector('#addProcModal input[name="treatments[]"]:checked')) msg = 'Please choose the procedure to add.';
+    else if (!document.getElementById('ap-consent').checked) msg = 'Please confirm that the patient agreed to the additional procedure.';
+    w.textContent = msg; w.style.display = msg ? 'block' : 'none';
+    return !msg;
+}
+<?php if (!empty($_GET['addproc'])): ?>
+// Opened from Records ("Add procedure to today's visit").
+document.addEventListener('DOMContentLoaded', function () {
+    var b = document.querySelector('[data-addproc="<?= (int)$_GET['addproc'] ?>"]');
+    if (b) b.click();
+});
+<?php endif; ?>
+</script>
+<?php endif; ?>
 </body>
 </html>
