@@ -31,9 +31,15 @@ session_set_cookie_params([
                   || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
 ]);
 ini_set('session.use_strict_mode', '1');   // refuse made-up session IDs
-session_start();               // turn on PHP sessions (remembers who is logged in)
 
 require_once __DIR__ . '/db.php';
+// Logins are kept in the database, so an update of the live site (a new
+// container on Railway) no longer signs everyone out. See config/session_db.php.
+if (php_sapi_name() !== 'cli') {
+    require_once __DIR__ . '/session_db.php';
+    session_set_save_handler(new DbSessionHandler($pdo), true);
+}
+session_start();               // turn on PHP sessions (remembers who is logged in)
 ensure_archive_schema($pdo);                        // self-heals the archive columns/table
 ensure_activity_log_schema($pdo);                   // self-heals the activity_log table
 ensure_patient_archive_schema($pdo);                // self-heals the patients table's archive columns

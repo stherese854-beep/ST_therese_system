@@ -746,7 +746,19 @@ $active = 'landing_edit';
             if (el) w.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + w.scrollY - 70));
         } catch (e) {}
     }
-    frame.addEventListener('load', function () { busy = false; goTo(); if (again) { again = false; refresh(); } });
+    frame.addEventListener('load', function () {
+        busy = false;
+        // Signed out meanwhile (e.g. a long break): say so plainly instead of showing "Request blocked".
+        var blocked = false;
+        try { blocked = frame.contentDocument.title === 'Request blocked'; } catch (e) {}
+        if (blocked) {
+            note.style.display = 'flex';
+            note.innerHTML = '<div>⚠️ <b>Your sign-in has expired</b>, so the preview cannot update.<br>' +
+                'Copy any text you changed, then <a href="landing_edit">reload this page</a> and sign in again.</div>';
+            return;
+        }
+        goTo(); if (again) { again = false; refresh(); }
+    });
 
     function setSection(card) {
         if (!card || !card.dataset.section) return;
