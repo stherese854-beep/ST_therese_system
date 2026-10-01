@@ -298,9 +298,7 @@ function tabLink($key, $label, $count, $current) {
                 <div class="sub"><?= $role === 'dentist' ? 'Your patients who missed their scheduled appointments' : 'Patients who missed their scheduled appointments (all dentists)' ?></div>
             </div>
             <div class="d-flex align-items-center gap-2">
-                <button class="btn btn-teal" onclick="window.print()" title="Use your browser's print dialog — choose 'Save as PDF' to get a file">
-                    🖨 Print / Save as PDF
-                </button>
+                <?= print_menu('main', pdf_name('No-Show-Report', date('Y-m-d'))) ?>
             </div>
         </div>
 

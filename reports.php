@@ -258,9 +258,9 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                 <h1>Generate Reports</h1>
                 <div class="sub">Create and export clinical reports for patients, appointments, and treatments.</div>
             </div>
+            <?php $repPdfName = pdf_name($reportTypes[$type][1] ?? 'Report', $patient['name'] ?? '', date('Y-m-d')); ?>
             <div class="d-flex align-items-center gap-2">
-                <button class="btn btn-light" onclick="window.print()">🖨 Print</button>
-                <button class="btn btn-teal" onclick="window.print()">⬇ Export PDF</button>
+                <?= print_menu('#report-area', $repPdfName) ?>
             </div>
         </div>
 
@@ -439,9 +439,9 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
 
                 <div class="card-box">
                     <h6 class="mb-2">Export Options</h6>
-                    <div class="d-flex gap-2 mb-3">
+                    <div class="d-flex gap-2 mb-3" data-keep-text>
                         <button class="btn btn-light w-100" onclick="window.print()">🖨 Print</button>
-                        <button class="btn btn-dark-navy w-100" onclick="window.print()">📄 PDF</button>
+                        <button class="btn btn-dark-navy w-100" onclick="downloadPdf('#report-area', <?= e(json_encode($repPdfName)) ?>)">📄 Download PDF</button>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input report-section-toggle" type="checkbox" id="sec-letterhead" data-section="letterhead" checked>
@@ -459,7 +459,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <h5 class="mb-0">Live Preview</h5>
                             <div class="text-muted2" style="font-size:.82rem;">Updates as you configure</div>
                         </div>
-                        <button class="btn btn-sm btn-outline-teal" onclick="window.print()">⬇ Export</button>
+                        <?= print_menu('#report-area', $repPdfName, 'window.print()', 'btn-sm btn-outline-teal') ?>
                     </div>
 
                     <!-- the printable report area -->

@@ -1263,3 +1263,27 @@ if (php_sapi_name() !== 'cli' && !empty($_SESSION['user_id'])) {
         exit;
     }
 }
+
+// ============================================================
+//  PRINT / PDF DROP-DOWN  (every page that prints)
+// ============================================================
+//   [ 🖨 Print / PDF ▾ ]  ->  🖨 Print   |   📄 Download PDF file
+// $target   = what goes into the PDF (CSS selector), e.g. '#report-area' or 'main'
+// $filename = the PDF's name (no .pdf), e.g. 'Patient-Profile-Juan-Dela-Cruz-2026-10-01'
+// $printJs  = what "Print" runs (normally window.print())
+function print_menu($target = 'main', $filename = 'document', $printJs = 'window.print()', $btnClass = 'btn-teal', $label = '🖨 Print / PDF', $pdfJs = '') {
+    $pdf = $pdfJs !== '' ? $pdfJs : 'downloadPdf(' . json_encode($target) . ', ' . json_encode($filename) . ')';
+    return '<div class="dropdown d-inline-block print-menu no-print" data-keep-text>'
+         . '<button type="button" class="btn ' . e($btnClass) . ' dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">' . $label . '</button>'
+         . '<ul class="dropdown-menu dropdown-menu-end shadow-sm">'
+         . '<li><button type="button" class="dropdown-item" onclick="' . e($printJs) . '">🖨 Print</button></li>'
+         . '<li><button type="button" class="dropdown-item" onclick="' . e($pdf) . '">📄 Download PDF file</button></li>'
+         . '</ul></div>';
+}
+
+// A safe file-name piece: "Juan Dela Cruz" -> "Juan-Dela-Cruz".
+function pdf_name(...$parts) {
+    $s = implode('-', array_filter(array_map('strval', $parts), 'strlen'));
+    return trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-') ?: 'document';
+}
+

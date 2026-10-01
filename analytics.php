@@ -260,6 +260,10 @@ $active = 'analytics';
 .pp-list label, #printModal label { cursor: pointer; }
 .print-only { display: none; }
 .print-chart-img { display: none; }
+/* Download PDF file: the charts are swapped for their pictures, like when printing */
+.pdf-mode .viz-canvas { display: none !important; }
+.pdf-mode .print-chart-img { display: block !important; width: 100%; height: auto; max-height: 260px; object-fit: contain; }
+.pdf-mode .viz-grid { grid-template-columns: 1fr 1fr !important; }
 @media print {
     @page { margin: 0; }                                  /* no room for browser headers/footers */
     body { padding: 12mm !important; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
@@ -417,12 +421,12 @@ $active = 'analytics';
                 <hr class="my-2">
                 <label style="font-size:.9rem;"><input type="checkbox" id="pp-tables"> Also print each chart's numbers (table)</label>
                 <div class="text-muted2 mt-2" style="font-size:.78rem;">
-                    <b>Save as PDF:</b> in the print window, choose <b>"Save as PDF"</b> as the destination / printer.
+                    <b>Download PDF file</b> saves a .pdf of the ticked sections straight to this device. <b>Print</b> opens the print window.
                 </div>
               </div>
               <div class="modal-footer">
                 <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-outline-teal" id="pp-pdf">📄 Save as PDF</button>
+                <button type="button" class="btn btn-outline-teal" id="pp-pdf">📄 Download PDF file</button>
                 <button type="button" class="btn btn-teal" id="pp-print">🖨 Print</button>
               </div>
             </div>
@@ -469,7 +473,7 @@ if (document.getElementById('clock')) startClock();
     window.addEventListener('beforeprint', snapshotCharts);     // also covers Ctrl+P
 
     var opened = [];
-    function go() {
+    function go(mode) {
         var choice = { items: {}, tables: tablesBox.checked };
         var any = false;
         items.forEach(function (b) {
@@ -485,18 +489,27 @@ if (document.getElementById('clock')) startClock();
         if (m) m.hide();
         // The print dialog's ticks decide what prints, even charts the navbar is hiding.
         document.querySelectorAll('.viz-card.is-hidden').forEach(function (c) { c.classList.remove('is-hidden'); c.dataset.navHidden = '1'; });
-        if (window.Chart) Object.values(Chart.instances).forEach(function (ch) { ch.resize(); });
+        if (window.Chart) Object.values(Chart.instances).forEach(function (ch) { ch.resize(); ch.update("none"); ch.draw(); });   // paint now (not on the next frame), so the snapshot is not blank
+        if (mode === 'pdf') {
+            // A real .pdf file of the ticked sections. Charts go in as pictures (like printing).
+            snapshotCharts();
+            setTimeout(function () {
+                downloadPdf('main', <?= json_encode(pdf_name('Clinic-Analytics', $rangeLabel, date('Y-m-d'))) ?>, { after: cleanup });
+            }, 350);
+            return;
+        }
         snapshotCharts();
         setTimeout(function () { window.print(); }, 350);     // let the dialog close first
     }
-    window.addEventListener('afterprint', function () {
+    function cleanup() {
         removeSnapshots();
         document.querySelectorAll('.pp-off').forEach(function (s) { s.classList.remove('pp-off'); });
         opened.forEach(function (d) { d.open = false; }); opened = [];
         document.querySelectorAll('.viz-card[data-nav-hidden]').forEach(function (c) { c.classList.add('is-hidden'); delete c.dataset.navHidden; });
-    });
-    document.getElementById('pp-print').onclick = go;
-    document.getElementById('pp-pdf').onclick   = go;          // same dialog: pick "Save as PDF" as the destination
+    }
+    window.addEventListener('afterprint', cleanup);
+    document.getElementById('pp-print').onclick = function () { go('print'); };
+    document.getElementById('pp-pdf').onclick   = function () { go('pdf'); };   // downloads a .pdf file
 })();
 
 (function () {

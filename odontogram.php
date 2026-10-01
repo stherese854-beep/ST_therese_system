@@ -268,8 +268,8 @@ $active = 'odontogram';
                             <button type="button" id="odo-edit-btn" class="btn btn-outline-teal btn-sm" onclick="toggleOdoEdit(true)">✏️ Edit Chart</button>
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;" onclick="toggleOdoEdit(false)">✔ Done</button>
                             <?php endif; ?>
-                            <!-- Prints this chart (choose "Save as PDF" in the print window for a PDF) -->
-                            <button type="button" class="btn btn-gold btn-sm" onclick="window.print()" title="Print / Save as PDF">🖨 Print / PDF</button>
+                            <!-- Print this chart, or download it as a PDF file -->
+                            <?= print_menu('main', pdf_name('Dental-Chart', $printPatient['name'] ?? '', isset($session['visit_date']) ? $session['visit_date'] : date('Y-m-d')), 'window.print()', 'btn-gold btn-sm') ?>
                         </div>
                     </div>
 

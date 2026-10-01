@@ -721,10 +721,7 @@ include 'includes/head.php';
                         <div class="flex-between mb-1">
                             <h5 class="mb-0"><?= $chartMember ? e($chartMember['name']) . '’s Dental Chart' : 'My Dental Chart' ?></h5>
                             <!-- Always printable — even before the dentist has recorded any changes -->
-                            <button class="btn btn-sm btn-outline-teal no-print" onclick="printChart()"
-                                    title="Print this chart, or save it as a PDF">
-                                🖨 Print this chart
-                            </button>
+                            <?= print_menu('main', pdf_name('Dental-Chart', $chartName, date('Y-m-d')), 'printChart()', 'btn-sm btn-outline-teal', '🖨 Print / PDF') ?>
                         </div>
 
                         <?php if ($family): ?>

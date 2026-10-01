@@ -190,11 +190,26 @@ $backLink = ($role === 'patient') ? 'portal?view=appointments' : 'appointments';
 </div>
 
 <div class="actions">
-    <button class="btn btn-teal" onclick="window.print()">🖨 Print / Save as PDF</button>
+    <button class="btn btn-teal" onclick="window.print()">🖨 Print</button>
+    <button class="btn btn-teal" onclick="slipPdf(this)">📄 Download PDF file</button>
     <a class="btn btn-light" href="<?= $backLink ?>">← Back</a>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
 <script>
+// Download the slip as a real .pdf file (same look as the printed slip).
+function slipPdf(btn) {
+    if (!window.html2pdf) { alert('The PDF tool could not load (no internet?). Use Print and choose "Save as PDF" instead.'); return; }
+    var old = btn.textContent; btn.disabled = true; btn.textContent = 'Making your PDF…';
+    html2pdf().set({
+        margin: 10,
+        filename: <?= json_encode(trim(preg_replace('/[^A-Za-z0-9]+/', '-', 'Appointment-Slip-' . $appt['patient_name'] . '-' . $appt['appointment_date']), '-') . '.pdf') ?>,
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a5', orientation: 'portrait' }
+    }).from(document.querySelector('.slip')).save().then(function () { btn.disabled = false; btn.textContent = old; });
+}
+
 // The slip usually opens in a NEW TAB, so there is no page to go "back" to.
 // If this really is a fresh tab, turn the button into a Close instead.
 (function () {

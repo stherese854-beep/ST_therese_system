@@ -249,6 +249,57 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
     })();
 
+    // ---- Download PDF file (the "🖨 Print / PDF" drop-down, see print_menu() in config/auth.php) ----
+    // Turns the page — or one part of it — into a real .pdf file and downloads it.
+    // body.pdf-mode hides menus, buttons and filters the same way printing does.
+    // Uses html2pdf.js (loaded only the first time it is needed).
+    window.downloadPdf = function (target, filename, opts) {
+        opts = opts || {};
+        function loadLib() {
+            if (window.html2pdf) return Promise.resolve();
+            return new Promise(function (ok, fail) {
+                var sc = document.createElement('script');
+                sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+                sc.onload = ok; sc.onerror = function () { fail(new Error('load')); };
+                document.head.appendChild(sc);
+            });
+        }
+        var el = typeof target === 'string' ? document.querySelector(target) : target;
+        if (!el) el = document.querySelector('main') || document.body;
+        var busy = document.createElement('div'); busy.className = 'pdf-busy'; busy.textContent = '📄 Making your PDF…';
+        document.body.appendChild(busy);
+        if (opts.before) opts.before();
+        return loadLib().then(function () {
+            document.body.classList.add('pdf-mode');
+            busy.style.display = 'none';
+            // Lay the PDF out at the content's own width (wide tables are not cut off), then
+            // keep A4's shape: the whole page is simply scaled to fit the paper.
+            var w = Math.ceil(el.getBoundingClientRect().width);
+            el.querySelectorAll('table').forEach(function (t) {          // a wide table must fit too
+                if (t.offsetParent) w = Math.max(w, t.scrollWidth + 70);
+            });
+            w = Math.min(1400, Math.max(760, w));
+            var m = 28, pageW = w + 2 * m;
+            return window.html2pdf().set({
+                margin: [m, m, m + 10, m],
+                filename: (filename || 'document').replace(/[^\w\-]+/g, '-').replace(/-+/g, '-') + '.pdf',
+                image: { type: 'jpeg', quality: 0.95 },
+                html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff',
+                               // a chart that is hidden has no size and would stop the PDF — skip it
+                               ignoreElements: function (n) { return n.tagName === 'CANVAS' && (!n.width || !n.height); } },
+                jsPDF: { unit: 'px', format: [pageW, Math.round(pageW * (opts.landscape ? 0.7071 : 1.4142))],
+                         orientation: opts.landscape ? 'landscape' : 'portrait', hotfixes: ['px_scaling'] },
+                pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.viz-card', '.kpi', '.dc-item', '.odo-arch', '.stat-card'] }
+            }).from(el).save();
+        }).catch(function () {
+            alert('The PDF could not be made (no internet?). Use Print and choose "Save as PDF" instead.');
+        }).then(function () {
+            document.body.classList.remove('pdf-mode');
+            busy.remove();
+            if (opts.after) opts.after();
+        });
+    };
+
     // ---- Scroll only the list, not the whole page ----
     // Every data table sits in its own scroll box (one is added if the page has none),
     // and each box — plus panels marked data-fit-screen — is sized to end at the

@@ -128,7 +128,7 @@ $active = 'users';
 
         <div class="page-head no-print">
             <div><h1 style="color:var(--teal-light)">User Management</h1><div class="sub">Manage doctors, staff, and patient accounts</div></div>
-            <button type="button" class="btn btn-teal" onclick="window.print()" data-keep-text>🖨 Print / PDF</button>
+            <?= print_menu('main', pdf_name('User-Management', date('Y-m-d'))) ?>
         </div>
 
         <!-- Top tabs shared across admin pages -->

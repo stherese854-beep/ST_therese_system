@@ -567,3 +567,30 @@ table.table thead th { background: var(--card, #fff); }
     .table-responsive, .tbl-scroll, [data-fit-screen], .row-match .match-scroll { max-height: none !important; overflow: visible !important; }
     .table-responsive thead th, .tbl-scroll thead th { position: static; }
 }
+
+/* ---------------- DOWNLOAD PDF FILE (same look as printing) ----------------
+   downloadPdf() in includes/head.php adds body.pdf-mode for a moment while the
+   page is turned into a .pdf file — these rules copy the print rules above. */
+.pdf-mode .sidebar, .pdf-mode #topbarWidgets, .pdf-mode #profileWidget, .pdf-mode #notifWidget,
+.pdf-mode .no-print, .pdf-mode .print-hide, .pdf-mode .btn, .pdf-mode button, .pdf-mode .print-menu,
+.pdf-mode .bulk-bar, .pdf-mode .bulk-pick, .pdf-mode .pp-off, .pdf-mode #app-toast, .pdf-mode .le-pv-fab,
+.pdf-mode .rv-nav, .pdf-mode .viz-nav, .pdf-mode .page-head .clock { display: none !important; }
+.pdf-mode .print-only { display: block !important; }
+.pdf-mode .main { padding: 0 !important; }
+.pdf-mode .card-box { box-shadow: none !important; border: 1px solid #ddd !important; }
+.pdf-mode .table-responsive, .pdf-mode .tbl-scroll, .pdf-mode [data-fit-screen], .pdf-mode .match-scroll {
+    max-height: none !important; overflow: visible !important; }
+.pdf-mode .table-responsive thead th, .pdf-mode .tbl-scroll thead th { position: static !important; }
+.pdf-mode a { text-decoration: none !important; color: inherit !important; }
+
+/* The Print / PDF drop-down button */
+.print-menu .dropdown-menu { min-width: 210px; }
+.print-menu .dropdown-item { padding: 9px 14px; }
+.pdf-busy { position: fixed; inset: 0; z-index: 100001; background: rgba(255,255,255,.75); display: flex;
+            align-items: center; justify-content: center; font-weight: 600; color: #0f766e; font-size: 1.05rem; }
+/* In a PDF the 16 teeth of an arch stay on one line (A4 is narrower than the screen). */
+.pdf-mode .odo-arch { flex-wrap: nowrap !important; gap: 1px !important; justify-content: center; }
+.pdf-mode .odo-arch .tooth svg { width: 32px !important; height: auto !important; }
+/* Closed "View as table" sections stay closed in a PDF (the PDF tool would show their insides). */
+.pdf-mode details:not([open]) { display: none !important; }
+.pdf-mode details > summary { display: none !important; }
