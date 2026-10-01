@@ -557,6 +557,10 @@ function ensure_booking_review_schema($pdo) {
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'notif_seen_map'")->rowCount()) {
             $pdo->exec("ALTER TABLE users ADD COLUMN notif_seen_map TEXT DEFAULT NULL");
         }
+        // Treatments: a note only the clinic sees (the regular note is shown to the patient).
+        if (!$pdo->query("SHOW COLUMNS FROM treatments LIKE 'clinic_notes'")->rowCount()) {
+            $pdo->exec("ALTER TABLE treatments ADD COLUMN clinic_notes TEXT DEFAULT NULL");
+        }
         // Each user's own text size (null = the clinic default).
         if (!$pdo->query("SHOW COLUMNS FROM users LIKE 'text_scale'")->rowCount()) {
             $pdo->exec("ALTER TABLE users ADD COLUMN text_scale SMALLINT DEFAULT NULL");

@@ -13,6 +13,7 @@ require_once 'includes/health_form.php';   // My Health Questionnaire
 require_login(['patient']);
 require_once 'includes/teeth.php';
 require_once 'includes/dental_summary.php';   // plain-words dental summary + printed-copy requests
+require_once 'includes/dental_care.php';      // My Records: what to do next + visit timeline
 require_once 'includes/mailer.php';   // clinic notifications
 require_once 'includes/assign.php';   // appt_slot_is_open()
 
@@ -1479,30 +1480,9 @@ include 'includes/head.php';
             </div>
 
         <?php else: ?>
-            <!-- ===== MY DENTAL SUMMARY (plain words; works with the chart on or off) ===== -->
+            <!-- ===== MY DENTAL CARE: what to do next + one timeline of visits (see includes/dental_care.php) ===== -->
             <?= dental_summary_styles() ?>
-            <?= dental_summary_card($pdo, $pid, $me['name'] ?? '') ?>
-
-            <!-- ===== MY RECORDS (treatment history) ===== -->
-            <div class="card-box">
-                <h5>Treatment History</h5>
-                <?= bulk_bar('bulk-treatment', 'archive_item', 'records', ['item_type' => 'treatment'], '🗑 Delete selected', 'They will be moved to My Archive, where you can restore them.') ?>
-                <?php foreach ($myTreatments as $t): ?>
-                    <div class="flex-between py-3 border-bottom">
-                        <div class="d-flex align-items-center gap-3">
-                            <div style="width:44px;height:44px;border-radius:10px;background:#e6f7f5;display:flex;align-items:center;justify-content:center;">🦷</div>
-                            <div><strong><?= e($t['treatment_name']) ?></strong><br>
-                                <small class="text-muted2"><?= e($t['treatment_date']) ?> • <?= e($t['dentist']) ?></small><br>
-                                <small><?= e($t['notes']) ?></small></div>
-                        </div>
-                        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-                            <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':'progress' ?>"><?= e(status_label($t['status'])) ?></span>
-                            <?= archive_button('treatment', $t['id']) ?>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-                <?php if (!$myTreatments): ?><p class="text-muted2 text-center py-3">No records yet.</p><?php endif; ?>
-            </div>
+            <?= my_dental_care_html($pdo, $me, $myTreatments) ?>
         <?php endif; ?>
     </main>
 </div>

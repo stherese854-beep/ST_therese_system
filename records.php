@@ -128,11 +128,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ----- Treatments -----
     if ($action === 'add_treatment') {
         $pdo->prepare(
-            "INSERT INTO treatments (patient_id,patient_name,treatment_name,tooth,dentist,treatment_date,status,notes)
-             VALUES (?,?,?,?,?,?,?,?)"
+            "INSERT INTO treatments (patient_id,patient_name,treatment_name,tooth,dentist,treatment_date,status,notes,clinic_notes)
+             VALUES (?,?,?,?,?,?,?,?,?)"
         )->execute([
             $pid, $_POST['patient_name'], trim($_POST['treatment_name']), trim($_POST['tooth'] ?? ''),
-            $_SESSION['name'] ?? '', $_POST['treatment_date'], $_POST['status'], trim($_POST['notes'] ?? '')
+            $_SESSION['name'] ?? '', $_POST['treatment_date'],
+            in_array($_POST['status'] ?? '', ['Completed','In Progress','Planned'], true) ? $_POST['status'] : 'Completed',
+            trim($_POST['notes'] ?? ''), trim($_POST['clinic_notes'] ?? '') ?: null
         ]);
         complete_arrived_visit($pdo, $pid, $_POST['treatment_date'] ?? null);   // arrived today -> Completed
         log_activity($pdo, 'Added treatment', patient_name_of($pdo, $pid) . ' — ' . trim($_POST['treatment_name']));
@@ -452,10 +454,16 @@ $active = 'records';
                         <div class="col-md-3"><label class="field-label">Date</label>
                             <input type="date" name="treatment_date" class="form-control" value="<?= date('Y-m-d') ?>" required></div>
                         <div class="col-md-3"><label class="field-label">Status</label>
-                            <select name="status" class="form-select"><option>Completed</option><option>In Progress</option></select></div>
+                            <select name="status" class="form-select">
+                                <option>Completed</option><option>In Progress</option>
+                                <option value="Planned">Planned (to do at a next visit)</option>
+                            </select></div>
                     </div>
-                    <label class="field-label mt-2">Notes</label>
-                    <input name="notes" class="form-control mb-3" placeholder="Optional notes about this treatment">
+                    <label class="field-label mt-2">💬 Note for the patient <span class="text-muted2">(they see this in their portal)</span></label>
+                    <textarea name="notes" class="form-control mb-1" rows="2"
+                              placeholder="e.g. Avoid chewing on the right side for 24 hours. Come back in 2 weeks to check the filling."></textarea>
+                    <label class="field-label mt-2">🔒 Clinic-only note <span class="text-muted2">(the patient does not see this)</span></label>
+                    <input name="clinic_notes" class="form-control mb-3" placeholder="Optional, for the clinic team only">
                     <button class="btn btn-teal">Add Record</button>
                 </form>
             </div>
@@ -469,11 +477,13 @@ $active = 'records';
                             <div style="width:44px;height:44px;border-radius:10px;background:#e6f7f5;display:flex;align-items:center;justify-content:center;">🦷</div>
                             <div>
                                 <strong><?= e($t['treatment_name']) ?><?= $t['tooth'] ? ' (Tooth #'.e($t['tooth']).')' : '' ?></strong><br>
-                                <small class="text-muted2"><?= e($t['treatment_date']) ?> • <?= e($t['dentist']) ?><?= $t['notes'] ? ' • '.e($t['notes']) : '' ?></small>
+                                <small class="text-muted2"><?= e($t['treatment_date']) ?> • <?= e($t['dentist']) ?></small>
+                                <?php if ($t['notes']): ?><br><small>💬 <span class="text-muted2">To patient:</span> <?= e($t['notes']) ?></small><?php endif; ?>
+                                <?php if (!empty($t['clinic_notes'])): ?><br><small>🔒 <span class="text-muted2">Clinic only:</span> <?= e($t['clinic_notes']) ?></small><?php endif; ?>
                             </div>
                         </div>
                         <div class="d-flex align-items-center gap-2">
-                            <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':'progress' ?>"><?= e($t['status']) ?></span>
+                            <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':($t['status']==='Planned'?'pending':'progress') ?>"><?= e($t['status']) ?></span>
                             <?= bulk_pick('bulk-treat', $t['id']) ?>
                             <form method="POST" class="m-0" onsubmit="return confirm('Delete this treatment record?')">
                                 <input type="hidden" name="action" value="delete_treatment">

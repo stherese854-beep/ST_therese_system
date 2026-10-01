@@ -557,7 +557,9 @@ include 'includes/head.php';
 
                 <?= treatment_picker_assets() ?>
                 <div class="field-label">Preferred treatment * <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— choose 1 to <?= MAX_TREATMENTS ?></span></div>
-                <?= treatment_picker(array_filter(explode(', ', (string)($_POST['treatment'] ?? ''))), 'bk') ?>
+                <?php // "Book a visit" from My Records can pre-pick the treatment (?treatment=Dental Filling)
+                      $bkPre = $_POST['treatment'] ?? (isset(clinic_treatments()[$_GET['treatment'] ?? '']) ? $_GET['treatment'] : ''); ?>
+                <?= treatment_picker(array_filter(explode(', ', (string)$bkPre)), 'bk') ?>
                 <div id="tp-warn" class="text-danger small mb-1" style="display:none;">Please choose at least one treatment.</div>
                 <div class="text-muted2 mb-3" style="font-size:.8rem;">
                     Not sure what you need? Choose <b>Consultation</b> — the dentist will check and confirm the right treatment.
