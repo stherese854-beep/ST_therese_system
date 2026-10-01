@@ -5,9 +5,9 @@
 //  Replaces "Dental Summary + Treatment History", which told the patient
 //  the same thing twice. Two parts:
 //
-//   1. WHAT YOU NEED TO DO — only things to act on:
+//   1. WHAT YOU NEED TO DO — a short note of things to act on:
 //        teeth that need attention (latest chart), treatments the dentist
-//        PLANNED, the recommended next visit — each with a Book button.
+//        PLANNED, and the recommended next visit (plain notes, no buttons).
 //   2. MY VISITS — one card per visit day, everything from that day once:
 //        what was done (treatment + tooth in plain words + status),
 //        what changed on the chart, the dentist's note for the patient,
@@ -110,8 +110,10 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
 
     ob_start(); ?>
     <style>
-    .dc-todo li { padding: 8px 0; border-bottom: 1px solid #eef2f3; display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .dc-todo { background: #fff8e8; border-left: 4px solid var(--gold); border-radius: 8px; padding: 6px 14px; }   /* reads as a note */
+    .dc-todo li { padding: 7px 0; border-bottom: 1px dashed #ecdcb8; font-size: .95rem; color: #3f5350; }
     .dc-todo li:last-child { border-bottom: 0; }
+    .dc-todo-foot { font-size: .84rem; color: #6b7b8c; margin-top: 8px; }
     .dc-visit { border-left: 4px solid var(--teal-light); padding: 4px 0 4px 16px; margin-bottom: 22px; position: relative; }
     .dc-visit::before { content: ''; position: absolute; left: -8px; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: var(--teal-mid); }
     .dc-date { font-weight: 700; font-size: 1.02rem; }
@@ -129,14 +131,13 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
         <?php else: ?>
             <ul class="dc-todo list-unstyled mb-0 mt-2">
                 <?php if ($next): ?>
-                    <li><span>📅 Your dentist recommends your next visit on <b><?= date('l, F j, Y', strtotime($next)) ?></b></span>
-                        <a href="book?treatment=Consultation" class="btn btn-sm btn-teal">Book this visit</a></li>
+                    <li>📅 Your dentist recommends your next visit on <b><?= date('l, F j, Y', strtotime($next)) ?></b>.</li>
                 <?php endif; ?>
                 <?php foreach ($todo as [$ic, $txt, $svc]): ?>
-                    <li><span><?= $ic ?> <?= e($txt) ?></span>
-                        <a href="book?treatment=<?= urlencode($svc) ?>" class="btn btn-sm btn-outline-teal">Book <?= e($svc) ?></a></li>
+                    <li><?= $ic ?> <?= e($txt) ?></li>
                 <?php endforeach; ?>
             </ul>
+            <div class="dc-todo-foot">To book, use <b>Book Appointment</b> or call the clinic.</div>
         <?php endif; ?>
         <div class="ds-actions">
             <?php if ($chartOn): ?>
