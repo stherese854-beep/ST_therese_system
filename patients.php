@@ -49,7 +49,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ageIn  = trim($_POST['age'] ?? '');
         $age    = $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null);
 
+        $emailNote = '';
         if ($id) {
+            // A LOGIN email is protected: only the admin may change it, and only after the
+            // new address is confirmed from a link (the old address is told). A person with
+            // no login (booked by someone else) just has a contact email — saved as typed.
+            $lu = $pdo->prepare("SELECT u.id, u.email FROM patients p JOIN users u ON u.id = p.user_id WHERE p.id = ?");
+            $lu->execute([$id]);
+            $login = $lu->fetch();
+            if ($login && strcasecmp(trim($login['email']), $email) !== 0) {
+                if ($email === '') {
+                    $emailNote = ' The login email cannot be left empty, so it was kept.';
+                } elseif (current_role() !== 'admin') {
+                    $emailNote = ' The login email was NOT changed — only the admin can change it.';
+                } else {
+                    require_once 'includes/account_transfer.php';
+                    [$okEc, $msgEc] = request_email_change($pdo, $login['id'], $id, $email, $_SESSION['name'] ?? 'Admin');
+                    $emailNote = ' ' . $msgEc;
+                    if (!$okEc) $emailNote = ' The login email was NOT changed: ' . $msgEc;
+                }
+                $email = $login['email'];           // stays as it is until confirmed
+            }
+
             // UPDATE the patient record.
             // Age and blood type are left alone here — they are edited in Records.
             $pdo->prepare("UPDATE patients SET name=?, email=?, phone=?, status=?, patient_type=?, visit_reason=? WHERE id=?")
@@ -110,7 +131,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         log_activity($pdo, $id ? 'Updated patient' : 'Added patient', $name);
-        set_flash($id ? 'Patient updated.' : $newMsg);
+        set_flash($id ? 'Patient updated.' . $emailNote : $newMsg,
+                  strpos($emailNote, 'NOT') !== false || strpos($emailNote, 'cannot') !== false ? 'warning' : 'success');
         header("Location: patients"); exit;
     }
 
@@ -218,6 +240,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Once staff have spoken to the patient, they can lift the block. The
     // missed visits stay on record; we only note the moment it was lifted,
     // so a NEW block can still build up from here on.
+    // ---- Give a booked-for adult their own account (emailed invite) — admin / staff ----
+    if (in_array($action, ['admin_invite_own', 'admin_cancel_invite'], true)) {
+        require_once 'includes/account_transfer.php';
+        $iid = (int)($_POST['id'] ?? 0);
+        if (!in_array(current_role(), ['admin','staff'], true)) {
+            set_flash('Only the admin or staff can do this.', 'error');
+        } elseif ($action === 'admin_cancel_invite') {
+            cancel_account_invite($pdo, $iid);
+            set_flash('The invite was cancelled. The link no longer works.', 'info');
+        } else {
+            [$okI, $msgI] = send_account_invite($pdo, $iid, $_POST['invite_email'] ?? '', $_SESSION['name'] ?? 'Clinic');
+            set_flash($msgI, $okI ? 'success' : 'error');
+        }
+        header("Location: patients"); exit;
+    }
+
+    // ---- Merge two records of the same person — admin only ----
+    if ($action === 'merge_records') {
+        require_once 'includes/account_transfer.php';
+        if (current_role() !== 'admin') {
+            set_flash('Only the admin can merge records.', 'error');
+        } else {
+            [$okM, $msgM] = merge_patient_records($pdo, $_POST['keep_id'] ?? 0, $_POST['dup_id'] ?? 0, $_SESSION['name'] ?? 'Admin');
+            set_flash($msgM, $okM ? 'success' : 'error');
+        }
+        header("Location: patients"); exit;
+    }
+
     if ($action === 'restore_booking') {
         if (!in_array(current_role(), ['admin','staff'])) {
             set_flash('Only admin and staff can restore online booking.', 'error');
@@ -296,6 +346,23 @@ foreach ($patients as &$pp) {
 }
 unset($pp);
 
+// ---- Own-account invites waiting to be accepted ----
+require_once 'includes/account_transfer.php';
+ensure_account_transfer_tables($pdo);
+$openInvites = [];
+foreach ($pdo->query("SELECT patient_id, email, expires_at FROM account_invites
+                       WHERE accepted_at IS NULL AND cancelled_at IS NULL AND expires_at > NOW()") as $oi) {
+    $openInvites[(int)$oi['patient_id']] = $oi;
+}
+
+// ---- Merge picker: every record that is not archived ----
+$mergeList = [];
+if (current_role() === 'admin') {
+    $mergeList = $pdo->query("SELECT p.id, p.name, p.date_of_birth, p.email, p.user_id, p.guardian_patient_id
+                                FROM patients p LEFT JOIN users u ON u.id = p.user_id
+                               WHERE p.status <> 'Archived' AND (u.id IS NULL OR u.role = 'patient') ORDER BY p.name, p.id")->fetchAll();
+}
+
 // ---- Who is blocked from booking online? ----
 // Same shared rule as the booking page: three missed visits inside the
 // rolling window (and only those after any staff reset) pauses booking.
@@ -337,6 +404,10 @@ $active = 'patients';
                             <span class="badge-pill b-inactive" style="margin-left:4px;"><?= $archivedPatientCount ?></span>
                         <?php endif; ?>
                     </a>
+                <?php endif; ?>
+                <?php if (current_role() === 'admin'): ?>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#mergeModal"
+                            data-keep-text title="Two records for the same person? Move everything onto one">🔀 Merge records</button>
                 <?php endif; ?>
                 <!-- Opens the Add Patient modal -->
                 <button class="btn btn-dark-navy" data-bs-toggle="modal" data-bs-target="#patientModal" onclick="openAdd()">+ Add Patient</button>
@@ -388,6 +459,23 @@ $active = 'patients';
                                     <div>
                                         <strong><?= e($p['name']) ?></strong><br>
                                         <small class="text-muted2"><?= e($p['email']) ?></small>
+                                        <?php if (!empty($p['guardian_patient_id']) && empty($p['user_id'])): ?>
+                                            <br><small class="text-muted2" style="font-size:.7rem;">👪 Booked by <?= e($p['booked_by_name'] ?: 'N/A') ?> · no login of their own</small>
+                                            <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
+                                                <?php if (isset($openInvites[(int)$p['id']])): ?>
+                                                    <br><span class="badge-pill b-pending" style="font-size:.66rem;">✉️ Invite sent to <?= e($openInvites[(int)$p['id']]['email']) ?></span>
+                                                    <form method="POST" class="d-inline m-0" onsubmit="return confirm('Cancel this invite? The link in the email will stop working.')">
+                                                        <input type="hidden" name="action" value="admin_cancel_invite">
+                                                        <input type="hidden" name="id" value="<?= $p['id'] ?>">
+                                                        <button class="btn btn-sm btn-light" style="font-size:.66rem;padding:1px 7px;color:#c0392b;" data-keep-text>Cancel</button>
+                                                    </form>
+                                                <?php else: ?>
+                                                    <br><button type="button" class="btn btn-sm btn-light" style="font-size:.66rem;padding:1px 7px;color:var(--teal);" data-keep-text
+                                                            onclick='openOwnInvite(<?= json_encode(["id" => $p["id"], "name" => $p["name"], "email" => $p["email"] ?? "",
+                                                                "age" => account_age($p)], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'>✉️ Give own account</button>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
                                         <?php $ns = $blockedCounts[$p['id']] ?? 0; $nc = $cancelCounts[$p['id']] ?? 0; ?>
                                         <?php $manualBlock = !empty($p['booking_blocked']); ?>
 
@@ -524,7 +612,8 @@ $active = 'patients';
                     <input type="text" name="last_name" id="f-last" class="form-control mb-3"></div>
             </div>
             <label class="field-label">Email</label>
-            <input type="email" name="email" id="f-email" class="form-control mb-3">
+            <input type="email" name="email" id="f-email" class="form-control mb-1">
+            <div class="text-muted2 mb-3" style="font-size:.76rem;" id="f-email-help">For a patient with a login, this is their sign-in email: <?= current_role() === 'admin' ? 'a change is sent to the new address to confirm first, and the old address is told.' : 'only the admin can change it.' ?></div>
             <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
             <!-- Birthday and age: only admin and staff can set them. The age fills in from the birthday. -->
             <div class="row">
@@ -808,6 +897,88 @@ function validatePauseBooking(){
     }
 </script>
 <!-- ===== Pause online booking ===== -->
+<!-- ===== Give a booked-for adult their own account ===== -->
+<div class="modal fade" id="ownInviteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="POST" class="modal-content">
+      <input type="hidden" name="action" value="admin_invite_own">
+      <input type="hidden" name="id" id="oi-id">
+      <div class="modal-header">
+        <h5 class="modal-title">Give them their own account</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="card-box mb-3" style="background:#f7fafa;padding:12px 14px;">
+          <div class="text-muted2" style="font-size:.8rem;">Booked-for person</div>
+          <div style="font-weight:600;" id="oi-name"></div>
+        </div>
+        <div class="alert" style="background:#eef7f6;border:1px solid #cfe0dd;color:#3f5350;font-size:.82rem;">
+          An invite link is emailed to them (it works for <?= INVITE_HOURS ?> hours). When they set a password, this same record
+          becomes their own account — appointments, dental chart, records and X-rays stay with it. The person who booked for
+          them no longer sees them. Only for ages <?= MIN_ACCOUNT_AGE ?>+.
+        </div>
+        <div id="oi-age-warn" class="alert alert-danger py-2" style="font-size:.82rem;display:none;"></div>
+        <label class="field-label">Their email address</label>
+        <input type="email" name="invite_email" id="oi-email" class="form-control" required placeholder="their.email@example.com">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-teal" id="oi-send" data-keep-text>✉️ Send invite</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<?php if (current_role() === 'admin'): ?>
+<!-- ===== Merge two records of the same person ===== -->
+<div class="modal fade" id="mergeModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <form method="POST" class="modal-content" onsubmit="return checkMerge()">
+      <input type="hidden" name="action" value="merge_records">
+      <div class="modal-header">
+        <h5 class="modal-title">🔀 Merge two records of the same person</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.82rem;">
+          Use this when one person has two records — for example, they were booked by a relative and later signed up on
+          their own. Everything on the second record (appointments, dental chart, treatments, notes, X-rays, reviews) moves
+          onto the record you keep, and the second record goes to the Archive. If only the second record has a login,
+          the login moves too. Records that <b>both</b> have a login cannot be merged.
+        </div>
+        <?php $mOpt = function ($m) {
+            return '#' . $m['id'] . ' · ' . $m['name']
+                 . ($m['date_of_birth'] ? ' · born ' . date('M j, Y', strtotime($m['date_of_birth'])) : '')
+                 . ($m['email'] ? ' · ' . $m['email'] : '')
+                 . (!empty($m['user_id']) ? ' · has login' : (!empty($m['guardian_patient_id']) ? ' · booked by someone' : ''));
+        }; ?>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="field-label">✅ Keep this record</label>
+            <select name="keep_id" id="mg-keep" class="form-select" data-search="Search a patient..." required>
+              <option value="">Choose…</option>
+              <?php foreach ($mergeList as $m): ?><option value="<?= $m['id'] ?>"><?= e($mOpt($m)) ?></option><?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="field-label">🗄 Move into it, then archive</label>
+            <select name="dup_id" id="mg-dup" class="form-select" data-search="Search a patient..." required>
+              <option value="">Choose…</option>
+              <?php foreach ($mergeList as $m): ?><option value="<?= $m['id'] ?>"><?= e($mOpt($m)) ?></option><?php endforeach; ?>
+            </select>
+          </div>
+        </div>
+        <div id="mg-warn" class="text-danger small mt-2" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-teal" data-keep-text>🔀 Merge records</button>
+      </div>
+    </form>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="modal fade" id="pauseBookingModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <form method="POST" class="modal-content" onsubmit="return validatePauseBooking()">
@@ -857,5 +1028,25 @@ function validatePauseBooking(){
   </div>
 </div>
 
+<script>
+function openOwnInvite(p) {
+    document.getElementById('oi-id').value = p.id;
+    document.getElementById('oi-name').textContent = p.name;
+    document.getElementById('oi-email').value = p.email || '';
+    var warn = document.getElementById('oi-age-warn'), send = document.getElementById('oi-send'), msg = '';
+    if (p.age === null) msg = 'Their birthday is not on file. Add it first (Edit), then send the invite.';
+    else if (p.age < <?= MIN_ACCOUNT_AGE ?>) msg = 'They are ' + p.age + '. Only people aged <?= MIN_ACCOUNT_AGE ?> or older can have their own account.';
+    warn.textContent = msg; warn.style.display = msg ? 'block' : 'none'; send.disabled = !!msg;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('ownInviteModal')).show();
+}
+function checkMerge() {
+    var k = document.getElementById('mg-keep'), d = document.getElementById('mg-dup'), w = document.getElementById('mg-warn');
+    if (!k.value || !d.value) { w.textContent = 'Choose both records.'; w.style.display = 'block'; return false; }
+    if (k.value === d.value) { w.textContent = 'Choose two different records.'; w.style.display = 'block'; return false; }
+    w.style.display = 'none';
+    var kt = k.options[k.selectedIndex].text, dt = d.options[d.selectedIndex].text;
+    return confirm('Merge records?\n\nKEEP: ' + kt + '\nMOVE + ARCHIVE: ' + dt + '\n\nEverything from the second record moves onto the first. Continue?');
+}
+</script>
 </body>
 </html>

@@ -122,6 +122,61 @@ function message_catalogue() {
                    . "To book your next visit, please call or visit the clinic — we will be happy to help you.",
     ],
 
+    'account_invite' => [
+        'group'   => 'To the patient',
+        'label'   => 'Own-account invite',
+        'when'    => 'Sent to someone booked under another person’s account when they are given their own account. {link} is required.',
+        'vars'    => ['patient','by','link','hours','clinic'],
+        'subject' => 'Your own patient account at {clinic}',
+        'body'    => "Hello {patient},
+
+"
+                   . "{by} has been booking your dental appointments at {clinic}. You can now have your own patient account.
+
+"
+                   . "Open this link to set your password:
+{link}
+
+"
+                   . "Your appointments, dental chart and records will move to your new account. "
+                   . "The link works for {hours} hours. If you were not expecting this, you can ignore this email.",
+    ],
+
+    'email_change_confirm' => [
+        'group'   => 'To the patient',
+        'label'   => 'Login email change — confirm',
+        'when'    => 'Sent to the NEW address when the clinic changes a patient’s login email. The change only happens after they open {link}.',
+        'vars'    => ['patient','old','new','link','hours','clinic'],
+        'subject' => 'Please confirm your new login email',
+        'body'    => "Hello {patient},
+
+"
+                   . "{clinic} is changing the email you use to sign in to {new}.
+
+"
+                   . "To confirm, open this link:
+{link}
+
+"
+                   . "The link works for {hours} hours. Until you confirm, you keep signing in with {old}.",
+    ],
+
+    'email_change_notice' => [
+        'group'   => 'To the patient',
+        'label'   => 'Login email change — notice to the old address',
+        'when'    => 'Sent to the OLD address at the same time, so the patient knows about the change.',
+        'vars'    => ['patient','old','new','hours','clinic'],
+        'subject' => 'Your login email is being changed',
+        'body'    => "Hello {patient},
+
+"
+                   . "{clinic} has started changing the email you sign in with from {old} to {new}. "
+                   . "It changes once the new address is confirmed.
+
+"
+                   . "If you did not ask for this, please contact the clinic right away.",
+    ],
+
     'password_reset' => [
         'group'   => 'To the patient',
         'label'   => 'Password reset code',

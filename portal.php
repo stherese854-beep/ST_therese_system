@@ -152,6 +152,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: portal?view=family#member-" . $mid); exit;
     }
 
+    // ---- Give a booked-for adult their own account (emailed invite) ----
+    if (in_array($action, ['invite_own_account', 'cancel_own_invite'], true) && $pid) {
+        require_once 'includes/account_transfer.php';
+        $mid = (int)($_POST['member_id'] ?? 0);
+        $own = $pdo->prepare("SELECT id, name FROM patients WHERE id = ? AND guardian_patient_id = ?");
+        $own->execute([$mid, $pid]);
+        $member = $own->fetch();
+        if (!$member) {
+            set_flash('That person could not be found.', 'error');
+        } elseif ($action === 'cancel_own_invite') {
+            cancel_account_invite($pdo, $mid);
+            log_activity($pdo, 'Cancelled own-account invite', $member['name']);
+            set_flash('The invite for ' . $member['name'] . ' was cancelled. The link no longer works.', 'info');
+        } else {
+            [$ok, $msg] = send_account_invite($pdo, $mid, $_POST['invite_email'] ?? '', $me['name'] ?? 'Account holder');
+            set_flash($msg, $ok ? 'success' : 'error');
+        }
+        header("Location: portal?view=family#member-" . $mid); exit;
+    }
+
     if ($action === 'save_profile' && $pid) {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
         if ($phoneError !== '') {
@@ -1224,6 +1244,43 @@ include 'includes/head.php';
                                     · <?= e($u['treatment']) ?> <span class="badge-pill b-<?= strtolower($u['status']) ?>"><?= e(status_label($u['status'])) ?></span></div>
                             <?php endforeach; ?>
                             <?php if (!$fmUpcoming): ?><div class="text-muted2">N/A — none booked.</div><?php endif; ?>
+                        </div>
+
+                        <!-- Their own account: an emailed invite (adults only) -->
+                        <?php
+                            require_once 'includes/account_transfer.php';
+                            $fmInvite  = pending_account_invite($pdo, $fmId);
+                            $fmAge     = account_age($fm);
+                        ?>
+                        <div class="mt-3 p-2" style="background:#f7fafa;border-radius:10px;font-size:.85rem;">
+                            <div class="field-label mb-1">🔑 Their own account</div>
+                            <?php if ($fmInvite): ?>
+                                Invite sent to <b><?= e($fmInvite['email']) ?></b> — waiting for them to set a password
+                                (link works until <?= date('M j, g:i A', strtotime($fmInvite['expires_at'])) ?>).
+                                <form method="POST" class="mt-1" onsubmit="return confirm('Cancel this invite? The link in the email will stop working.')">
+                                    <input type="hidden" name="action" value="cancel_own_invite">
+                                    <input type="hidden" name="member_id" value="<?= $fmId ?>">
+                                    <button class="btn btn-sm btn-light" style="color:#c0392b;" data-keep-text>✕ Cancel invite</button>
+                                </form>
+                            <?php elseif ($fmAge !== null && $fmAge >= MIN_ACCOUNT_AGE): ?>
+                                <div class="text-muted2 mb-1">If <?= e(explode(' ', $fm['name'])[0]) ?> wants to sign in and book on their own,
+                                    send them an invite. Their appointments and dental records move to their new account,
+                                    and they will no longer be listed here.</div>
+                                <button type="button" class="btn btn-sm btn-outline-teal" data-keep-text
+                                        onclick="this.nextElementSibling.style.display='block';this.style.display='none';">✉️ Give them their own account</button>
+                                <form method="POST" style="display:none;" class="mt-1">
+                                    <input type="hidden" name="action" value="invite_own_account">
+                                    <input type="hidden" name="member_id" value="<?= $fmId ?>">
+                                    <label class="field-label">Their email address</label>
+                                    <input type="email" name="invite_email" class="form-control form-control-sm mb-2" required
+                                           placeholder="their.email@example.com" value="<?= e($fm['email'] ?? '') ?>">
+                                    <button class="btn btn-sm btn-teal" data-keep-text>Send invite</button>
+                                </form>
+                            <?php else: ?>
+                                <span class="text-muted2"><?= $fmAge === null
+                                    ? 'Their birthday is not on file, so an own account cannot be set up yet. The clinic can add it.'
+                                    : 'Only people aged ' . MIN_ACCOUNT_AGE . ' or older can have their own account.' ?></span>
+                            <?php endif; ?>
                         </div>
                     </div>
 
