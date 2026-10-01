@@ -69,6 +69,7 @@ if (!$__schemaOk) {
     ensure_followup_table($pdo);                    // follow-ups / treatment plans (braces, root canal sessions)
     require_once __DIR__ . '/../includes/teeth.php';
     cleanup_auto_chart_sessions($pdo);              // one time: blank visits the old Odontogram page made by itself
+    migrate_text_scales_v2($pdo);                   // one time: text sizes one step bigger
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
 
@@ -1201,8 +1202,24 @@ function theme_style_tag($pdo, $scope = 'system', $primary = null, $bg = null, $
 //  user can pick their own from the profile menu (Text size A− A A+),
 //  which wins over the default — handy for anyone with blurry eyesight.
 // ============================================================
-const TEXT_SCALES = [100 => 'Small', 110 => 'Normal', 125 => 'Large', 140 => 'Extra large'];
-define('TEXT_SCALE_DEFAULT', 110);
+// v2 (Oct 2026): everything one step bigger — the old 110% "Normal" read a bit small.
+const TEXT_SCALES = [110 => 'Small', 120 => 'Normal', 135 => 'Large', 150 => 'Extra large'];
+define('TEXT_SCALE_DEFAULT', 120);
+
+// One time: sizes saved with the old steps move up to the matching new step.
+function migrate_text_scales_v2($pdo) {
+    try {
+        if ($pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'text_scale_v2'")->fetchColumn()) return;
+        $map = [100 => 110, 110 => 120, 125 => 135, 140 => 150];
+        $cur = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'ui_text_scale'")->fetchColumn();
+        if ($cur !== false && isset($map[(int)$cur])) save_setting($pdo, 'ui_text_scale', (string)$map[(int)$cur]);
+        krsort($map);                                   // biggest first, so nobody moves up twice
+        foreach ($map as $old => $new) {
+            $pdo->prepare("UPDATE users SET text_scale = ? WHERE text_scale = ?")->execute([$new, $old]);
+        }
+        save_setting($pdo, 'text_scale_v2', date('Y-m-d H:i:s'));
+    } catch (Throwable $e) {}
+}
 
 function text_scale_ok($v) { return isset(TEXT_SCALES[(int)$v]); }
 
