@@ -93,24 +93,10 @@ function message_catalogue() {
                    . "as soon as possible so we can offer the slot to another patient.",
     ],
 
-    'noshow_notice' => [
-        'group'   => 'To the patient',
-        'label'   => 'Missed appointment notice',
-        'when'    => 'Sent after staff confirm that a patient did not attend.',
-        'vars'    => ['patient','date','time','treatment','missed','clinic'],
-        'subject' => 'We missed you at your appointment',
-        'body'    => "Hello {patient},\n\n"
-                   . "We were expecting you on {date} at {time} for your {treatment}, but you were not "
-                   . "able to come.\n\n"
-                   . "If something came up, that is completely understandable. Please let us know at "
-                   . "least 24 hours ahead next time so we can offer the slot to someone else — and we "
-                   . "would be happy to help you rebook.",
-    ],
-
     'noshow_final' => [
         'group'   => 'To the patient',
         'label'   => 'Missed appointment — booking paused',
-        'when'    => 'Sent instead of the notice above once a patient reaches three missed visits.',
+        'when'    => 'Sent when a patient reaches 3 missed visits (earlier misses only show an on-screen warning in the portal).',
         'vars'    => ['patient','date','time','missed','clinic'],
         'subject' => 'About your missed appointments',
         'body'    => "Hello {patient},\n\n"
@@ -122,24 +108,10 @@ function message_catalogue() {
                    . "penalty — we just want to make sure the next visit works out.",
     ],
 
-    'cancel_warning' => [
-        'group'   => 'To the patient',
-        'label'   => 'Cancellation warning',
-        'when'    => 'Sent each time a patient cancels online (portal or reminder link) while they still have cancellations left.',
-        'vars'    => ['patient','for','date','time','treatment','reason','used','limit','left','clinic'],
-        'subject' => 'Your appointment was cancelled ({used} of {limit} cancellations used)',
-        'body'    => "Hello {patient},\n\n"
-                   . "As you requested, the appointment{for} on {date} at {time} ({treatment}) has been cancelled.\n"
-                   . "Reason given: {reason}\n\n"
-                   . "Please note: this is cancellation {used} of {limit}. You can cancel {left} more time(s). "
-                   . "After {limit} cancellations, online booking is paused until the clinic reviews your account.\n\n"
-                   . "If you only need a different time, please use Reschedule in your patient portal instead of cancelling.",
-    ],
-
     'cancel_limit' => [
         'group'   => 'To the patient',
         'label'   => 'Cancellation limit reached — booking paused',
-        'when'    => 'Sent instead of the warning above when a patient reaches the cancellation limit.',
+        'when'    => 'Sent when a patient reaches the cancellation limit (earlier cancellations only show an on-screen warning).',
         'vars'    => ['patient','for','date','time','treatment','reason','used','limit','clinic'],
         'subject' => 'Online booking paused — cancellation limit reached',
         'body'    => "Hello {patient},\n\n"

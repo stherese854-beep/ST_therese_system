@@ -633,10 +633,6 @@ include 'includes/head.php';
                     </div>
                     <div id="rel-warn" class="text-danger small mb-2" style="display:none;">Please choose your relationship to the patient.</div>
 
-                    <label class="field-label">Patient's Date of Birth</label>
-                    <input type="date" name="patient_dob" id="sel-dob" class="form-control mb-1"
-                           min="1900-01-01" max="<?= birth_date_max() ?>">
-                    <div class="text-muted2 mb-2" style="font-size:.8rem;">The date of birth of the person you are booking for (at least <?= MIN_PATIENT_AGE ?> years old).</div>
                 </div>
 
                 <div class="row">
@@ -648,6 +644,15 @@ include 'includes/head.php';
                     </div>
                 </div>
                 <div id="name-warn" class="text-danger small mb-2" style="display:none;">Please enter the patient's first and last name.</div>
+
+                <!-- Booking for someone else: their birthday, right after their name -->
+                <div id="dob-wrap" style="display:none;">
+                    <label class="field-label">Patient's Birthday *</label>
+                    <input type="date" name="patient_dob" id="sel-dob" class="form-control mb-1"
+                           min="1900-01-01" max="<?= birth_date_max() ?>">
+                    <div class="text-muted2 mb-2" style="font-size:.8rem;">The birthday of the person you are booking for (at least <?= MIN_PATIENT_AGE ?> years old).
+                        <span id="dob-age" style="font-weight:600;color:var(--teal);"></span></div>
+                </div>
 
                 <label class="field-label mt-2">Email Address (from your account)</label>
                 <input class="form-control mb-3" value="<?= e($me['email']) ?>" readonly style="background:#eef7f6;color:var(--teal);">
@@ -669,7 +674,7 @@ include 'includes/head.php';
                 <p class="text-muted2">Review your details before submitting.</p>
                 <div class="card-box" style="background:#f6f9fa;">
                     <small class="text-muted2">PATIENT</small>
-                    <p class="mb-0">👤 <span id="rev-name"><?= e($me['name']) ?></span><br>✉️ <?= e($me['email']) ?><br>📞 <span id="rev-phone"><?= e($me['phone']) ?></span></p>
+                    <p class="mb-0">👤 <span id="rev-name"><?= e($me['name']) ?></span><br><span id="rev-dob-line" style="display:none;">🎂 <span id="rev-dob"></span><br></span>✉️ <?= e($me['email']) ?><br>📞 <span id="rev-phone"><?= e($me['phone']) ?></span></p>
                 </div>
                 <div class="card-box" style="background:#fdfaf4;">
                     <small class="text-muted2">APPOINTMENT</small>
@@ -953,7 +958,7 @@ function pickFamily() {
         var known = [].some.call(rel.options, function (o) { return o.value === f.relationship || o.text === f.relationship; });
         if (f.relationship && !known) { rel.value = 'Other relative'; relOtherBox.value = f.relationship; }
         else { rel.value = f.relationship; relOtherBox.value = ''; }
-        document.getElementById('sel-dob').value = f.dob || '';
+        document.getElementById('sel-dob').value = f.dob || ''; document.getElementById('sel-dob').dispatchEvent(new Event('change', {bubbles: true}));
     } else {
         fn.value = ''; ln.value = ''; fn.readOnly = false; ln.readOnly = false;
         rel.value = ''; relOtherBox.value = ''; document.getElementById('sel-dob').value = '';
@@ -972,6 +977,7 @@ function toggleFor() {
     var ln = document.getElementById('sel-lname');
     document.getElementById('dependent-note').style.display = forOther ? 'block' : 'none';
     document.getElementById('rel-wrap').style.display       = forOther ? 'block' : 'none';
+    document.getElementById('dob-wrap').style.display       = forOther ? 'block' : 'none';
     var fam = document.getElementById('sel-family');
     if (forOther) {
         fn.readOnly = false; ln.readOnly = false;
@@ -1147,6 +1153,20 @@ function validateSchedule() {
     goStep(2);
 }
 
+// Age in whole years from a "YYYY-MM-DD" birthday.
+function ageFrom(d) {
+    var b = new Date(d + 'T00:00:00'), n = new Date(), y = n.getFullYear() - b.getFullYear();
+    if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) y--;
+    return y;
+}
+// Show the age next to the birthday as it is picked.
+document.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'sel-dob') {
+        var a = document.getElementById('dob-age');
+        if (a) a.textContent = e.target.value ? '· Age ' + ageFrom(e.target.value) : '';
+    }
+});
+
 // Copy chosen values into the confirmation screen.
 function fillReview() {
     document.getElementById('rev-treat').textContent = tpPicked('bk-list').join(', ');
@@ -1155,6 +1175,12 @@ function fillReview() {
     document.getElementById('rev-name').textContent  =
         document.getElementById('sel-fname').value + ' ' + document.getElementById('sel-lname').value;
     document.getElementById('rev-phone').textContent = document.getElementById('sel-phone').value;
+    // Booking for someone else: show their birthday (and age) too.
+    var forOtherRv = document.querySelector('input[name="for"]:checked').value === 'other';
+    var dobV = document.getElementById('sel-dob').value;
+    document.getElementById('rev-dob-line').style.display = (forOtherRv && dobV) ? '' : 'none';
+    if (forOtherRv && dobV) document.getElementById('rev-dob').textContent =
+        new Date(dobV + 'T00:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) + ' (' + ageFrom(dobV) + ' yrs)';
     document.getElementById('rev-dentist').textContent = 'To be assigned by the clinic';
 }
 

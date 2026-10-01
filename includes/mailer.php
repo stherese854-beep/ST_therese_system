@@ -325,10 +325,11 @@ function mail_template($title, $bodyHtml, $buttonText = '', $buttonLink = '') {
 //  It never blocks the cancellation — if mail is off, it just returns.
 // ============================================================
 /**
- * After a PATIENT cancels (portal or reminder link): email the account holder how
- * many of the allowed cancellations they have used. The count covers the whole
- * account (their own + family members'), the same way booking is paused.
- * Wording: Message Templates → "Cancellation warning" / "Cancellation limit reached".
+ * After a PATIENT cancels (portal or reminder link): once the account reaches the
+ * cancellation limit, email the account holder that online booking is paused.
+ * Earlier cancellations only show an on-screen warning (see includes/patient_notices.php).
+ * The count covers the whole account (their own + family members'), like the booking pause.
+ * Wording: Message Templates → "Cancellation limit reached".
  */
 function send_cancellation_warning($pdo, $appt, $reason = '') {
     if (!mail_is_ready($pdo)) return false;
@@ -348,7 +349,10 @@ function send_cancellation_warning($pdo, $appt, $reason = '') {
         $used = 0;
         foreach (family_patient_ids($pdo, $holderId) as $fid) $used += patient_cancel_count($pdo, $fid);
         $limit = CANCEL_LIMIT;
-        $kind  = $used >= $limit ? 'cancel_limit' : 'cancel_warning';
+        // Earlier cancellations only get an on-screen warning; the email goes out
+        // once, when the limit is reached and online booking is paused.
+        if ($used !== $limit) return false;            // already emailed when the limit was first reached
+        $kind  = 'cancel_limit';
         $cat   = message_catalogue()[$kind];
         [$subj, $body] = tpl_message($pdo, $kind, $cat['subject'], $cat['body'], [
             'patient'   => $holder['name'],

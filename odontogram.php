@@ -380,7 +380,8 @@ $active = 'odontogram';
                 <?php endif; ?>
             </div>
 
-            <!-- ===== RIGHT COLUMN (hidden until "Edit Chart" is clicked) ===== -->
+            <!-- ===== RIGHT COLUMN (hidden until "Edit Chart" is clicked) — dentist only ===== -->
+            <?php if ($canEditChart): ?>
             <div class="col-lg-4 no-print" id="odo-right-col" style="display:none;">
                 <div class="card-box">
                     <h5>Select a Tooth</h5>
@@ -479,10 +480,12 @@ $active = 'odontogram';
                 </div>
 
             </div>
+            <?php endif; ?>
         </div>
     </main>
 </div>
 
+<?php if ($canEditChart): /* the admin only views the chart — no tooth editing pop-up */ ?>
 <!-- ============ TOOTH CONDITION MODAL ============ -->
 <!-- Opens automatically (see selectTooth() in js/app.js) whenever a tooth
      on the chart is clicked, pre-filled with its current condition. -->
@@ -511,12 +514,13 @@ $active = 'odontogram';
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" class="btn btn-teal">OK — Save</button>
+            <button type="submit" class="btn btn-teal">OK</button>
         </div>
       </form>
     </div>
   </div>
 </div>
+<?php endif; ?>
 
 <!-- ============ NEW CHART MODAL ============ -->
 <div class="modal fade" id="newSessionModal" tabindex="-1">

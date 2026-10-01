@@ -47,30 +47,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $q->execute([$id]);
         $row = $q->fetch();
 
+        // The patient sees a pop-up warning ("missed X of 3") the next time they open
+        // the portal. Only the 3rd — when online booking is blocked — is also emailed.
+        // Counted over the whole account, the same way booking.php pauses booking.
         $note = '';
-        if ($row && !empty($row['email']) && mail_is_ready($pdo)) {
-            // How many missed visits count against this patient right now?
-            // Same shared rule the booking block uses, so the email and the
-            // block can never disagree.
-            $missed = !empty($row['pid']) ? patient_noshow_count($pdo, $row['pid']) : 0;
+        if ($row && !empty($row['pid'])) {
+            require_once 'includes/patient_notices.php';
+            $holderId = account_holder_id($pdo, $row['pid']);
+            $missed   = account_noshow_total($pdo, $holderId);
+            $whenTxt  = date('F j, Y', strtotime($row['appointment_date'])) . ' at ' . $row['appointment_time'];
+            $isSelf   = ($holderId === (int)$row['pid']);
+            $n = noshow_notice($missed, $isSelf ? 'You' : $row['patient_name'], $whenTxt);
+            add_patient_notice($pdo, $holderId, 'noshow', $n['level'], $n['title'], $n['body']);
+            $note = " They will see a warning ($missed of 3) when they open their portal.";
 
-            $when = date('F j, Y', strtotime($row['appointment_date'])) . ' at ' . $row['appointment_time'];
-
-            $kind = ($missed >= 3) ? 'noshow_final' : 'noshow_notice';
-            $cat  = message_catalogue()[$kind];
-            [$subject, $bodyHtml] = tpl_message($pdo, $kind, $cat['subject'], $cat['body'], [
-                'patient'   => $row['patient_name'],
-                'date'      => date('l, F j, Y', strtotime($row['appointment_date'])),
-                'time'      => $row['appointment_time'],
-                'treatment' => $row['treatment'],
-                'missed'    => $missed,
-                'clinic'    => clinic_name($pdo),
-            ]);
-
-            $err = '';
-            $note = send_mail($pdo, $row['email'], $subject, $bodyHtml, $err, 'noshow_notice')
-                  ? ' A notice was emailed to them.'
-                  : " (The email could not be sent — $err)";
+            if ($missed === 3 && !empty($row['email']) && mail_is_ready($pdo)) {
+                $cat = message_catalogue()['noshow_final'];
+                [$subject, $bodyHtml] = tpl_message($pdo, 'noshow_final', $cat['subject'], $cat['body'], [
+                    'patient'   => $row['patient_name'],
+                    'date'      => date('l, F j, Y', strtotime($row['appointment_date'])),
+                    'time'      => $row['appointment_time'],
+                    'treatment' => $row['treatment'],
+                    'missed'    => $missed,
+                    'clinic'    => clinic_name($pdo),
+                ]);
+                $err = '';
+                $note .= send_mail($pdo, $row['email'], $subject, $bodyHtml, $err, 'noshow_final')
+                       ? ' Online booking is now blocked and they were emailed.'
+                       : " Online booking is now blocked (the email could not be sent — $err).";
+            }
         }
         log_activity($pdo, 'Confirmed no-show', ($row['patient_name'] ?? ('Appointment #' . $id)));
         set_flash(($row['patient_name'] ?? 'Appointment') . ' marked as a no-show.' . $note);
@@ -499,7 +504,7 @@ function tabLink($key, $label, $count, $current) {
                                         <?php if ($r['status'] === 'Needs Review'): ?>
                                             <div class="d-flex gap-1 flex-wrap">
                                                 <form method="POST" class="m-0"
-                                                      onsubmit="return confirm('Confirm that <?= e($r['patient_name']) ?> did NOT attend? They will be emailed a notice.')">
+                                                      onsubmit="return confirm('Confirm that <?= e($r['patient_name']) ?> did NOT attend? They will see a warning in their portal (on the 3rd miss, online booking is blocked and they are emailed).')">
                                                     <input type="hidden" name="action" value="confirm_noshow">
                                                     <input type="hidden" name="id" value="<?= $r['id'] ?>">
                                                     <button class="btn btn-sm btn-light" style="color:#c0392b;white-space:nowrap;">Confirm no-show</button>

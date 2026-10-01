@@ -48,7 +48,10 @@ if ($state === 'ask' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE appointments SET status='Cancelled', cancelled_at=NOW(), cancelled_by='patient', cancel_reason=?
                         WHERE id = ? AND status IN ('Pending','Confirmed')")->execute([$reason, $id]);
         try { notify_clinic_of_cancellation($pdo, $appt, $appt['account_name'] ?: $appt['patient_name'], $reason); } catch (Throwable $e) {}
-        send_cancellation_warning($pdo, $appt, $reason);   // "you have used N of 3 cancellations" email
+        send_cancellation_warning($pdo, $appt, $reason);   // emails only when the limit is reached
+        // Same "cancellation X of 3" warning the portal shows, on this page.
+        require_once 'includes/patient_notices.php';
+        $cancelNotice = cancel_notice(account_cancel_total($pdo, account_holder_id($pdo, $appt['patient_id'])));
         log_activity($pdo, 'Cancelled appointment', $appt['patient_name'] . ' — '
                      . date('M j, Y', strtotime($appt['appointment_date'])) . ' ' . $appt['appointment_time'] . ' (reminder email) — ' . $reason);
         $state = 'cancelled';
@@ -100,6 +103,15 @@ $when = $appt ? date('l, F j, Y', strtotime($appt['appointment_date'])) . ' at '
     <?php elseif ($state === 'cancelled'): ?>
         <div style="font-size:2rem;">🗓️</div>
         <p>The appointment on <b><?= e($when) ?></b> has been <b>cancelled</b>, and the clinic has been told.</p>
+        <?php if (!empty($cancelNotice)): $cc = ['info' => '#0f766e', 'warning' => '#c79a5c', 'danger' => '#c0392b'][$cancelNotice['level']]; ?>
+        <div style="text-align:left;border-left:5px solid <?= $cc ?>;background:#f7fafa;border-radius:10px;padding:12px 14px;margin:12px 0;">
+            <div style="font-weight:700;color:<?= $cc ?>;margin-bottom:4px;"><?= e($cancelNotice['title']) ?></div>
+            <div style="font-size:.9rem;color:#3f5350;"><?= nl2br(e(preg_replace('/^Your appointment was cancelled[^
+]*
+
+/', '', $cancelNotice['body']))) ?></div>
+        </div>
+        <?php endif; ?>
         <p class="text-muted2">Thank you for letting us know. You can book a new time from your patient portal.</p>
     <?php endif; ?>
   </div>

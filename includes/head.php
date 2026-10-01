@@ -516,6 +516,47 @@ if ($__flash):
 <?php endif; ?>
 
 <?php
+// ---- Patient warning pop-up (cancellation / missed-visit count, booking blocked) ----
+// Each notice shows once. See includes/patient_notices.php.
+$__notices = [];
+if (isset($pdo) && function_exists('current_role') && current_role() === 'patient' && !empty($_SESSION['user_id'])) {
+    require_once __DIR__ . '/patient_notices.php';
+    $__notices = take_patient_notices($pdo, $_SESSION['user_id']);
+}
+if ($__notices):
+    $__lvl = ['info' => '#0f766e', 'warning' => '#c79a5c', 'danger' => '#c0392b'];
+?>
+<div id="pn-backdrop" role="dialog" aria-modal="true" aria-labelledby="pn-title-0">
+  <div id="pn-box">
+    <?php foreach ($__notices as $__i => $__n): $__c = $__lvl[$__n['level']] ?? $__lvl['warning']; ?>
+      <div class="pn-item" style="border-left-color:<?= $__c ?>;">
+        <div class="pn-title" id="pn-title-<?= $__i ?>" style="color:<?= $__c ?>;"><?= e($__n['title']) ?></div>
+        <div class="pn-body"><?= nl2br(e($__n['body'])) ?></div>
+      </div>
+    <?php endforeach; ?>
+    <button type="button" id="pn-ok" class="btn btn-teal w-100"
+            onclick="document.getElementById('pn-backdrop').remove();document.body.style.overflow='';">I understand</button>
+  </div>
+</div>
+<style>
+#pn-backdrop { position: fixed; inset: 0; z-index: 100000; background: rgba(15,30,30,.55);
+               display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+#pn-box { background: #fff; border-radius: 16px; width: 100%; max-width: 480px; max-height: calc(100vh - 32px);
+          overflow-y: auto; padding: 22px 22px 18px; box-shadow: 0 18px 50px rgba(0,0,0,.3); box-sizing: border-box; }
+.pn-item { border-left: 5px solid; padding: 4px 0 4px 14px; margin-bottom: 16px; }
+.pn-title { font-weight: 700; font-size: 1.08rem; margin-bottom: 6px; }
+.pn-body { color: #3f5350; font-size: .93rem; line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+    #pn-backdrop { padding: 10px; align-items: flex-end; }
+    #pn-box { padding: 18px 16px 14px; border-radius: 14px; max-height: calc(100vh - 20px); }
+    .pn-title { font-size: 1rem; }
+    .pn-body { font-size: .9rem; }
+}
+</style>
+<script>document.body.style.overflow = 'hidden';</script>
+<?php endif; ?>
+
+<?php
 // ---- Catch up on no-show detection ----
 // Runs the first time the system is opened each day. A nightly scheduled
 // task would never fire here, because the clinic's computer is switched

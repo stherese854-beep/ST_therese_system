@@ -332,18 +332,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 log_activity($pdo, 'Cancelled appointment', date('M j, Y', strtotime($appt['appointment_date'])) . ' ' . $appt['appointment_time'] . ($reason !== '' ? ' — ' . $reason : ''));
 
-                // Warn the patient how many cancellations they have left (on screen + by email).
-                if (!function_exists('patient_cancel_count')) require_once 'includes/noshow_check.php';
-                $usedCancels = 0;
-                foreach (family_patient_ids($pdo, $pid) as $fid) $usedCancels += patient_cancel_count($pdo, $fid);
+                // Pop-up with how many of the allowed cancellations are used. Only the
+                // last one (online booking blocked) is also emailed.
+                require_once 'includes/patient_notices.php';
+                $usedCancels = account_cancel_total($pdo, $pid);
+                $n = cancel_notice($usedCancels);
+                add_patient_notice($pdo, $pid, 'cancel', $n['level'], $n['title'], $n['body']);
                 send_cancellation_warning($pdo, $appt, $reason);
-                $leftCancels = max(0, CANCEL_LIMIT - $usedCancels);
-                set_flash($leftCancels > 0
-                    ? "Your appointment was cancelled and the clinic has been notified. You have used $usedCancels of "
-                      . CANCEL_LIMIT . " cancellations — $leftCancels left before online booking is paused."
-                    : 'Your appointment was cancelled and the clinic has been notified. You have reached the limit of '
-                      . CANCEL_LIMIT . ' cancellations, so online booking is now paused until the clinic reviews your account.',
-                    $leftCancels > 0 ? 'success' : 'warning');
             }
         }
         header("Location: portal?view=appointments"); exit;
@@ -1416,9 +1411,15 @@ include 'includes/head.php';
           <div class="text-muted2" style="font-size:.82rem;" id="mc-treat"></div>
         </div>
 
-        <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.82rem;">
-          If you only need a different time, <strong>Reschedule</strong> keeps your place instead
-          of cancelling. Cancelling means you would have to book again.
+<?php
+        // How many cancellations this account has used so far — warn before cancelling.
+        require_once 'includes/patient_notices.php';
+        $mcPre = cancel_prewarning(account_cancel_total($pdo, $pid));
+        $mcCol = ['info' => ['#eef7f6','#0f766e'], 'warning' => ['#fff6e0','#8a6d2f'], 'danger' => ['#fdecea','#c0392b']][$mcPre['level']];
+        ?>
+        <div class="alert" style="background:<?= $mcCol[0] ?>;border:1px solid <?= $mcCol[1] ?>;color:<?= $mcCol[1] ?>;font-size:.84rem;">
+          <div style="font-weight:700;margin-bottom:3px;"><?= e($mcPre['title']) ?></div>
+          <?= e($mcPre['body']) ?>
         </div>
 
         <label class="field-label">Why are you cancelling?</label>
