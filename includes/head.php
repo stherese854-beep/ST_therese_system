@@ -216,10 +216,34 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
                 }
             });
         }
+        // A table with NO rows shows one row of "–" under every column (instead of an
+        // icon + message). The message is kept as the row's tooltip for screen readers.
+        function emptyTables(root) {
+            if (!root || !root.querySelectorAll) return;
+            var tables = root.tagName === 'TABLE' ? [root] : root.querySelectorAll('table');
+            Array.prototype.forEach.call(tables, function (tb) {
+                if (tb.closest('#calendar, [data-no-na]')) return;
+                var body = tb.tBodies[0];
+                if (!body || body.rows.length !== 1) return;
+                var tr = body.rows[0];
+                if (tr.dataset.emptyRow || tr.cells.length !== 1 || tr.cells[0].colSpan < 2) return;
+                var head = tb.tHead && tb.tHead.rows[0];
+                var n = head ? Array.prototype.reduce.call(head.cells, function (a, c) { return a + (c.colSpan || 1); }, 0) : tr.cells[0].colSpan;
+                var msg = tr.textContent.replace(/\s+/g, ' ').trim();
+                tr.dataset.emptyRow = '1';
+                tr.title = msg;
+                tr.setAttribute('aria-label', msg || 'No data');
+                tr.innerHTML = new Array(Math.max(n, 1) + 1).join('<td data-na="1"><span class="na">–</span></td>');
+            });
+        }
         function start() {
-            fill(document);
+            fill(document); emptyTables(document);
             new MutationObserver(function (list) {
-                list.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) fill(n.tagName === 'TD' ? n.parentNode : n); }); });
+                list.forEach(function (m) { m.addedNodes.forEach(function (n) {
+                    if (n.nodeType !== 1) return;
+                    fill(n.tagName === 'TD' ? n.parentNode : n);
+                    emptyTables(n.closest ? (n.closest('table') || n) : n);
+                }); });
             }).observe(document.body, { childList: true, subtree: true });
         }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
