@@ -642,16 +642,6 @@ $active = 'appointments';
                         <th>Treatment</th><th>Status</th><?php if ($showActions): ?><th>Actions</th><?php endif; ?>
                     </tr></thead>
                     <tbody>
-                    <?php if (empty($appts)): ?>
-                        <tr><td colspan="<?= ($isDentist ? 5 : 6) + ($showActions ? 1 : 0) ?>" style="text-align:center;padding:40px 12px;color:#8aa0a0;">
-                            <div style="font-size:2.4rem;margin-bottom:8px;">📅</div>
-                            <?php if ($search !== '' || $filter !== 'All'): ?>
-                                No appointments match. <a href="appointments" style="color:var(--teal);">Clear filters</a>
-                            <?php else: ?>
-                                No appointments yet.
-                            <?php endif; ?>
-                        </td></tr>
-                    <?php endif; ?>
                     <?php foreach ($appts as $a): ?>
                         <tr>
                             <td><strong><?= e($a['patient_name']) ?></strong><?= current_role() !== 'staff' ? patient_alert_banner($a, true) : '' ?></td>
