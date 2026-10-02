@@ -643,20 +643,28 @@ function complete_arrived_visit($pdo, $patientId, $date = null) {
 //     booking attempts (rate_limited() / rate_hit()).
 // ============================================================
 function same_person_active_booking($pdo, $name, $dob, $excludePatientIds = []) {
+    // Same real person = same full name (case / extra spaces ignored) AND same birthday.
+    // A record with NO birthday on file (older accounts and booked-for people) also counts
+    // when the name matches, so it cannot slip past just because its birthday is missing.
+    // Names are compared here in PHP, so this works even where the indexed name_key
+    // column could not be created.
     $key = person_name_key($name);
-    if ($key === '' || !$dob) return null;              // no birth date on file: cannot tell people apart
-    $sql = "SELECT a.id, a.appointment_date, a.appointment_time, a.patient_id
+    if ($key === '' || !$dob) return null;              // no birth date given: cannot tell people apart
+    $ex  = array_values(array_filter(array_map('intval', (array)$excludePatientIds)));
+    $sql = "SELECT a.id, a.appointment_date, a.appointment_time, a.patient_id, p.name, p.date_of_birth
               FROM patients p JOIN appointments a ON a.patient_id = p.id
-             WHERE p.name_key = ? AND p.date_of_birth = ?
-               AND a.status IN ('Pending','Confirmed')";
-    $prm = [$key, $dob];
-    $ex = array_values(array_filter(array_map('intval', (array)$excludePatientIds)));
+             WHERE a.status IN ('Pending','Confirmed') AND a.appointment_date >= CURDATE()
+               AND (p.date_of_birth = ? OR p.date_of_birth IS NULL)";
+    $prm = [$dob];
     if ($ex) { $sql .= " AND p.id NOT IN (" . implode(',', array_fill(0, count($ex), '?')) . ")"; $prm = array_merge($prm, $ex); }
     try {
-        $st = $pdo->prepare($sql . " ORDER BY a.appointment_date LIMIT 1");
+        $st = $pdo->prepare($sql . " ORDER BY a.appointment_date");
         $st->execute($prm);
-        return $st->fetch() ?: null;
-    } catch (Throwable $e) { return null; }             // name_key not added yet
+        foreach ($st->fetchAll() as $r) {
+            if (person_name_key($r['name']) === $key) return $r;
+        }
+    } catch (Throwable $e) {}
+    return null;
 }
 
 // The visitor's IP. Behind Railway's proxy the real one is the first
