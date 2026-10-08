@@ -435,6 +435,9 @@ section{scroll-margin-top:88px}
     echo '<style id="text-scale">html{font-size:' . $lpScale . '%}</style>';
 } ?>
 <?php if ($isPreview): ?><style>.reveal{opacity:1!important;transform:none!important}</style><?php endif; ?>
+    <!-- Icons: Bootstrap Icons + js/icons.js, which swaps the pages' emojis for these icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <script src="js/icons.js?v=<?= @filemtime(__DIR__ . '/js/icons.js') ?: time() ?>"></script>
 </head>
 <body>
 <?php include __DIR__ . '/includes/inapp_banner.php';   // "open in your browser" notice inside Messenger/Facebook/etc. ?>

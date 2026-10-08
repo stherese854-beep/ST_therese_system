@@ -21,6 +21,9 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
 
     <!-- Bootstrap 5 CSS (CDN) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Icons: Bootstrap Icons + js/icons.js, which swaps the pages' emojis for these icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <script src="js/icons.js?v=<?= @filemtime(__DIR__ . '/../js/icons.js') ?: time() ?>"></script>
     <!-- Our custom theme (versioned by file time so browsers always fetch
          the latest copy after a deploy, instead of serving a stale cache) -->
     <link href="css/style.css?v=<?= @filemtime(__DIR__ . '/../css/style.css') ?: time() ?>" rel="stylesheet">
@@ -66,35 +69,45 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
     // ---- Action buttons: icon only, with a label on hover ----
     // Small buttons (.btn-sm) and buttons inside table rows show just their
     // icon; the words move into a tooltip that appears when you point at the
-    // button (and into aria-label for screen readers). "📅 Book" -> 📅 +
-    // tooltip "Book"; a plain "View" or "Edit" gets a matching icon. Buttons
+    // button (and into aria-label for screen readers). "📅 Book" -> the
+    // calendar icon + tooltip "Book"; a plain "View" or "Edit" gets a matching icon. Buttons
     // whose text a script changes (they have an id), buttons in pop-ups and
     // anything marked data-keep-text are left as they are.
     (function () {
-        var ICONS = { 'view': '👁', 'edit': '✏️', 'book': '📅', 'delete': '🗑', 'remove': '🗑', 'restore': '↩',
-                      'undo': '↩', 'approve': '✓', 'publish': '✓', 'hide': '🚫', 'email': '📧', 'sms': '📱',
-                      'message': '✉️', 'print': '🖨', 'export': '⬇', 'upload': '⬆', 'filter': '🔍', 'search': '🔍',
-                      'clear': '✕', 'arrived': '✓', 'did attend': '✓', 'confirm no-show': '✗', 'see all': '👁', 'pause': '⏸' };
+        var ICONS = { 'view': 'eye', 'edit': 'pencil', 'book': 'calendar-event', 'delete': 'trash3', 'remove': 'trash3',
+                      'restore': 'arrow-counterclockwise', 'undo': 'arrow-counterclockwise', 'approve': 'check-lg',
+                      'publish': 'check-lg', 'hide': 'slash-circle', 'email': 'envelope-at', 'sms': 'phone',
+                      'message': 'envelope', 'print': 'printer', 'export': 'download', 'upload': 'upload',
+                      'filter': 'search', 'search': 'search', 'clear': 'x-lg', 'arrived': 'check-lg',
+                      'did attend': 'check-lg', 'confirm no-show': 'x-lg', 'see all': 'eye', 'pause': 'pause-fill' };
+        var NAMES = { 'trash3': 'Delete', 'check-lg': 'Approve', 'x-lg': 'Close', 'pencil': 'Edit',
+                      'arrow-counterclockwise': 'Restore', 'upload': 'Upload' };
         function iconize(b) {
             if (b.dataset.iconized || b.id || b.hasAttribute('data-keep-text') || b.dataset.tip) return;   // already an icon with its own label
             if (b.closest('.modal, .bulk-bar, [data-keep-text], #topbarWidgets, .wizard-step')) return;
             if (b.querySelector('img, svg, input, select')) return;
             var txt = b.textContent.replace(/\s+/g, ' ').trim();
-            if (!txt) return;
+            var lead = b.firstElementChild && b.firstElementChild.matches('i.bi')
+                       && !(b.firstChild.nodeType === 3 && b.firstChild.nodeValue.trim()) ? b.firstElementChild : null;
             var icon = '', label = '';
-            var m = txt.match(/^([^\p{L}\p{N}\s]+)\s*(.*)$/u);            // leading icon, e.g. "📅 Book"
-            if (m) { icon = m[1]; label = m[2] || b.getAttribute('title') || b.getAttribute('aria-label') || ''; }
-            else {
+            if (lead) {                                                  // "<i class=bi-calendar-event> Book"
+                icon = lead.outerHTML;
+                label = txt || b.getAttribute('title') || b.getAttribute('aria-label')
+                        || NAMES[(lead.className.match(/bi-([\w-]+)/) || [])[1]] || '';
+            } else {
+                if (!txt) return;
                 var key = txt.toLowerCase().replace(/[→▲▼]/g, '').trim();
-                icon = ICONS[key] || ICONS[key.split(' ')[0]] || '';
+                var name = ICONS[key] || ICONS[key.split(' ')[0]] || '';
+                var m = txt.match(/^([^\p{L}\p{N}\s]+)\s*(.*)$/u);       // a leading symbol, e.g. "↩ Undo"
+                if (name) icon = '<i class="bi bi-' + name + '" aria-hidden="true"></i>';
+                else if (m) { icon = m[1]; txt = m[2]; }
                 label = txt;
             }
             if (!icon) return;
-            label = label.replace(/\s*[→▲▼]+\s*$/, '').trim()
-                 || ({ '🗑': 'Delete', '🗑️': 'Delete', '✓': 'Approve', '✕': 'Close', '✏️': 'Edit', '↩': 'Restore', '⬆': 'Upload' })[icon] || '';
+            label = label.replace(/\s*[→▲▼]+\s*$/, '').trim();
             b.dataset.iconized = '1';
             if (label) { b.setAttribute('aria-label', label); b.dataset.tip = label; b.removeAttribute('title'); }
-            b.textContent = icon;
+            b.innerHTML = icon;
             b.classList.add('icon-btn');
             markActions(b);
         }
