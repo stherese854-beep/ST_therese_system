@@ -36,45 +36,45 @@ function nav_active($page) {
     </div>
 
     <div class="nav-label">Main</div>
-    <a class="nav-item <?= nav_active('dashboard') ?>" href="dashboard">📊 Dashboard</a>
+    <a class="nav-item <?= nav_active('dashboard') ?>" href="dashboard">Dashboard</a>
 
     <?php if ($role === 'admin'): ?>
         <!-- Admin: full clinic management -->
-        <a class="nav-item <?= nav_active('dentists') ?>"     href="admin_dentists">🩺 Dentists</a>
-        <a class="nav-item <?= nav_active('patients') ?>"     href="patients">👥 Patients</a>
-        <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">📅 Appointments</a>
-        <a class="nav-item <?= nav_active('odontogram') ?>"   href="odontogram">🦷 Odontogram</a>
-        <a class="nav-item <?= nav_active('records') ?>"      href="records">📋 Records</a>
-        <a class="nav-item <?= nav_active('schedule') ?>"     href="schedule">🗓 Dentist Schedules</a>
-        <a class="nav-item <?= nav_active('clinic_contact') ?>" href="clinic_contact">📞 Clinic Contact</a>
+        <a class="nav-item <?= nav_active('dentists') ?>"     href="admin_dentists">Dentists</a>
+        <a class="nav-item <?= nav_active('patients') ?>"     href="patients">Patients</a>
+        <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">Appointments</a>
+        <a class="nav-item <?= nav_active('odontogram') ?>"   href="odontogram">Odontogram</a>
+        <a class="nav-item <?= nav_active('records') ?>"      href="records">Records</a>
+        <a class="nav-item <?= nav_active('schedule') ?>"     href="schedule">Dentist Schedules</a>
+        <a class="nav-item <?= nav_active('clinic_contact') ?>" href="clinic_contact">Clinic Contact</a>
 
     <?php elseif ($role === 'staff'): ?>
         <!-- Staff: front desk — scheduling and patient contact only, no clinical access -->
-        <a class="nav-item <?= nav_active('patients') ?>"     href="patients">👥 Patients</a>
-        <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">📅 Appointments</a>
+        <a class="nav-item <?= nav_active('patients') ?>"     href="patients">Patients</a>
+        <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">Appointments</a>
 
     <?php elseif ($role === 'dentist'): ?>
         <!-- Dentist: own assigned patients only -->
-        <a class="nav-item <?= nav_active('patients') ?>"     href="patients">👥 My Patients</a>
-        <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">📅 Schedule</a>
-        <a class="nav-item <?= nav_active('schedule') ?>"     href="schedule">🗓 My Availability</a>
+        <a class="nav-item <?= nav_active('patients') ?>"     href="patients">My Patients</a>
+        <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">Schedule</a>
+        <a class="nav-item <?= nav_active('schedule') ?>"     href="schedule">My Availability</a>
 
         <!-- The clinical work, grouped under its own heading -->
         <div class="nav-label">Treatment</div>
-        <a class="nav-item <?= nav_active('odontogram') ?>"   href="odontogram">🦷 Odontogram</a>
-        <a class="nav-item <?= nav_active('records') ?>"      href="records">📋 Treatment Records</a>
+        <a class="nav-item <?= nav_active('odontogram') ?>"   href="odontogram">Odontogram</a>
+        <a class="nav-item <?= nav_active('records') ?>"      href="records">Treatment Records</a>
     <?php endif; ?>
 
     <div class="nav-label">Reports</div>
-    <a class="nav-item <?= nav_active('reports') ?>"  href="reports">📑 Generate Reports</a>
-    <a class="nav-item <?= nav_active('noshow') ?>"   href="noshow">📝 No-Show Report</a>
+    <a class="nav-item <?= nav_active('reports') ?>"  href="reports">Generate Reports</a>
+    <a class="nav-item <?= nav_active('noshow') ?>"   href="noshow">No-Show Report</a>
     <?php if ($role === 'admin'): ?>
-        <a class="nav-item <?= nav_active('analytics') ?>" href="analytics">📈 Analytics</a>
+        <a class="nav-item <?= nav_active('analytics') ?>" href="analytics">Analytics</a>
     <?php endif; ?>
 
     <?php if ($role === 'admin'): ?>
         <div class="nav-label">System</div>
-        <a class="nav-item <?= nav_active('settings') ?>" href="settings">⚙️ System</a>
+        <a class="nav-item <?= nav_active('settings') ?>" href="settings">System</a>
     <?php endif; ?>
     <!-- Dentists and staff open their settings from the profile menu (top right). -->
 
