@@ -641,12 +641,12 @@ include 'includes/head.php';
     <!-- Patient sidebar -->
     <aside class="sidebar">
         <div class="brand"><div class="logo">🦷</div><div>Patient Portal</div></div>
-        <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">📅 Appointments</a>
+        <a class="nav-item <?= $view==='appointments'?'active':'' ?>" href="portal?view=appointments">Appointments</a>
         <?php if (patient_chart_visible($pdo)): ?>
-        <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">🦷 My Dental Chart</a>
+        <a class="nav-item <?= $view==='chart'?'active':'' ?>" href="portal?view=chart">My Dental Chart</a>
         <?php endif; ?>
-        <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">📋 My Records</a>
-        <a class="nav-item <?= $view==='family'?'active':'' ?>" href="portal?view=family">👥 People I Book For
+        <a class="nav-item <?= $view==='records'?'active':'' ?>" href="portal?view=records">My Records</a>
+        <a class="nav-item <?= $view==='family'?'active':'' ?>" href="portal?view=family">People I Book For
             <?php if ($family): ?><span id="book-for-badge" class="badge-pill b-confirmed" style="font-size:.65rem;display:none;"
                   data-count="<?= count($family) ?>" data-key="bookForSeen_<?= (int)$_SESSION['user_id'] ?>" title="New person added"><?= count($family) ?></span><?php endif; ?></a>
         <script>
@@ -661,7 +661,7 @@ include 'includes/head.php';
         })();
         </script>
         <a class="nav-item <?= $view==='news'?'active':'' ?>" href="portal?view=news">
-            📣 Announcements <?php if ($news): ?><span id="ann-badge" class="badge-pill b-pending" style="font-size:.65rem;display:none;"
+            Announcements <?php if ($news): ?><span id="ann-badge" class="badge-pill b-pending" style="font-size:.65rem;display:none;"
                   data-ids="<?= e(json_encode(array_map(fn($n) => (int)$n['id'], $news))) ?>" data-key="annSeen_<?= (int)$_SESSION['user_id'] ?>" title="New announcements"></span><?php endif; ?>
         </a>
         <script>
