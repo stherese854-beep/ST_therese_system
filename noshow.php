@@ -269,15 +269,16 @@ foreach ($cqs->fetchAll() as $cp) {
 }
 
 // helper for the filter tab links
-function tabLink($key, $label, $count, $current) {
-    $cls = ($current === $key) ? 'btn-dark-navy' : 'btn-light';
+function tabLink($key, $label, $count, $current, $tip = '') {
+    $cls = ($current === $key) ? 'on' : '';
     // Carry the current filters across so switching tabs does not reset them.
     global $periodQS;
     $keep = '&' . $periodQS;
     foreach (['dentist','status','q'] as $p) {
         if (!empty($_GET[$p])) $keep .= '&' . $p . '=' . urlencode($_GET[$p]);
     }
-    echo "<a href='noshow?tab=$key$keep' class='btn btn-sm $cls' data-keep-text>$label <span class='badge bg-light text-dark'>$count</span></a> ";
+    $title = $tip !== '' ? " title='" . e($tip) . "'" : '';
+    echo "<a href='noshow?tab=$key$keep' class='$cls'$title data-keep-text>$label <span class='ns-count'>$count</span></a>";
 }
 ?>
 <div class="app-wrap">
@@ -421,20 +422,32 @@ function tabLink($key, $label, $count, $current) {
         }
         </style>
 
+        <!-- One row of tabs (scrolls sideways on a narrow screen instead of wrapping) -->
+        <nav class="ns-tabs mb-2 no-print" aria-label="No-show lists">
+            <?php
+                tabLink('review',    'Needs Review',     $countReview,           $tab, 'Missed appointments staff still have to check');
+                tabLink('all',       'All Missed',       count($missed),         $tab);
+                tabLink('noshow',    'No-Shows',         $countNoshow,           $tab);
+                tabLink('cancelled', 'Cancelled',        $countCancelled,        $tab);
+                tabLink('repeat',    'Repeat Offenders', count($repeatIds),      $tab, 'Patients who missed more than once');
+                tabLink('expired',   'Expired',          $countExpired,          $tab, 'Booked but never confirmed before the date passed');
+                tabLink('cancels',   'Frequent Cancels', count($cancelReview),   $tab, 'Patients who cancel often');
+            ?>
+        </nav>
+        <style>
+        .ns-tabs { display: flex; gap: 2px; overflow-x: auto; background: var(--card, #fff); border-radius: 12px; padding: 4px;
+                   box-shadow: 0 1px 3px rgba(0,0,0,.06); scrollbar-width: thin; }
+        .ns-tabs a { flex: 0 0 auto; white-space: nowrap; padding: 6px 12px; border-radius: 9px; font-size: .86rem; font-weight: 600;
+                     color: #52606b; text-decoration: none; }
+        .ns-tabs a:hover { background: #eef7f6; color: var(--teal-mid); }
+        .ns-tabs a.on { background: #143a4a; color: #fff; }
+        .ns-count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px; font-size: .72rem;
+                    line-height: 18px; text-align: center; background: #eef2f4; color: #3f5350; }
+        .ns-tabs a.on .ns-count { background: rgba(255,255,255,.22); color: #fff; }
+        </style>
         <div class="row g-3">
             <!-- ===== Table + tabs ===== -->
             <div class="col-lg-9" id="ns-left">
-                <div class="mb-2">
-                    <?php
-                        tabLink('review',    'Needs Review',    $countReview,           $tab);
-                        tabLink('all',       'All Missed',      count($missed),         $tab);
-                        tabLink('noshow',    'No-Shows',        $countNoshow,           $tab);
-                        tabLink('cancelled', 'Cancelled',       $countCancelled,        $tab);
-                        tabLink('repeat',    'Repeat Offenders', count($repeatIds),     $tab);
-                        tabLink('expired',   'Expired (never confirmed)', $countExpired, $tab);
-                        tabLink('cancels',   'Frequent Cancellations', count($cancelReview), $tab);
-                    ?>
-                </div>
                 <?php if ($tab === 'cancels'): ?>
                 <!-- ===== Frequent cancellations: one row per patient ===== -->
                 <div class="card-box">
