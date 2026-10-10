@@ -143,6 +143,10 @@ if ($user && $user['status'] !== 'active') {
 
 if ($user) {
     // Existing account -> just log in. Google has already verified the email.
+    if ($user['role'] === 'patient') {                   // someone tried their password since last time?
+        require_once 'includes/account_history.php';
+        warn_failed_signins($pdo, $user);
+    }
     $pdo->prepare("UPDATE users SET google_id=?, email_verified=1, last_login=NOW() WHERE id=?")
         ->execute([$gId, $user['id']]);
     session_regenerate_id(true);   // fresh session ID on sign-in

@@ -143,6 +143,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
                 $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")
                     ->execute([$user['id']]);
                 log_activity($pdo, 'Logged in', ucfirst($user['role']));
+                if ($user['role'] === 'patient') {               // someone tried their password since last time?
+                    require_once 'includes/account_history.php';
+                    warn_failed_signins($pdo, $user);
+                }
 
                 // A one-time pop-up greeting, shown once right after logging in
                 // (the patient portal and the staff/dentist/admin dashboard each

@@ -199,7 +199,7 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
         </div>
         <a href="<?= $tbProfileLink ?>" class="pw-item">⚙️ Profile &amp; Settings</a>
         <?php if ($tbRole !== 'admin'): ?>
-            <a href="<?= $tbRole === 'patient' ? 'portal?view=activity' : 'my_activity' ?>" class="pw-item">🧾 My Activity</a>
+            <a href="<?= $tbRole === 'patient' ? 'portal?view=activity' : 'my_activity' ?>" class="pw-item">🧾 <?= $tbRole === 'patient' ? 'Account History' : 'My Activity' ?></a>
             <?php if ($tbRole === 'patient'): ?>
                 <a href="portal?view=contact" class="pw-item">📞 Clinic Contact</a>
                 <a href="portal?view=archive" class="pw-item" style="padding-left:34px;font-size:.9em;">🗄 My Archive</a>

@@ -438,10 +438,17 @@ $view = $_GET['view'] ?? 'appointments';
 // They then get the plain-words Dental Summary in My Records instead.
 if ($view === 'chart' && !patient_chart_visible($pdo)) $view = 'records';
 
-// My Activity: only this patient's own entries.
-$actQ    = trim($_GET['q'] ?? '');
-$actDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'] ?? '') ? $_GET['date'] : '';
-$myActivity = ($view === 'activity') ? my_activity_rows($pdo, $actQ, $actDate, 100) : [];
+// Account History: this account's appointments (what they AND the clinic did),
+// treatments, own account actions and failed sign-ins. includes/account_history.php
+$ahTab = in_array($_GET['tab'] ?? '', ['appts', 'account'], true) ? $_GET['tab'] : '';
+$ahN   = max(40, min(2000, (int)($_GET['n'] ?? 40)));
+$ahEvents = []; $ahLastSignIn = null; $ahCounts = ['' => 0, 'appts' => 0, 'account' => 0];
+if ($view === 'activity') {
+    require_once 'includes/account_history.php';
+    [$ahAll, $ahLastSignIn] = account_history($pdo, (int)($_SESSION['user_id'] ?? 0), (int)$pid);
+    foreach ($ahAll as $ev) { $ahCounts['']++; $ahCounts[$ev['group']]++; }
+    $ahEvents = $ahTab === '' ? $ahAll : array_values(array_filter($ahAll, fn($ev) => $ev['group'] === $ahTab));
+}
 
 // The patient's profile picture and their existing review (if any).
 $avStmt = $pdo->prepare("SELECT photo FROM users WHERE id=?");
@@ -1373,31 +1380,69 @@ include 'includes/head.php';
             </div>
 
         <?php elseif ($view === 'activity'): ?>
-            <!-- ===== MY ACTIVITY (only this patient's own actions) ===== -->
+            <!-- ===== ACCOUNT HISTORY: appointments (yours and the clinic's actions), treatments, account & security ===== -->
+            <?php
+                $ahShown  = array_slice($ahEvents, 0, $ahN);
+                $ahFailed = count(array_filter($ahAll, fn($ev) => $ev['level'] === 'danger' && $ev['group'] === 'account'));
+            ?>
             <div class="card-box">
-                <div class="flex-between mb-3 flex-wrap gap-2">
-                    <h5 class="mb-0">🧾 My Activity
-                        <small class="text-muted2 d-block" style="font-size:.75rem;">Things you have done in your account (most recent 100)</small>
+                <div class="flex-between mb-2 flex-wrap gap-2">
+                    <h5 class="mb-0">🧾 Account History
+                        <small class="text-muted2 d-block" style="font-size:.78rem;">Your appointments, treatments and account activity — including what the clinic did.</small>
                     </h5>
-                    <form method="GET" class="d-flex gap-2 flex-wrap">
-                        <input type="hidden" name="view" value="activity">
-                        <input type="date" name="date" class="form-control form-control-sm" style="width:auto;" value="<?= e($actDate) ?>" onchange="this.form.submit()">
-                        <input type="text" name="q" class="form-control form-control-sm" style="width:180px;" placeholder="Search..." value="<?= e($actQ) ?>">
-                        <button class="btn btn-sm btn-teal" type="submit">Filter</button>
-                        <?php if ($actQ !== '' || $actDate !== ''): ?><a href="portal?view=activity" class="btn btn-sm btn-outline-secondary">Clear</a><?php endif; ?>
-                    </form>
+                    <div class="text-muted2" style="font-size:.8rem;text-align:right;">
+                        <?= $ahLastSignIn ? 'Signed in before this: <b>' . date('M j, Y g:i A', strtotime($ahLastSignIn)) . '</b>' : '' ?>
+                    </div>
                 </div>
-                <?php foreach ($myActivity as $log): ?>
-                    <div class="flex-between py-2 border-bottom gap-2">
-                        <div>
-                            <span class="badge-pill <?= activity_badge($log['action']) ?>"><?= e($log['action']) ?></span>
-                            <div style="font-size:.88rem;color:#55606a;margin-top:3px;"><?= e($log['details'] ?: '') ?></div>
-                        </div>
-                        <small class="text-muted2" style="white-space:nowrap;"><?= date('M j, Y g:i A', strtotime($log['created_at'])) ?></small>
+
+                <?php if ($ahFailed): ?>
+                    <div class="ah-alert mb-3">⚠️ <b>Someone tried to sign in to your account with a wrong password</b>
+                        (<?= $ahFailed ?> time<?= $ahFailed === 1 ? '' : 's' ?>). If this wasn't you,
+                        <a href="portal?view=profile#pw-card">change your password</a>.</div>
+                <?php endif; ?>
+
+                <nav class="ah-tabs mb-3" aria-label="Show">
+                    <?php foreach (['' => 'All', 'appts' => 'Appointments', 'account' => 'Account & Security'] as $k => $lbl): ?>
+                        <a href="portal?view=activity<?= $k !== '' ? '&tab=' . $k : '' ?>" class="<?= $ahTab === $k ? 'on' : '' ?>" data-keep-text><?= $lbl ?> <span class="ah-n"><?= $ahCounts[$k] ?></span></a>
+                    <?php endforeach; ?>
+                </nav>
+
+                <?php $ahDay = ''; foreach ($ahShown as $ev):
+                      $day = ah_day_label($ev['time']);
+                      if ($day !== $ahDay): $ahDay = $day; ?>
+                        <div class="ah-day"><?= e($day) ?></div>
+                <?php endif; ?>
+                    <div class="ah-item <?= $ev['level'] ? 'ah-' . $ev['level'] : '' ?>">
+                        <span class="ah-ico"><?= $ev['icon'] ?></span>
+                        <div class="ah-txt"><?= $ev['html'] ?></div>
+                        <small class="ah-time"><?= date('g:i A', strtotime($ev['time'])) === '11:59 PM' ? '' : date('g:i A', strtotime($ev['time'])) ?></small>
                     </div>
                 <?php endforeach; ?>
-                <?php if (!$myActivity): ?><p class="text-muted2 text-center py-4">No activity <?= ($actQ !== '' || $actDate !== '') ? 'matches your filter.' : 'recorded yet.' ?></p><?php endif; ?>
+
+                <?php if (!$ahShown): ?>
+                    <p class="text-muted2 text-center py-4">Nothing here yet.</p>
+                <?php elseif (count($ahEvents) > $ahN): ?>
+                    <div class="text-center mt-3">
+                        <a class="btn btn-light btn-sm" href="portal?view=activity<?= $ahTab !== '' ? '&tab=' . $ahTab : '' ?>&n=<?= $ahN + 40 ?>" data-keep-text>Show more (<?= count($ahEvents) - $ahN ?> older)</a>
+                    </div>
+                <?php endif; ?>
             </div>
+            <style>
+            .ah-alert { background: #fdecea; border: 1px solid #f5c2bd; border-left: 5px solid #c0392b; color: #8e2a1f; border-radius: 10px; padding: 10px 14px; font-size: .9rem; }
+            .ah-tabs { display: flex; gap: 2px; overflow-x: auto; background: #f3f6f7; border-radius: 12px; padding: 4px; }
+            .ah-tabs a { flex: 0 0 auto; white-space: nowrap; padding: 6px 12px; border-radius: 9px; font-size: .86rem; font-weight: 600; color: #52606b; text-decoration: none; }
+            .ah-tabs a.on { background: #143a4a; color: #fff; }
+            .ah-n { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px; font-size: .72rem; line-height: 18px; text-align: center; background: #e3e9ec; color: #3f5350; }
+            .ah-tabs a.on .ah-n { background: rgba(255,255,255,.22); color: #fff; }
+            .ah-day { font-size: .72rem; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #8aa0a0; margin: 14px 0 4px; }
+            .ah-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px; border-radius: 10px; border-bottom: 1px solid #f0f3f4; font-size: .9rem; line-height: 1.45; }
+            .ah-ico { flex: none; width: 22px; text-align: center; color: #52606b; }
+            .ah-txt { flex: 1; min-width: 0; color: #2f3e3c; }
+            .ah-time { flex: none; color: #8aa0a0; white-space: nowrap; }
+            .ah-good .ah-ico { color: #1f8a54; }
+            .ah-warn  { background: #fff8e8; } .ah-warn .ah-ico { color: #b8860b; }
+            .ah-danger { background: #fdf0ee; } .ah-danger .ah-ico { color: #c0392b; }
+            </style>
 
         <?php elseif ($view === 'contact'): ?>
             <!-- ===== CLINIC CONTACT ===== -->
