@@ -92,14 +92,6 @@ include 'includes/head.php';
 
         <?php include 'includes/admin_tabs.php'; ?>
 
-        <div class="alert" style="background:#eef7f6;border:1px solid #cfe0dd;color:#3f5350;font-size:.85rem;">
-            <strong>How this works.</strong> Text in curly braces is replaced with the real value when the
-            message is sent — <code>{patient}</code> becomes the patient's name, <code>{date}</code> becomes
-            the appointment date, and so on. Each box lists the ones it understands.
-            <br>
-            Leave a box <strong>empty</strong> to go back to the original wording. Nothing you delete is lost.
-        </div>
-
         <form method="POST">
             <input type="hidden" name="action" value="save_templates">
 
