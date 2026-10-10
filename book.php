@@ -458,21 +458,27 @@ include 'includes/head.php';
         <a href="portal" class="btn btn-teal px-5">OK</a>
     </div>
     <style>
-    /* Booking done: compact enough that OK shows without scrolling on a phone */
-    .bk-done { padding-top: 18px !important; padding-bottom: 18px !important; }
-    .bk-done-icon { width: 48px; height: 48px; background: #fff6e0; border-radius: 12px; display: flex; align-items: center;
-                    justify-content: center; margin: 0 auto 8px; font-size: 1.4rem; }
-    .bk-done h2 { font-size: 1.3rem; margin-bottom: 4px; }
-    .bk-done > p { font-size: .88rem; margin-bottom: 10px; }
-    .bk-done-alert { font-size: .82rem; padding: 8px 12px; margin-bottom: 10px; }
-    .bk-done-rows { padding: 8px 14px !important; margin-bottom: 10px; font-size: .88rem; }
-    .bk-done-rows .py-1 { padding-top: 2px !important; padding-bottom: 2px !important; }
-    p.bk-done-note { font-size: .78rem; margin-bottom: 10px; }
-    /* The big page header shrinks to one slim line on this screen */
-    .booking-hero.bk-done-hero { padding: 18px 120px 18px 18px !important; text-align: left !important; }
-    .booking-hero.bk-done-hero h1 { font-size: .95rem !important; margin: 0 !important; white-space: nowrap; }
-    .booking-hero.bk-done-hero .eyebrow, .booking-hero.bk-done-hero > .d-inline-flex { display: none !important; }
-    .bk-done-hero + .booking-body { padding-top: 12px !important; }
+    /* Desktop: the usual big header and roomy card */
+    .bk-done-icon { width: 70px; height: 70px; background: #fff6e0; border-radius: 14px; display: flex; align-items: center;
+                    justify-content: center; margin: 0 auto 14px; font-size: 2rem; }
+    .bk-done-alert { font-size: .9rem; }
+    /* Booking done: compact enough that OK shows without scrolling on a phone or tablet */
+    @media (max-width: 767.98px) {
+        .bk-done { padding-top: 18px !important; padding-bottom: 18px !important; }
+        .bk-done-icon { width: 48px; height: 48px; background: #fff6e0; border-radius: 12px; display: flex; align-items: center;
+                        justify-content: center; margin: 0 auto 8px; font-size: 1.4rem; }
+        .bk-done h2 { font-size: 1.3rem; margin-bottom: 4px; }
+        .bk-done > p { font-size: .88rem; margin-bottom: 10px; }
+        .bk-done-alert { font-size: .82rem; padding: 8px 12px; margin-bottom: 10px; }
+        .bk-done-rows { padding: 8px 14px !important; margin-bottom: 10px; font-size: .88rem; }
+        .bk-done-rows .py-1 { padding-top: 2px !important; padding-bottom: 2px !important; }
+        p.bk-done-note { font-size: .78rem; margin-bottom: 10px; }
+        /* The big page header shrinks to one slim line on this screen */
+        .booking-hero.bk-done-hero { padding: 18px 120px 18px 18px !important; text-align: left !important; }
+        .booking-hero.bk-done-hero h1 { font-size: .95rem !important; margin: 0 !important; white-space: nowrap; }
+        .booking-hero.bk-done-hero .eyebrow, .booking-hero.bk-done-hero > .d-inline-flex { display: none !important; }
+        .bk-done-hero + .booking-body { padding-top: 12px !important; }
+    }
     </style>
 
 <?php elseif ($pauseMessage): ?>
