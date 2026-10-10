@@ -35,6 +35,7 @@ $patients = $recStmt->fetchAll();
 
 $pid = (int)($_GET['patient'] ?? ($patients[0]['id'] ?? 0));
 $tab = $_GET['tab'] ?? 'overview';
+if (!in_array($tab, ['overview', 'treatments', 'xrays', 'notes', 'health', 'chart'], true)) $tab = 'overview';
 
 // Only patients in the list above may be opened. Stops a dentist from
 // editing ?patient=ID in the URL to read someone else's patient.
@@ -70,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_activity($pdo, 'Updated health questionnaire', patient_name_of($pdo, $pid));
             set_flash('Health questionnaire updated.');
         }
-        header("Location: records?patient=$pid&tab=overview"); exit;
+        header("Location: records?patient=$pid&tab=health"); exit;
     }
 
     // ----- Overview: 👤 Patient details — the ADMIN only (a dentist sees them read-only) -----
@@ -272,6 +273,7 @@ $treatments = $xrays = $notes = [];
 $patientRow = null;
 $toothMap   = [];
 if ($pid) {
+    sync_visit_info($pdo, $pid);                     // New / Returning + last visit come from real visits
     $pr = $pdo->prepare("SELECT * FROM patients WHERE id=?");
     $pr->execute([$pid]); $patientRow = $pr->fetch();
 
@@ -319,36 +321,40 @@ $active = 'records';
                 </select>
             </form>
             <?php if (empty($patients)): ?><span class="text-muted2">No patients yet.</span><?php endif; ?>
+            <?php if ($pid && $patientRow):
+                  [$nvDate, $nvFrom] = next_visit_info($pdo, $patientRow); ?>
+                <!-- Worked out by the system from real visits and bookings (not edited by hand) -->
+                <div class="pt-facts ms-auto">
+                    <span class="badge-pill <?= ($patientRow['patient_type'] ?? '') === 'Returning' ? 'b-completed' : 'b-pending' ?>"><?= e($patientRow['patient_type'] ?: 'New') ?></span>
+                    <span><span class="text-muted2">Last visit</span> <?= $patientRow['last_visit'] ? date('M j, Y', strtotime($patientRow['last_visit'])) : '–' ?></span>
+                    <span><span class="text-muted2">Next visit</span> <?= $nvDate ? date('M j, Y', strtotime($nvDate)) . ' <small class="text-muted2">· ' . e($nvFrom) . '</small>' : '–' ?></span>
+                </div>
+            <?php endif; ?>
         </div>
 
         <!-- Tabs -->
         <div class="mb-3 d-flex gap-2 flex-wrap" data-keep-text>
             <?php
-            $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 X-rays','notes'=>'📝 Notes'];
+            $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 X-rays','notes'=>'📝 Notes',
+                        'health'=>'🩺 Health form','chart'=>'🗂 Dental chart'];
             foreach ($recTabs as $k=>$label): ?>
                 <a href="records?patient=<?= $pid ?>&tab=<?= $k ?>" class="btn btn-sm <?= $tab===$k?'btn-dark-navy':'btn-light' ?>"><?= $label ?></a>
             <?php endforeach; ?>
         </div>
 
+        <?php if ($pid && $patientRow): ?>
+            <?= clinical_styles() ?>
+            <?= patient_alert_banner($patientRow) ?>
+        <?php endif; ?>
+
         <?php if (!$pid): ?>
             <div class="card-box text-center text-muted2 py-4">Add a patient first, then you can record their treatments here.</div>
 
-        <?php elseif ($tab === 'overview'): ?>
-            <?php sync_visit_info($pdo, $pid);                       // New / Returning + last visit come from real visits
-                  $prq = $pdo->prepare("SELECT * FROM patients WHERE id = ?"); $prq->execute([$pid]); $patientRow = $prq->fetch() ?: $patientRow; ?>
-            <?= clinical_styles() ?>
-            <?= patient_alert_banner($patientRow) ?>
-            <!-- ===== OVERVIEW: editable patient info + dental chart + remarks ===== -->
+        <?php elseif ($tab === 'health'): ?>
+            <!-- ===== HEALTH FORM: the latest health questionnaire ===== -->
             <?php [$hfAns, $hfAt] = patient_health($pdo, $pid); ?>
             <?= health_form_styles() ?>
-            <!-- Overview navbar: show everything, or just the part you need -->
-            <nav class="rv-nav" id="rv-nav" aria-label="Overview sections" data-keep-text>
-                <button type="button" data-rv="all" class="on">📋 All</button>
-                <button type="button" data-rv="health">🩺 Health Questionnaire</button>
-                <button type="button" data-rv="info">👤 Patient Information</button>
-                <button type="button" data-rv="chart">🦷 Dental Chart</button>
-            </nav>
-            <div class="card-box mb-3 rv-sec" data-rv="health">
+            <div class="card-box mb-3">
                 <div class="flex-between mb-2">
                     <h6 class="mb-0">🩺 Health Questionnaire
                         <small class="text-muted2"><?= $hfAt ? '(latest, updated ' . date('M j, Y', strtotime($hfAt)) . ')' : '' ?></small></h6>
@@ -367,77 +373,163 @@ $active = 'records';
                     </div>
                 </form>
             </div>
+
+        <?php elseif ($tab === 'chart'): ?>
+            <!-- ===== DENTAL CHART: view only (edited on the Odontogram page) ===== -->
+            <div class="card-box">
+                <h6 class="mb-1">🦷 Dental Chart (Odontogram) <small class="text-muted2">— view only (edit on the Odontogram page)</small></h6>
+
+                <?php if (count($recSessions) > 1): ?>
+                    <div class="text-muted2 mb-2" style="font-size:.82rem;">
+                        This patient has <strong><?= count($recSessions) ?> visits</strong> on record. Click a visit to view its chart.
+                    </div>
+                <?php endif; ?>
+
+                <!-- Visit tabs (same history the Odontogram page shows) -->
+                <?php if ($recSessions): ?>
+                <div class="sess-tabs mb-2">
+                    <?php $recOldFirst = array_reverse($recSessions); ?>
+                    <?php foreach ($recOldFirst as $i => $s): ?>
+                        <a class="sess-tab <?= (int)$s['id']===$recSid?'on':'' ?>"
+                           href="records?patient=<?= $pid ?>&tab=chart&session=<?= $s['id'] ?>">
+                            <b>Visit <?= $i+1 ?><?= $i === count($recOldFirst)-1 ? ' · latest' : '' ?></b>
+                            <small><?= date('M j, Y', strtotime($s['visit_date'])) ?><?= $s['title'] ? ' · '.e($s['title']) : '' ?></small>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+
+                <div class="text-center" style="font-size:.68rem;color:#777;">Upper</div>
+                <div class="odo-arch" style="margin-bottom:4px;">
+                    <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                </div>
+                <div class="odo-arch">
+                    <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                </div>
+                <div class="text-center" style="font-size:.68rem;color:#777;">Lower</div>
+
+                <?php $toothLegend = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b','Crowned'=>'#a06fd6','Extracted'=>'#999999','Impacted'=>'#d99a00','Fractured'=>'#cc4444']; ?>
+                <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.72rem;margin-top:8px;border-top:1px dashed #ddd;padding-top:6px;">
+                    <?php foreach ($toothLegend as $cond => $color): ?>
+                        <span style="white-space:nowrap;"><span style="display:inline-block;width:11px;height:11px;border-radius:2px;background:<?= $color ?>;border:1px solid rgba(0,0,0,.15);vertical-align:middle;"></span> <?= $cond ?></span>
+                    <?php endforeach; ?>
+                </div>
+                <?php
+                    $conds = [];
+                    foreach (array_merge($UPPER_TEETH, $LOWER_TEETH) as $t) {
+                        $s = $toothMap[$t] ?? 'Healthy';
+                        if ($s !== 'Healthy') $conds[] = "Tooth $t: $s";
+                    }
+                ?>
+                <div style="font-size:.82rem;margin-top:8px;"><strong>Conditions:</strong> <?= $conds ? e(implode(' · ', $conds)) : 'All teeth healthy' ?></div>
+
+                <?php if ($recSession && !empty($recSession['notes'])): ?>
+                    <div style="border-top:1px dashed #ddd;margin-top:8px;padding-top:8px;font-size:.82rem;">
+                        <strong>Visit notes:</strong> <?= nl2br(e($recSession['notes'])) ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+        <?php elseif ($tab === 'overview'): ?>
             <?php
                 $isAdminR   = current_role() === 'admin';
-                [$nvDate, $nvFrom] = next_visit_info($pdo, $patientRow);
                 $qConds     = questionnaire_conditions($pdo, $pid);
                 $myHabits   = array_filter(array_map('trim', explode(',', (string)($patientRow['dental_habits'] ?? ''))));
                 $rDentists  = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
-                $dobTxt     = trim(($patientRow['date_of_birth'] ? date('M j, Y', strtotime($patientRow['date_of_birth'])) . ' · ' : '')
-                                   . ($patientRow['age'] !== null && $patientRow['age'] !== '' ? $patientRow['age'] . ' yrs' : '')) ?: '–';
-                $ro = fn($v) => '<div class="ro-field">' . ($v !== '' && $v !== null ? e($v) : '–') . '</div>';
+                $ageNow     = $patientRow['date_of_birth'] ? age_from_dob($patientRow['date_of_birth']) : $patientRow['age'];
+                $dobTxt     = trim(($patientRow['date_of_birth'] ? date('M j, Y', strtotime($patientRow['date_of_birth'])) : '')
+                                   . ($ageNow !== null && $ageNow !== '' ? ($patientRow['date_of_birth'] ? ' (' . $ageNow . ' yrs)' : $ageNow . ' yrs') : ''));
+                $emTxt      = trim(($patientRow['emergency_name'] ?? '') . (!empty($patientRow['emergency_phone']) ? ' · ' . $patientRow['emergency_phone'] : ''));
+                // One read-only item: a small label over its value ("–" when empty).
+                $item = fn($label, $value, $cls = 'col-md-4') => '<div class="' . $cls . '"><div class="field-label">' . $label . '</div>'
+                        . '<div class="ov-val">' . ($value !== '' && $value !== null ? $value : '–') . '</div></div>';
+                $none = '<span class="text-muted2">Not checked yet</span>';
             ?>
-            <div class="rv-sec" data-rv="info">
-            <!-- ===== 👤 PATIENT DETAILS: admin edits; the dentist sees them read-only ===== -->
-            <form method="POST">
-                <input type="hidden" name="action" value="update_patient_details">
-                <input type="hidden" name="patient_id" value="<?= $pid ?>">
-                <div class="card-box mb-3">
-                    <div class="flex-between mb-3">
-                        <h6 class="mb-0">👤 Patient details <small class="text-muted2"><?= $isAdminR ? '(admin / front desk)' : '(read only — the front desk updates these)' ?></small></h6>
-                        <?php if ($isAdminR): ?><button class="btn btn-teal btn-sm" data-keep-text>💾 Save details</button><?php endif; ?>
-                    </div>
+            <!-- ===== PATIENT DETAILS: shown as text; the admin presses Edit to change them ===== -->
+            <div class="card-box mb-3 ov-card" id="ov-details">
+                <div class="flex-between mb-3">
+                    <h6 class="mb-0">👤 Patient details</h6>
+                    <?php if ($isAdminR): ?>
+                        <button type="button" class="btn btn-sm btn-outline-teal ov-edit-btn" data-keep-text onclick="ovEdit('ov-details', true)">✏️ Edit</button>
+                    <?php else: ?>
+                        <small class="text-muted2">Only the admin can change these</small>
+                    <?php endif; ?>
+                </div>
+                <div class="row g-3 ov-view">
+                    <?= $item('Full name', e($patientRow['name'])) ?>
+                    <?= $item('Date of birth / Age', e($dobTxt)) ?>
+                    <?= $item('Primary dentist', e($patientRow['primary_dentist'] ?? '')) ?>
+                    <?= $item('Phone', e($patientRow['phone'] ?? '')) ?>
+                    <?= $item('Email' . (!empty($patientRow['user_id']) ? ' <span class="text-muted2">(login)</span>' : ''), e($patientRow['email'] ?? '')) ?>
+                    <?= $item('📞 Emergency contact', e($emTxt)) ?>
+                </div>
+                <?php if ($isAdminR): ?>
+                <form method="POST" class="ov-form" hidden>
+                    <input type="hidden" name="action" value="update_patient_details">
+                    <input type="hidden" name="patient_id" value="<?= $pid ?>">
                     <div class="row g-3">
                         <div class="col-md-4"><label class="field-label">Full name</label>
-                            <?= $isAdminR ? '<input name="name" class="form-control" value="' . e($patientRow['name']) . '" required>' : $ro($patientRow['name']) ?></div>
-                        <div class="col-md-4"><label class="field-label">Date of birth / Age</label>
-                            <?php if ($isAdminR): ?>
-                                <div class="d-flex gap-2">
-                                    <input type="date" name="dob" class="form-control" value="<?= e($patientRow['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>">
-                                    <input type="number" name="age" class="form-control" style="max-width:90px;" min="0" max="120" step="1" data-digits value="<?= e($patientRow['age']) ?>">
-                                </div>
-                            <?php else: ?><?= $ro($dobTxt) ?><?php endif; ?></div>
+                            <input name="name" class="form-control" value="<?= e($patientRow['name']) ?>" required></div>
+                        <div class="col-md-4"><label class="field-label">Date of birth</label>
+                            <input type="date" name="dob" id="ov-dob" class="form-control" value="<?= e($patientRow['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>">
+                            <!-- The age follows the birthday; it is typed only when the birthday is not known. -->
+                            <div id="ov-age-wrap" class="mt-2" <?= $patientRow['date_of_birth'] ? 'hidden' : '' ?>>
+                                <input type="number" name="age" class="form-control" placeholder="Age, if the birthday is not known" min="0" max="120" step="1" data-digits value="<?= e($patientRow['age']) ?>">
+                            </div></div>
                         <div class="col-md-4"><label class="field-label">Primary dentist</label>
-                            <?php if ($isAdminR): ?>
-                                <select name="primary_dentist" class="form-select">
-                                    <option value="">— Unassigned —</option>
-                                    <?php foreach ($rDentists as $dn): ?><option <?= $patientRow['primary_dentist'] === $dn ? 'selected' : '' ?>><?= e($dn) ?></option><?php endforeach; ?>
-                                    <?php if ($patientRow['primary_dentist'] && !in_array($patientRow['primary_dentist'], $rDentists, true)): ?><option selected><?= e($patientRow['primary_dentist']) ?></option><?php endif; ?>
-                                </select>
-                            <?php else: ?><?= $ro($patientRow['primary_dentist']) ?><?php endif; ?></div>
+                            <select name="primary_dentist" class="form-select">
+                                <option value="">— Unassigned —</option>
+                                <?php foreach ($rDentists as $dn): ?><option <?= $patientRow['primary_dentist'] === $dn ? 'selected' : '' ?>><?= e($dn) ?></option><?php endforeach; ?>
+                                <?php if ($patientRow['primary_dentist'] && !in_array($patientRow['primary_dentist'], $rDentists, true)): ?><option selected><?= e($patientRow['primary_dentist']) ?></option><?php endif; ?>
+                            </select></div>
 
                         <div class="col-md-4"><label class="field-label">Phone</label>
-                            <?= $isAdminR ? '<input name="phone" class="form-control" value="' . e($patientRow['phone']) . '" placeholder="09XX XXX XXXX" ' . phone_input_attrs() . '>' : $ro($patientRow['phone']) ?></div>
+                            <input name="phone" class="form-control" value="<?= e($patientRow['phone']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
                         <div class="col-md-4"><label class="field-label">Email <?= !empty($patientRow['user_id']) ? '<span class="text-muted2">(login)</span>' : '' ?></label>
-                            <?= $isAdminR ? '<input type="email" name="email" class="form-control" value="' . e($patientRow['email']) . '">' : $ro($patientRow['email']) ?>
-                            <?php if ($isAdminR && !empty($patientRow['user_id'])): ?><div class="text-muted2" style="font-size:.74rem;">A new login email must be confirmed from that address first.</div><?php endif; ?></div>
+                            <input type="email" name="email" class="form-control" value="<?= e($patientRow['email']) ?>">
+                            <?php if (!empty($patientRow['user_id'])): ?><div class="text-muted2" style="font-size:.74rem;">A new login email must be confirmed from that address first.</div><?php endif; ?></div>
                         <div class="col-md-4"><label class="field-label">📞 Emergency contact</label>
-                            <?php if ($isAdminR): ?>
-                                <div class="d-flex gap-2">
-                                    <input name="emergency_name" class="form-control" placeholder="Name" value="<?= e($patientRow['emergency_name'] ?? '') ?>">
-                                    <input name="emergency_phone" class="form-control" style="max-width:150px;" placeholder="Phone" value="<?= e($patientRow['emergency_phone'] ?? '') ?>" <?= phone_input_attrs() ?>>
-                                </div>
-                            <?php else: ?><?= $ro(trim(($patientRow['emergency_name'] ?? '') . (!empty($patientRow['emergency_phone']) ? ' · ' . $patientRow['emergency_phone'] : ''))) ?><?php endif; ?></div>
-
-                        <div class="col-md-4"><label class="field-label">Patient type <span class="text-muted2">(automatic)</span></label>
-                            <div class="ro-field"><?= e($patientRow['patient_type'] ?: 'New') ?> <small>— <?= ($patientRow['patient_type'] ?? '') === 'Returning' ? 'has completed a visit' : 'no completed visit yet' ?></small></div></div>
-                        <div class="col-md-4"><label class="field-label">Last visit <span class="text-muted2">(automatic)</span></label>
-                            <div class="ro-field"><?= $patientRow['last_visit'] ? date('M j, Y', strtotime($patientRow['last_visit'])) : '–' ?></div></div>
-                        <div class="col-md-4"><label class="field-label">Next visit <span class="text-muted2">(from bookings / follow-ups)</span></label>
-                            <div class="ro-field"><?= $nvDate ? date('M j, Y', strtotime($nvDate)) . ' <small>· ' . e($nvFrom) . '</small>' : '–' ?></div></div>
+                            <div class="d-flex gap-2">
+                                <input name="emergency_name" class="form-control" placeholder="Name" value="<?= e($patientRow['emergency_name'] ?? '') ?>">
+                                <input name="emergency_phone" class="form-control" style="max-width:150px;" placeholder="Phone" value="<?= e($patientRow['emergency_phone'] ?? '') ?>" <?= phone_input_attrs() ?>>
+                            </div></div>
                     </div>
+                    <div class="d-flex gap-2 justify-content-end mt-3">
+                        <button type="button" class="btn btn-light btn-sm" data-keep-text onclick="ovEdit('ov-details', false)">Cancel</button>
+                        <button class="btn btn-teal btn-sm" data-keep-text>💾 Save details</button>
+                    </div>
+                </form>
+                <?php endif; ?>
+            </div>
+
+            <!-- ===== CLINICAL INFORMATION: shown as text; Edit opens the form ===== -->
+            <div class="card-box mb-3 ov-card" id="ov-clinical">
+                <div class="flex-between mb-3">
+                    <h6 class="mb-0">🩺 Clinical information</h6>
+                    <button type="button" class="btn btn-sm btn-outline-teal ov-edit-btn" data-keep-text onclick="ovEdit('ov-clinical', true)">✏️ Edit</button>
                 </div>
-            </form>
-
-            <!-- ===== 🩺 CLINICAL INFORMATION: the dentist edits ===== -->
-            <form method="POST">
-                <input type="hidden" name="action" value="update_clinical">
-                <input type="hidden" name="patient_id" value="<?= $pid ?>">
-                <div class="card-box mb-3">
-                    <div class="flex-between mb-3">
-                        <h6 class="mb-0">🩺 Clinical information <small class="text-muted2">(dentist)</small></h6>
-                        <button class="btn btn-teal btn-sm" data-keep-text>💾 Save clinical info</button>
-                    </div>
+                <div class="row g-3 ov-view">
+                    <?= $item('Blood type', e($patientRow['blood_type'] ?? '') ?: '<span class="text-muted2">Unknown</span>', 'col-md-3') ?>
+                    <?= $item('<span style="color:#c0392b;">⚠️ Allergies</span>', !empty($patientRow['allergies']) ? '<span style="color:#c0392b;font-weight:600;">' . e($patientRow['allergies']) . '</span>' : '<span class="text-muted2">None recorded</span>', 'col-md-9') ?>
+                    <?= $item('💊 Current medications', nl2br(e($patientRow['medications'] ?? '')), 'col-md-6') ?>
+                    <?php
+                        $condHtml = '';
+                        foreach ($qConds as $qc) $condHtml .= '<span class="badge-pill b-cancelled" style="font-size:.72rem;margin:0 3px 3px 0;">' . e($qc) . '</span>';
+                        if (!empty($patientRow['medical_conditions'])) $condHtml .= ($condHtml ? '<br>' : '') . nl2br(e($patientRow['medical_conditions']));
+                    ?>
+                    <?= $item('🩺 Medical conditions', $condHtml, 'col-md-6') ?>
+                    <?php if (!empty($patientRow['medical_alert'])): ?>
+                        <?= $item('Medical alert', '<span style="color:#c0392b;font-weight:600;">' . e($patientRow['medical_alert']) . '</span>', 'col-12') ?>
+                    <?php endif; ?>
+                    <?= $item('🦷 Gum condition', e($patientRow['gum_condition'] ?? '') ?: $none) ?>
+                    <?= $item('🪥 Oral hygiene', e($patientRow['oral_hygiene'] ?? '') ?: $none) ?>
+                    <?= $item('😟 Dental anxiety', e($patientRow['dental_anxiety'] ?? '') ?: '<span class="text-muted2">Not asked yet</span>') ?>
+                    <?= $item('Habits', $myHabits ? e(implode(', ', $myHabits)) : '', 'col-12') ?>
+                    <?= $item('🔒 Dentist\'s remarks <span class="text-muted2">(the patient does not see this)</span>', nl2br(e($patientRow['chart_remarks'] ?? '')), 'col-12') ?>
+                </div>
+                <form method="POST" class="ov-form" hidden>
+                    <input type="hidden" name="action" value="update_clinical">
+                    <input type="hidden" name="patient_id" value="<?= $pid ?>">
                     <div class="row g-3">
                         <div class="col-md-3"><label class="field-label">Blood type</label>
                             <select name="blood_type" class="form-select">
@@ -481,64 +573,13 @@ $active = 'records';
                         <div class="col-12"><label class="field-label">🔒 Dentist's remarks <span class="text-muted2">(clinic only — the patient does not see this)</span></label>
                             <textarea name="chart_remarks" class="form-control" rows="3" placeholder="General remarks about this patient's dental chart..."><?= e($patientRow['chart_remarks']) ?></textarea></div>
                     </div>
-                    <?php if (!empty($patientRow['clinical_updated_at'])): ?>
-                        <div class="text-muted2 mt-2" style="font-size:.78rem;">Last updated by <?= e($patientRow['clinical_updated_by'] ?: '–') ?> on <?= date('M j, Y g:i A', strtotime($patientRow['clinical_updated_at'])) ?></div>
-                    <?php endif; ?>
-                </div>
-            </form>
-            </div>
-
-            <div class="card-box rv-sec" data-rv="chart">
-                <h6 class="mb-1">🦷 Dental Chart (Odontogram) <small class="text-muted2">— view only (edit on the Odontogram page)</small></h6>
-
-                <?php if (count($recSessions) > 1): ?>
-                    <div class="text-muted2 mb-2" style="font-size:.82rem;">
-                        This patient has <strong><?= count($recSessions) ?> visits</strong> on record. Click a visit to view its chart.
+                    <div class="d-flex gap-2 justify-content-end mt-3">
+                        <button type="button" class="btn btn-light btn-sm" data-keep-text onclick="ovEdit('ov-clinical', false)">Cancel</button>
+                        <button class="btn btn-teal btn-sm" data-keep-text>💾 Save clinical info</button>
                     </div>
-                <?php endif; ?>
-
-                <!-- Visit tabs (same history the Odontogram page shows) -->
-                <?php if ($recSessions): ?>
-                <div class="sess-tabs mb-2">
-                    <?php $recOldFirst = array_reverse($recSessions); ?>
-                    <?php foreach ($recOldFirst as $i => $s): ?>
-                        <a class="sess-tab <?= (int)$s['id']===$recSid?'on':'' ?>"
-                           href="records?patient=<?= $pid ?>&tab=overview&session=<?= $s['id'] ?>">
-                            <b>Visit <?= $i+1 ?><?= $i === count($recOldFirst)-1 ? ' · latest' : '' ?></b>
-                            <small><?= date('M j, Y', strtotime($s['visit_date'])) ?><?= $s['title'] ? ' · '.e($s['title']) : '' ?></small>
-                        </a>
-                    <?php endforeach; ?>
-                </div>
-                <?php endif; ?>
-
-                <div class="text-center" style="font-size:.68rem;color:#777;">Upper</div>
-                <div class="odo-arch" style="margin-bottom:4px;">
-                    <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
-                </div>
-                <div class="odo-arch">
-                    <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
-                </div>
-                <div class="text-center" style="font-size:.68rem;color:#777;">Lower</div>
-
-                <?php $toothLegend = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b','Crowned'=>'#a06fd6','Extracted'=>'#999999','Impacted'=>'#d99a00','Fractured'=>'#cc4444']; ?>
-                <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.72rem;margin-top:8px;border-top:1px dashed #ddd;padding-top:6px;">
-                    <?php foreach ($toothLegend as $cond => $color): ?>
-                        <span style="white-space:nowrap;"><span style="display:inline-block;width:11px;height:11px;border-radius:2px;background:<?= $color ?>;border:1px solid rgba(0,0,0,.15);vertical-align:middle;"></span> <?= $cond ?></span>
-                    <?php endforeach; ?>
-                </div>
-                <?php
-                    $conds = [];
-                    foreach (array_merge($UPPER_TEETH, $LOWER_TEETH) as $t) {
-                        $s = $toothMap[$t] ?? 'Healthy';
-                        if ($s !== 'Healthy') $conds[] = "Tooth $t: $s";
-                    }
-                ?>
-                <div style="font-size:.82rem;margin-top:8px;"><strong>Conditions:</strong> <?= $conds ? e(implode(' · ', $conds)) : 'All teeth healthy' ?></div>
-
-                <?php if ($recSession && !empty($recSession['notes'])): ?>
-                    <div style="border-top:1px dashed #ddd;margin-top:8px;padding-top:8px;font-size:.82rem;">
-                        <strong>Visit notes:</strong> <?= nl2br(e($recSession['notes'])) ?>
-                    </div>
+                </form>
+                <?php if (!empty($patientRow['clinical_updated_at'])): ?>
+                    <div class="text-muted2 mt-2" style="font-size:.78rem;">Last updated by <?= e($patientRow['clinical_updated_by'] ?: '–') ?> on <?= date('M j, Y g:i A', strtotime($patientRow['clinical_updated_at'])) ?></div>
                 <?php endif; ?>
             </div>
 
@@ -786,31 +827,23 @@ $active = 'records';
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>startClock();</script>
 <style>
-.rv-nav { display: flex; gap: 4px; overflow-x: auto; background: var(--card, #fff); border-radius: 14px; padding: 6px;
-          box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 14px; position: sticky; top: 8px; z-index: 20; }
-.rv-nav button { border: 0; background: transparent; color: #52606b; font-size: .9rem; font-weight: 600;
-                 padding: 8px 14px; border-radius: 10px; white-space: nowrap; flex: 0 0 auto; }
-.rv-nav button:hover { background: #eef7f6; color: var(--teal-mid); }
-.rv-nav button.on { background: var(--teal-mid); color: #fff; }
-.rv-sec.rv-hide { display: none; }
-@media print { .rv-nav { display: none; } .rv-sec.rv-hide { display: block; } }
+.pt-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: .88rem; }
+.ov-val { color: #1f2d2b; font-size: .95rem; line-height: 1.45; word-break: break-word; }
+.ov-card.editing .ov-view, .ov-card.editing .ov-edit-btn { display: none; }
 </style>
 <script>
-// Records > Overview navbar: "All" shows every part; the others show just one. Remembered per browser.
+// Records > Overview: each card shows text; Edit swaps in its form, Cancel puts the text back.
+function ovEdit(id, on) {
+    var card = document.getElementById(id);
+    card.classList.toggle('editing', on);
+    card.querySelector('.ov-form').hidden = !on;
+    if (on) { var f = card.querySelector('.ov-form input:not([type=hidden]), .ov-form select'); if (f) f.focus(); }
+    else card.querySelector('.ov-form').reset();
+}
+// The age is typed only when the birthday is not known.
 (function () {
-    var nav = document.getElementById('rv-nav');
-    if (!nav) return;
-    function show(k) {
-        document.querySelectorAll('.rv-sec').forEach(function (s) { s.classList.toggle('rv-hide', k !== 'all' && s.dataset.rv !== k); });
-        nav.querySelectorAll('button').forEach(function (b) {
-            var on = b.dataset.rv === k; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
-        });
-        try { localStorage.setItem('records_overview', k); } catch (e) {}
-    }
-    nav.addEventListener('click', function (e) { var b = e.target.closest('button[data-rv]'); if (b) show(b.dataset.rv); });
-    var saved = 'all';
-    try { saved = localStorage.getItem('records_overview') || 'all'; } catch (e) {}
-    show(nav.querySelector('[data-rv="' + saved + '"]') ? saved : 'all');
+    var dob = document.getElementById('ov-dob'), wrap = document.getElementById('ov-age-wrap');
+    if (dob && wrap) dob.addEventListener('input', function () { wrap.hidden = !!dob.value; });
 })();
 </script>
 <style>.fu-box { background: #f7fafa; border: 1px dashed #cfe0dd; border-radius: 10px; padding: 10px 12px; }</style>
