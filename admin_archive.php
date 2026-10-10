@@ -6,9 +6,13 @@
 //  Nothing is actually removed at that point — the account (and any
 //  patient records attached to it) is just hidden until an admin
 //  either Restores it or permanently Deletes it from here.
+//
+//  Deleted treatment records, X-rays, clinical notes and appointments
+//  wait here too (includes/record_archive.php).
 // ============================================================
 require_once 'config/auth.php';
 require_login(['admin']);
+require_once 'includes/record_archive.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -17,6 +21,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // "patient" = a walk-in patient with no login account of their own,
     //             archived straight from the Patients page.
     $type   = ($_POST['type'] ?? 'user') === 'patient' ? 'patient' : 'user';
+
+    // ---- Archived treatment records, X-rays, notes and appointments ----
+    if ($action === 'restore_record' && $id > 0) {
+        $q = $pdo->prepare("SELECT item_type, summary FROM archived_records WHERE id = ?");
+        $q->execute([$id]); $a = $q->fetch();
+        [$ok, $msg] = restore_record($pdo, $id);
+        if ($ok && $a) log_activity($pdo, 'Restored ' . strtolower(RECORD_ARCHIVE_TYPES[$a['item_type']][1] ?? 'record'), $a['summary']);
+        set_flash($msg, $ok ? 'success' : 'error');
+        header("Location: admin_archive#records"); exit;
+    }
+    if ($action === 'purge_record') {
+        $ids = ($id > 0) ? [$id] : array_map('intval', (array)($_POST['ids'] ?? []));
+        $done = 0;
+        foreach ($ids as $aid) {
+            if ($a = purge_archived_record($pdo, $aid)) {
+                log_activity($pdo, 'Permanently deleted ' . strtolower(RECORD_ARCHIVE_TYPES[$a['item_type']][1] ?? 'record'), $a['summary']);
+                $done++;
+            }
+        }
+        set_flash($done . ' item' . ($done === 1 ? '' : 's') . ' permanently deleted.', 'info');
+        header("Location: admin_archive#records"); exit;
+    }
 
     // ---- Archived dental chart visits (from the Odontogram) ----
     if (in_array($action, ['restore_visit', 'permadelete_visit'], true) && $id > 0) {
@@ -163,6 +189,20 @@ try {
     )->fetchAll();
 } catch (Throwable $e) {}
 
+// Treatment records, X-rays, notes and appointments (newest first), optionally one kind only.
+$recType = $_GET['rec'] ?? '';
+if (!isset(RECORD_ARCHIVE_TYPES[$recType])) $recType = '';
+$archivedRecords = []; $recCounts = [];
+try {
+    foreach ($pdo->query("SELECT item_type, COUNT(*) FROM archived_records GROUP BY item_type")->fetchAll(PDO::FETCH_NUM) as $c) $recCounts[$c[0]] = (int)$c[1];
+    $rq = $pdo->prepare(
+        "SELECT ar.*, p.name AS patient_name, p.status AS patient_status
+           FROM archived_records ar LEFT JOIN patients p ON p.id = ar.patient_id
+          WHERE (? = '' OR ar.item_type = ?) ORDER BY ar.archived_at DESC, ar.id DESC");
+    $rq->execute([$recType, $recType]);
+    $archivedRecords = $rq->fetchAll();
+} catch (Throwable $e) {}
+
 $page_title = "Archive";
 include 'includes/head.php';
 $active = 'archive';
@@ -173,7 +213,7 @@ $active = 'archive';
         <div class="page-head">
             <div>
                 <h1 style="color:var(--teal-light)">Archive</h1>
-                <div class="sub">Accounts and patients moved here before being deleted for good. Restore them, or delete them permanently.</div>
+                <div class="sub">Accounts, patients, records and appointments moved here before being deleted for good. Restore them, or delete them permanently.</div>
             </div>
         </div>
 
@@ -225,6 +265,61 @@ $active = 'archive';
                                         <input type="hidden" name="action" value="permadelete">
                                         <input type="hidden" name="type" value="<?= e($u['type']) ?>">
                                         <input type="hidden" name="id" value="<?= $u['id'] ?>">
+                                        <button type="submit" class="icon-btn icon-btn-delete" title="Delete Permanently">🗑</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- ===== Archived treatment records, X-rays, notes and appointments ===== -->
+        <div class="card-box mt-3" id="records">
+            <h5 class="mb-1">📋 Archived records &amp; appointments</h5>
+            <div class="text-muted2 mb-2" style="font-size:.8rem;">Treatment records, X-rays, clinical notes and appointments someone deleted. Restore puts them back exactly where they were.</div>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <a href="admin_archive#records" class="btn btn-sm <?= $recType === '' ? 'btn-dark-navy' : 'btn-light' ?>" data-keep-text>All <span class="badge bg-secondary"><?= array_sum($recCounts) ?></span></a>
+                <?php foreach (RECORD_ARCHIVE_TYPES as $k => $info): ?>
+                    <a href="admin_archive?rec=<?= $k ?>#records" class="btn btn-sm <?= $recType === $k ? 'btn-dark-navy' : 'btn-light' ?>" data-keep-text><?= e($info[1]) ?>s <span class="badge bg-secondary"><?= $recCounts[$k] ?? 0 ?></span></a>
+                <?php endforeach; ?>
+            </div>
+            <?php if (!$archivedRecords): ?>
+                <div class="text-center text-muted2 py-3">Nothing archived here.</div>
+            <?php else: ?>
+            <div class="table-responsive">
+                <?= bulk_bar('bulk-records', 'purge_record', 'items permanently', [], '🗑 Delete selected permanently', 'They are removed for good (X-ray images too). This cannot be undone.') ?>
+                <table class="data">
+                    <thead><tr><th>Type</th><th>Patient</th><th>Details</th><th>Archived By</th><th>Archived On</th><th class="no-print">Actions</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($archivedRecords as $r):
+                        $row = json_decode($r['row_data'], true) ?: [];
+                        $who = $r['patient_name'] ?: ($row['patient_name'] ?? '');
+                        $typeBadge = ['treatment' => 'b-progress', 'xray' => 'b-confirmed', 'note' => 'b-pending', 'appointment' => 'b-completed'][$r['item_type']] ?? 'b-pending';
+                    ?>
+                        <tr>
+                            <td><span class="badge-pill <?= $typeBadge ?>"><?= e(RECORD_ARCHIVE_TYPES[$r['item_type']][1] ?? $r['item_type']) ?></span></td>
+                            <td><strong><?= e($who ?: '–') ?></strong>
+                                <?php if ($r['patient_status'] === 'Archived'): ?><br><small class="text-muted2">Patient is archived too</small><?php elseif ($r['patient_id'] && $r['patient_name'] === null): ?><br><small class="text-muted2">Patient deleted</small><?php endif; ?></td>
+                            <td><?= e($r['summary'] ?: '–') ?>
+                                <?php if ($r['item_type'] === 'xray' && !empty($row['image_file'])): ?><br><small class="text-muted2">Image kept until deleted for good</small><?php endif; ?>
+                                <?php if (!empty($row['dentist'])): ?><br><small class="text-muted2"><?= e($row['dentist']) ?></small><?php endif; ?></td>
+                            <td><?= e($r['archived_by'] ?: '–') ?></td>
+                            <td><small class="text-muted2"><?= date('M j, Y g:i A', strtotime($r['archived_at'])) ?></small></td>
+                            <td class="no-print">
+                                <div class="d-flex gap-1 align-items-center">
+                                    <?= bulk_pick('bulk-records', $r['id'], 'Select') ?>
+                                    <form method="POST" onsubmit="return confirmDelete('Restore this <?= e(strtolower(RECORD_ARCHIVE_TYPES[$r['item_type']][1] ?? 'item')) ?>?')">
+                                        <input type="hidden" name="action" value="restore_record">
+                                        <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
+                                        <button type="submit" class="icon-btn icon-btn-restore" title="Restore">↩</button>
+                                    </form>
+                                    <form method="POST" onsubmit="return confirmDelete('Permanently delete this <?= e(strtolower(RECORD_ARCHIVE_TYPES[$r['item_type']][1] ?? 'item')) ?>? This cannot be undone.')">
+                                        <input type="hidden" name="action" value="purge_record">
+                                        <input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
                                         <button type="submit" class="icon-btn icon-btn-delete" title="Delete Permanently">🗑</button>
                                     </form>
                                 </div>

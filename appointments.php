@@ -14,9 +14,9 @@ require_login(['admin','dentist','staff']);
 
 // ---------- Remove an old, finished appointment ----------
 // Cancelled and completed appointments older than a week just clutter the
-// list. Admin and staff may clear them out. The patient's own history keeps
-// nothing hidden — a deleted row is genuinely gone, so we only allow it for
-// appointments that are already settled and at least a week old.
+// list. Admin and staff may clear them out. A removed appointment goes to
+// the Archive (includes/record_archive.php), where the admin can restore it,
+// and only settled appointments at least a week old can be removed.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_appointment') {
     if (!in_array(current_role(), ['admin','staff'])) {
         set_flash('Only admin and staff can remove old appointments.', 'error');
@@ -39,17 +39,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         } elseif (!in_array($row['status'], ['Cancelled','Completed','No-show','Disapproved'])) {
             $refused = 'Only cancelled, disapproved, completed or missed appointments can be removed.';
         } else {
-            $pdo->prepare("DELETE FROM appointments WHERE id = ?")->execute([$id]);
-            log_activity($pdo, 'Deleted appointment', $row['patient_name'] . ' — '
+            require_once 'includes/record_archive.php';
+            archive_record($pdo, 'appointment', $id);
+            log_activity($pdo, 'Archived appointment', $row['patient_name'] . ' — '
                     . date('M j, Y', strtotime($row['appointment_date'])) . ' (' . $row['status'] . ')');
             $removed[] = $row;
         }
     }
     if (count($removed) === 1) {
         set_flash($removed[0]['patient_name'] . "'s appointment from "
-                . date('M j, Y', strtotime($removed[0]['appointment_date'])) . ' was removed.', 'info');
+                . date('M j, Y', strtotime($removed[0]['appointment_date'])) . ' was moved to the Archive.', 'info');
     } elseif ($removed) {
-        set_flash(count($removed) . ' appointments were removed.', 'info');
+        set_flash(count($removed) . ' appointments were moved to the Archive.', 'info');
     } else {
         set_flash($refused ?: 'Nothing was removed.', 'error');
     }
@@ -631,7 +632,7 @@ $active = 'appointments';
 
         <div class="card-box">
             <?php if (in_array(current_role(), ['admin','staff'])): ?>
-                <?= bulk_bar('bulk-appts', 'delete_appointment', 'old appointments', ['filter' => $filter], '🗑 Remove selected', 'Only settled appointments older than a week can be removed. This cannot be undone.') ?>
+                <?= bulk_bar('bulk-appts', 'delete_appointment', 'old appointments', ['filter' => $filter], '🗑 Move selected to Archive', 'Only settled appointments older than a week can be removed. The admin can restore them from the Archive.', 'Archive') ?>
             <?php endif; ?>
             <div class="table-responsive">
                 <table class="data">
@@ -792,11 +793,11 @@ $active = 'appointments';
                                 ?>
                                 <?php if ($canRemove): ?>
                                     <form method="POST" class="d-inline"
-                                          onsubmit="return confirm('Remove this appointment from <?= e($a['patient_name']) ?> on <?= date('M j, Y', strtotime($a['appointment_date'])) ?>?\n\nThis cannot be undone.')">
+                                          onsubmit="return confirm('Remove this appointment from <?= e($a['patient_name']) ?> on <?= date('M j, Y', strtotime($a['appointment_date'])) ?> to the Archive?\n\nThe admin can restore it from the Archive.')">
                                         <input type="hidden" name="action" value="delete_appointment">
                                         <input type="hidden" name="id" value="<?= $a['id'] ?>">
                                         <input type="hidden" name="filter" value="<?= e($filter) ?>">
-                                        <button class="btn btn-sm icon-btn" style="background:#f0f0f0;color:#8aa0a0;" title="Remove">🗑</button>
+                                        <button class="btn btn-sm icon-btn" style="background:#f0f0f0;color:#8aa0a0;" title="Move to Archive">🗑</button>
                                     </form>
                                     <?= bulk_pick('bulk-appts', $a['id'], 'Select to remove') ?>
                                 <?php endif; ?>

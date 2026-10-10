@@ -72,6 +72,8 @@ if (!$__schemaOk) {
     migrate_text_scales_v2($pdo);                   // one time: text sizes one step bigger
     require_once __DIR__ . '/../includes/clinical.php';
     ensure_clinical_columns($pdo);                  // allergies, medications, dental notes, emergency contact
+    require_once __DIR__ . '/../includes/record_archive.php';
+    ensure_record_archive_table($pdo);              // deleted treatments / X-rays / notes / appointments wait in the Archive
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
 
@@ -1059,7 +1061,7 @@ function delete_patient_records($pdo, $patientId) {
         $xr = $pdo->prepare("SELECT image_file FROM xrays WHERE patient_id = ?");
         $xr->execute([$patientId]);
         foreach ($xr->fetchAll(PDO::FETCH_COLUMN) as $img) {
-            $path = __DIR__ . '/../' . $img;
+            $path = __DIR__ . '/../uploads/xrays/' . basename((string)$img);
             if ($img && is_file($path)) @unlink($path);
         }
     } catch (Throwable $e) { /* ignore */ }
@@ -1071,6 +1073,10 @@ function delete_patient_records($pdo, $patientId) {
         try { $pdo->prepare("DELETE FROM $table WHERE patient_id = ?")->execute([$patientId]); }
         catch (Throwable $e) { /* table not present — skip */ }
     }
+
+    // ...and anything of theirs still waiting in the Archive.
+    require_once __DIR__ . '/../includes/record_archive.php';
+    purge_patient_archived_records($pdo, $patientId);
 
     $pdo->prepare("DELETE FROM patients WHERE id = ?")->execute([$patientId]);
 }

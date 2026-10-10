@@ -49,6 +49,8 @@ foreach ($patients as $p) { if ($p['id'] == $pid) $patientName = $p['name']; }
 
 // Folder where X-ray images are stored.
 $XRAY_DIR = __DIR__ . '/uploads/xrays';
+require_once 'includes/record_archive.php';   // deleting a record moves it to the Archive
+$ARCH_NOTE = 'It is hidden from the records, and the admin can restore it from the Archive.';
 
 // ---------- Handle add / delete actions ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -195,15 +197,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete_treatment') {
         $done = 0;
         foreach (bulk_ids() as $tid) {             // one record, or several ticked ones
-            $t = $pdo->prepare("SELECT patient_name, treatment_name FROM treatments WHERE id=? AND patient_id=?");
-            $t->execute([$tid, $pid]);
-            $tRow = $t->fetch();
+            $tRow = archive_record($pdo, 'treatment', $tid, ['patient_id' => $pid]);   // to the Archive, not erased
             if (!$tRow) continue;
-            $pdo->prepare("DELETE FROM treatments WHERE id=? AND patient_id=?")->execute([$tid, $pid]);
-            log_activity($pdo, 'Deleted treatment record', $tRow['patient_name'] . ' — ' . $tRow['treatment_name']);
+            log_activity($pdo, 'Archived treatment record', $tRow['patient_name'] . ' — ' . $tRow['treatment_name']);
             $done++;
         }
-        set_flash($done === 1 ? 'Treatment record deleted.' : "$done treatment records deleted.", 'info');
+        set_flash(($done === 1 ? 'Treatment record' : "$done treatment records") . ' moved to the Archive.', 'info');
         header("Location: records?patient=$pid&tab=treatments"); exit;
     }
 
@@ -238,16 +237,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($patients as $pRow) { if ((int)$pRow['id'] === $pid) { $xrPatientName = $pRow['name']; break; } }
         $done = 0;
         foreach (bulk_ids() as $xid) {             // one X-ray, or several ticked ones
-            $x = $pdo->prepare("SELECT image_file FROM xrays WHERE id=? AND patient_id=?");
-            $x->execute([$xid, $pid]);
-            $row = $x->fetch();
-            if (!$row) continue;
-            if (is_file("$XRAY_DIR/" . basename($row['image_file']))) @unlink("$XRAY_DIR/" . basename($row['image_file']));
-            $pdo->prepare("DELETE FROM xrays WHERE id=? AND patient_id=?")->execute([$xid, $pid]);
-            $done++;
+            // The image file stays on disk until the admin deletes it for good.
+            if (archive_record($pdo, 'xray', $xid, ['patient_id' => $pid])) $done++;
         }
-        if ($done) log_activity($pdo, 'Deleted X-ray', $xrPatientName . ($done > 1 ? " ($done images)" : ''));
-        set_flash($done === 1 ? 'X-ray deleted.' : "$done X-rays deleted.", 'info');
+        if ($done) log_activity($pdo, 'Archived X-ray', $xrPatientName . ($done > 1 ? " ($done images)" : ''));
+        set_flash(($done === 1 ? 'X-ray' : "$done X-rays") . ' moved to the Archive.', 'info');
         header("Location: records?patient=$pid&tab=xrays"); exit;
     }
 
@@ -265,12 +259,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($patients as $pRow) { if ((int)$pRow['id'] === $pid) { $nPatientName = $pRow['name']; break; } }
         $done = 0;
         foreach (bulk_ids() as $nid) {             // one note, or several ticked ones
-            $del = $pdo->prepare("DELETE FROM clinical_notes WHERE id=? AND patient_id=?");
-            $del->execute([$nid, $pid]);
-            $done += $del->rowCount();
+            if (archive_record($pdo, 'note', $nid, ['patient_id' => $pid])) $done++;
         }
-        if ($done) log_activity($pdo, 'Deleted clinical note', $nPatientName . ($done > 1 ? " ($done notes)" : ''));
-        set_flash($done === 1 ? 'Note deleted.' : "$done notes deleted.", 'info');
+        if ($done) log_activity($pdo, 'Archived clinical note', $nPatientName . ($done > 1 ? " ($done notes)" : ''));
+        set_flash(($done === 1 ? 'Note' : "$done notes") . ' moved to the Archive.', 'info');
         header("Location: records?patient=$pid&tab=notes"); exit;
     }
 }
@@ -679,7 +671,7 @@ $active = 'records';
 
             <div class="card-box">
                 <h6 class="mb-2">History <span class="text-muted2" style="font-size:.85rem;">(<?= count($treatments) ?> record<?= count($treatments)==1?'':'s' ?>)</span></h6>
-                <?= bulk_bar('bulk-treat', 'delete_treatment', 'treatment records', ['patient_id' => $pid]) ?>
+                <?= bulk_bar('bulk-treat', 'delete_treatment', 'treatment records', ['patient_id' => $pid], '🗑 Move selected to Archive', $ARCH_NOTE, 'Archive') ?>
                 <?php foreach ($treatments as $t): ?>
                     <div class="flex-between py-3 border-bottom">
                         <div class="d-flex align-items-center gap-3">
@@ -694,7 +686,7 @@ $active = 'records';
                         <div class="d-flex align-items-center gap-2">
                             <span class="badge-pill b-<?= $t['status']==='Completed'?'completed':($t['status']==='Planned'?'pending':'progress') ?>"><?= e($t['status']) ?></span>
                             <?= bulk_pick('bulk-treat', $t['id']) ?>
-                            <form method="POST" class="m-0" onsubmit="return confirm('Delete this treatment record?')">
+                            <form method="POST" class="m-0" onsubmit="return confirm('Move this treatment record to the Archive?\n\n<?= $ARCH_NOTE ?>')">
                                 <input type="hidden" name="action" value="delete_treatment">
                                 <input type="hidden" name="patient_id" value="<?= $pid ?>">
                                 <input type="hidden" name="id" value="<?= $t['id'] ?>">
@@ -729,7 +721,7 @@ $active = 'records';
 
             <div class="card-box">
                 <h6 class="mb-3">X-ray Images <span class="text-muted2" style="font-size:.85rem;">(<?= count($xrays) ?>)</span></h6>
-                <?= bulk_bar('bulk-xray', 'delete_xray', 'X-rays', ['patient_id' => $pid]) ?>
+                <?= bulk_bar('bulk-xray', 'delete_xray', 'X-rays', ['patient_id' => $pid], '🗑 Move selected to Archive', $ARCH_NOTE, 'Archive') ?>
                 <div class="d-flex flex-wrap gap-3">
                     <?php foreach ($xrays as $xr): ?>
                         <div style="width:180px;border:1px solid #e3e9ee;border-radius:10px;overflow:hidden;">
@@ -739,11 +731,11 @@ $active = 'records';
                             <div style="padding:8px;">
                                 <div class="d-flex align-items-center gap-2" style="font-size:.82rem;font-weight:600;"><?= bulk_pick('bulk-xray', $xr['id']) ?><span><?= $xr['caption'] ? e($xr['caption']) : 'X-ray' ?></span></div>
                                 <div class="text-muted2" style="font-size:.72rem;"><?= e($xr['xray_date'] ?: date('M j, Y', strtotime($xr['created_at']))) ?></div>
-                                <form method="POST" onsubmit="return confirm('Delete this X-ray?')" class="mt-1">
+                                <form method="POST" onsubmit="return confirm('Move this X-ray to the Archive?\n\n<?= $ARCH_NOTE ?>')" class="mt-1">
                                     <input type="hidden" name="action" value="delete_xray">
                                     <input type="hidden" name="patient_id" value="<?= $pid ?>">
                                     <input type="hidden" name="id" value="<?= $xr['id'] ?>">
-                                    <button class="btn btn-sm w-100" style="background:#fbdcdc;color:#c0392b;">🗑 Delete</button>
+                                    <button class="btn btn-sm w-100" style="background:#fbdcdc;color:#c0392b;">🗑 Move to Archive</button>
                                 </form>
                             </div>
                         </div>
@@ -766,7 +758,7 @@ $active = 'records';
 
             <div class="card-box">
                 <h6 class="mb-3">Notes History <span class="text-muted2" style="font-size:.85rem;">(<?= count($notes) ?>)</span></h6>
-                <?= bulk_bar('bulk-notes', 'delete_note', 'notes', ['patient_id' => $pid]) ?>
+                <?= bulk_bar('bulk-notes', 'delete_note', 'notes', ['patient_id' => $pid], '🗑 Move selected to Archive', $ARCH_NOTE, 'Archive') ?>
                 <?php foreach ($notes as $nt): ?>
                     <div class="flex-between py-3 border-bottom">
                         <div style="flex:1;">
@@ -775,7 +767,7 @@ $active = 'records';
                         </div>
                         <div class="d-flex align-items-center gap-2">
                         <?= bulk_pick('bulk-notes', $nt['id']) ?>
-                        <form method="POST" class="m-0" onsubmit="return confirm('Delete this note?')">
+                        <form method="POST" class="m-0" onsubmit="return confirm('Move this note to the Archive?\n\n<?= $ARCH_NOTE ?>')">
                             <input type="hidden" name="action" value="delete_note">
                             <input type="hidden" name="patient_id" value="<?= $pid ?>">
                             <input type="hidden" name="id" value="<?= $nt['id'] ?>">
