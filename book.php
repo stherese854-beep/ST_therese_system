@@ -496,7 +496,7 @@ include 'includes/head.php';
 <?php else: ?>
     <!-- ===== THE WIZARD ===== -->
     <div class="wizard-card" style="position:relative;">
-        <a href="portal" class="back-arrow" title="Back to Dashboard">&#8592;</a>
+        <a href="portal" class="back-arrow" id="wiz-exit" title="Back to Dashboard">&#8592;</a>
 
         <?php if ($bookError): ?>
         <!-- Booking error modal — shown automatically on page load -->
@@ -752,6 +752,7 @@ include 'includes/head.php';
 
 <style>
 /* ── Back arrow inside wizard card ── */
+.back-arrow[hidden] { display: none !important; }
 .back-arrow {
     position: absolute;
     top: 14px;
@@ -1097,6 +1098,8 @@ function goStep(n) {
         if (i === n) ind.classList.add('active');
     }
     if (n === 4) fillReview();
+    // The top arrow (leave booking) only on step 1; later steps have their own "← Back" at the bottom.
+    const exit = document.getElementById('wiz-exit'); if (exit) exit.hidden = n !== 1;
 }
 
 // Find the next bookable date (open day, not a dentist day off, has at least 1
