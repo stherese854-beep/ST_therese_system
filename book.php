@@ -459,7 +459,7 @@ include 'includes/head.php';
                 Track the status of this request on your dashboard.
             <?php endif; ?>
         </p>
-        <a href="portal" class="btn btn-teal">&#8592; Back</a>
+        <a href="portal" class="btn btn-teal px-4">OK</a>
     </div>
 
 <?php elseif ($pauseMessage): ?>
