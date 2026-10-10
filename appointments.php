@@ -12,30 +12,26 @@ require_once 'includes/clinical.php';           // allergy / medical alert banne
 define('DENTIST_CANCEL_DAYS', 3);                 // a dentist can cancel only this many days ahead (or more)
 require_login(['admin','dentist','staff']);
 
-// ---------- Remove an old, finished appointment ----------
-// Cancelled and completed appointments older than a week just clutter the
-// list. Admin and staff may clear them out. A removed appointment goes to
-// the Archive (includes/record_archive.php), where the admin can restore it,
-// and only settled appointments at least a week old can be removed.
+// ---------- Remove a finished appointment ----------
+// Cancelled, disapproved, completed and missed appointments just clutter the
+// list. Admin and staff may clear them out at any time. A removed appointment
+// goes to the Archive (includes/record_archive.php), where the admin can
+// restore it. Pending and approved ones (still expected) cannot be removed.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_appointment') {
     if (!in_array(current_role(), ['admin','staff'])) {
-        set_flash('Only admin and staff can remove old appointments.', 'error');
+        set_flash('Only admin and staff can remove appointments.', 'error');
         header("Location: appointments"); exit;
     }
     $removed = []; $refused = '';
     foreach (bulk_ids() as $id) {                  // one appointment, or several ticked ones
         $q = $pdo->prepare(
-            "SELECT patient_name, appointment_date, status,
-                    DATEDIFF(CURDATE(), appointment_date) AS days_old
-               FROM appointments WHERE id = ?"
+            "SELECT patient_name, appointment_date, status FROM appointments WHERE id = ?"
         );
         $q->execute([$id]);
         $row = $q->fetch();
 
         if (!$row) {
             $refused = 'That appointment could not be found.';
-        } elseif ((int)$row['days_old'] < 7) {
-            $refused = 'Only appointments more than a week old can be removed.';
         } elseif (!in_array($row['status'], ['Cancelled','Completed','No-show','Disapproved'])) {
             $refused = 'Only cancelled, disapproved, completed or missed appointments can be removed.';
         } else {
@@ -632,7 +628,7 @@ $active = 'appointments';
 
         <div class="card-box">
             <?php if (in_array(current_role(), ['admin','staff'])): ?>
-                <?= bulk_bar('bulk-appts', 'delete_appointment', 'old appointments', ['filter' => $filter], '🗑 Move selected to Archive', 'Only settled appointments older than a week can be removed. The admin can restore them from the Archive.', 'Archive') ?>
+                <?= bulk_bar('bulk-appts', 'delete_appointment', 'appointments', ['filter' => $filter], '🗑 Move selected to Archive', 'Only cancelled, disapproved, completed or missed appointments can be removed. The admin can restore them from the Archive.', 'Archive') ?>
             <?php endif; ?>
             <div class="table-responsive">
                 <table class="data">
@@ -786,9 +782,7 @@ $active = 'appointments';
                                 <?php endif; ?>
 
                                 <?php
-                                    $daysOld = (strtotime('today') - strtotime($a['appointment_date'])) / 86400;
                                     $canRemove = in_array(current_role(), ['admin','staff'])
-                                              && $daysOld >= 7
                                               && in_array($a['status'], ['Cancelled','Completed','No-show','Disapproved']);
                                 ?>
                                 <?php if ($canRemove): ?>
