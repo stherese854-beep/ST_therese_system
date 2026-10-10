@@ -401,7 +401,7 @@ $page_title = "Book Appointment";
 $hide_hamburger = true;   // this page has no sidebar, so the menu button has nothing to open
 include 'includes/head.php';
 ?>
-<div class="booking-hero">
+<div class="booking-hero<?= $booked ? ' bk-done-hero' : '' ?>">
     <div class="eyebrow">ONLINE BOOKING</div>
     <h1>Book Your Appointment</h1>
     <div class="d-inline-flex align-items-center gap-2 px-3 py-2" style="background:rgba(255,255,255,.12);border-radius:30px;">
@@ -413,9 +413,8 @@ include 'includes/head.php';
 <div class="booking-body">
 <?php if ($booked): ?>
     <!-- ===== SUCCESS SCREEN ===== -->
-    <div class="wizard-card text-center" style="position:relative;">
-        <a href="portal" class="back-arrow" title="Back to Dashboard">&#8592;</a>
-        <div style="width:70px;height:70px;background:#fff6e0;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:2rem;">⏳</div>
+    <div class="wizard-card text-center bk-done" style="position:relative;">
+        <div class="bk-done-icon">⏳</div>
         <h2 style="color:var(--teal)">Booking Request Submitted!</h2>
 
         <?php if (!empty($confirm['booked_by'])): ?>
@@ -425,12 +424,11 @@ include 'includes/head.php';
             <p>Thank you, <b><?= e($me['name']) ?></b>! Your booking request has been submitted.</p>
         <?php endif; ?>
 
-        <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;text-align:left;font-size:.9rem;">
-            ⏳ <strong>Status: PENDING</strong> — waiting for the dentist to approve.<br>
-            Your appointment is <strong>not final yet</strong>. You will be notified once it is confirmed.
+        <div class="alert bk-done-alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;text-align:left;">
+            ⏳ <strong>Pending</strong> — not final yet. You will be notified once the dentist approves it.
         </div>
 
-        <div class="card-box text-start" style="background:#f6f9fa;">
+        <div class="card-box text-start bk-done-rows" style="background:#f6f9fa;">
             <div class="flex-between py-1"><span>Patient</span><b><?= e($confirm['patient_name'] ?? $me['name']) ?></b></div>
             <?php if (!empty($confirm['booked_by'])): ?>
                 <div class="flex-between py-1"><span>Booked by</span><b><?= e($confirm['booked_by']) ?><?= $confirm['relationship'] ? ' (' . e($confirm['relationship']) . ')' : '' ?></b></div>
@@ -439,8 +437,7 @@ include 'includes/head.php';
             <?php if (!empty($confirm['reason'])): ?>
                 <div class="flex-between py-1"><span>Reason</span><b><?= e($confirm['reason']) ?></b></div>
             <?php endif; ?>
-            <div class="flex-between py-1"><span>Date</span><b><?= date('M j, Y', strtotime($confirm['date'])) ?></b></div>
-            <div class="flex-between py-1"><span>Time</span><b><?= e($confirm['time']) ?></b></div>
+            <div class="flex-between py-1"><span>When</span><b><?= date('M j, Y', strtotime($confirm['date'])) ?> · <?= e($confirm['time']) ?></b></div>
             <div class="flex-between py-1"><span>Dentist</span><b><?= e($confirm['dentist'] ?? '') ?></b></div>
             <?php if (!empty($confirm['reassigned_from'])): ?>
                 <div class="text-muted2 pb-1" style="font-size:.8rem;">
@@ -448,10 +445,9 @@ include 'includes/head.php';
                     <?= e($confirm['dentist']) ?> will see you instead.
                 </div>
             <?php endif; ?>
-            <div class="flex-between py-1"><span>Status</span><span class="badge-pill b-pending">Pending</span></div>
         </div>
 
-        <p class="text-muted2">
+        <p class="text-muted2 bk-done-note">
             <?php if (mail_is_ready($pdo) && !empty($me['email'])): ?>
                 📧 A confirmation email was sent to <b><?= e($me['email']) ?></b>.
                 You will also get a reminder one day before your visit.
@@ -459,8 +455,25 @@ include 'includes/head.php';
                 Track the status of this request on your dashboard.
             <?php endif; ?>
         </p>
-        <a href="portal" class="btn btn-teal px-4">OK</a>
+        <a href="portal" class="btn btn-teal px-5">OK</a>
     </div>
+    <style>
+    /* Booking done: compact enough that OK shows without scrolling on a phone */
+    .bk-done { padding-top: 18px !important; padding-bottom: 18px !important; }
+    .bk-done-icon { width: 48px; height: 48px; background: #fff6e0; border-radius: 12px; display: flex; align-items: center;
+                    justify-content: center; margin: 0 auto 8px; font-size: 1.4rem; }
+    .bk-done h2 { font-size: 1.3rem; margin-bottom: 4px; }
+    .bk-done > p { font-size: .88rem; margin-bottom: 10px; }
+    .bk-done-alert { font-size: .82rem; padding: 8px 12px; margin-bottom: 10px; }
+    .bk-done-rows { padding: 8px 14px !important; margin-bottom: 10px; font-size: .88rem; }
+    .bk-done-rows .py-1 { padding-top: 2px !important; padding-bottom: 2px !important; }
+    p.bk-done-note { font-size: .78rem; margin-bottom: 10px; }
+    /* The big page header shrinks to one slim line on this screen */
+    .booking-hero.bk-done-hero { padding: 18px 120px 18px 18px !important; text-align: left !important; }
+    .booking-hero.bk-done-hero h1 { font-size: .95rem !important; margin: 0 !important; white-space: nowrap; }
+    .booking-hero.bk-done-hero .eyebrow, .booking-hero.bk-done-hero > .d-inline-flex { display: none !important; }
+    .bk-done-hero + .booking-body { padding-top: 12px !important; }
+    </style>
 
 <?php elseif ($pauseMessage): ?>
     <!-- ===== BOOKING PAUSED: explain right away, no form to fill in ===== -->
