@@ -295,6 +295,14 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
 /* The clock/buttons block in each page header sits at the top-right too, so give
    it room on the right for the fixed widget when the header is on one line. */
 .main .page-head{padding-right:0;}
+/* Wider screens: no empty strip. The page title shares the top line with the
+   widget, and the header's own buttons / clock stay just left of it
+   (--tb-w = the widget's width, measured below). Pages without a header
+   row keep the strip. */
+@media(min-width:801px){
+    .main:has(> .page-head){padding-top:22px !important;}
+    .main:has(> .page-head) > .page-head{padding-right:var(--tb-w,300px);min-height:50px;}
+}
 @media(max-width:560px){
     .pw-name{display:none;}
     #pwBtn{padding:5px;}
@@ -306,6 +314,15 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
 </style>
 
 <script>
+// How much room the fixed widget needs on the right of each page header.
+(function () {
+    var w = document.getElementById('topbarWidgets');
+    if (!w) return;
+    function fit() { document.documentElement.style.setProperty('--tb-w', (w.offsetWidth + 16) + 'px'); }
+    fit();
+    if (window.ResizeObserver) new ResizeObserver(fit).observe(w); else window.addEventListener('resize', fit);
+})();
+
 // Text size (profile menu, and the patient's My Profile page): applied at once, saved to the account.
 window.setTextScale = function (v) {
     var sys = <?= (int)system_text_scale($pdo) ?>, now = +(v || sys);
