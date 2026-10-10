@@ -23,8 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Frequent cancellations: staff reviewed the patient -> booking allowed again.
     if ($id && $action === 'restore_cancel' && in_array(current_role(), ['admin','staff'], true)) {
-        $pdo->prepare("UPDATE patients SET cancel_reset_at = NOW(), cancel_reset_by = ? WHERE id = ?")
-            ->execute([$_SESSION['name'] ?? 'staff', $id]);
+        reset_account_counts($pdo, $id, 'cancel', $_SESSION['name'] ?? 'staff');   // the whole account
         $nm = $pdo->prepare("SELECT name FROM patients WHERE id = ?"); $nm->execute([$id]);
         $rn = $nm->fetchColumn() ?: 'Patient';
         log_activity($pdo, 'Reviewed cancellations', $rn . ' — online booking restored');
@@ -248,22 +247,32 @@ $pps = $pdo->prepare($pp); $pps->execute($ppp);
 foreach ($pps->fetchAll() as $pr) if (patient_noshow_count($pdo, $pr['id']) >= 3) $pausedPatients[] = $pr['name'];
 
 // ---------- Frequent cancellations waiting for review ----------
-// Patients who cancelled CANCEL_LIMIT+ times themselves (same rolling window,
-// counted since their last review). Their online booking is paused until
-// an admin or staff member reviews them here.
+// Accounts that cancelled CANCEL_LIMIT+ times (same rolling window, counted
+// since their last review). Like the booking page, an account = the patient
+// who logs in + every family member they book for; one row per account.
+// Their online booking is paused until an admin or staff member reviews it here.
 $cancelReview = [];
-$cq = "SELECT p.id, p.name, p.phone, p.primary_dentist, g.name AS guardian_name FROM patients p
-        LEFT JOIN patients g ON g.id = p.guardian_patient_id WHERE p.status <> 'Archived'";
+$cq = "SELECT p.id FROM patients p WHERE p.status <> 'Archived'";
 $cqp = [];
 if ($isDentistUser) { $cq .= " AND " . dentist_match_sql('p.primary_dentist', $filterDentist, $cqp); }
 $cqs = $pdo->prepare($cq); $cqs->execute($cqp);
-foreach ($cqs->fetchAll() as $cp) {
-    $n = patient_cancel_count($pdo, $cp['id']);
-    if ($n < CANCEL_LIMIT) continue;
-    $lr = $pdo->prepare("SELECT appointment_date, cancel_reason FROM appointments
-                          WHERE patient_id = ? AND status='Cancelled' AND cancelled_by='patient'
+[, $accCancels, $accHolder] = account_counts_bulk($pdo, $cqs->fetchAll(PDO::FETCH_COLUMN));
+$seenAcc = [];
+foreach ($accCancels as $pid => $n) {
+    $h = $accHolder[$pid];
+    if ($n < CANCEL_LIMIT || isset($seenAcc[$h])) continue;
+    $seenAcc[$h] = true;
+    $hq = $pdo->prepare("SELECT id, name, phone, primary_dentist FROM patients WHERE id = ?");
+    $hq->execute([$h]);
+    $cp = $hq->fetch();
+    if (!$cp) continue;
+    $fam = family_patient_ids($pdo, $h);
+    $lr = $pdo->prepare("SELECT patient_name, appointment_date, cancel_reason FROM appointments
+                          WHERE patient_id IN (" . in_placeholders($fam) . ") AND status='Cancelled' AND cancelled_by='patient'
                           ORDER BY COALESCE(cancelled_at, created_at) DESC LIMIT 3");
-    $lr->execute([$cp['id']]);
+    $lr->execute($fam);
+    $cp['guardian_name'] = '';
+    $cp['family'] = count($fam) - 1;
     $cp['count'] = $n; $cp['recent'] = $lr->fetchAll();
     $cancelReview[] = $cp;
 }
@@ -462,12 +471,12 @@ function tabLink($key, $label, $count, $current, $tip = '') {
                             <?php foreach ($cancelReview as $cp): ?>
                                 <tr>
                                     <td><strong><?= e($cp['name']) ?></strong>
-                                        <?php if ($cp['guardian_name']): ?><br><small class="text-muted2">booked by <?= e($cp['guardian_name']) ?></small><?php endif; ?>
+                                        <?php if ($cp['family']): ?><br><small class="text-muted2">account · also books for <?= (int)$cp['family'] ?> family member<?= $cp['family'] > 1 ? 's' : '' ?></small><?php endif; ?>
                                         <?php if ($cp['phone']): ?><br><small class="text-muted2">📞 <?= e($cp['phone']) ?></small><?php endif; ?></td>
                                     <td><span class="badge-pill b-cancelled"><?= (int)$cp['count'] ?> cancelled</span></td>
                                     <td style="font-size:.82rem;">
                                         <?php foreach ($cp['recent'] as $rc): ?>
-                                            <div><?= date('M j, Y', strtotime($rc['appointment_date'])) ?>
+                                            <div><?= date('M j, Y', strtotime($rc['appointment_date'])) ?><?= $cp['family'] ? ' · ' . e($rc['patient_name']) : '' ?>
                                                 <span class="text-muted2">— <?= e($rc['cancel_reason'] ?: 'no reason given') ?></span></div>
                                         <?php endforeach; ?>
                                     </td>

@@ -284,9 +284,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $rid = (int)($_POST['id'] ?? 0);
         // Restoring clears both reasons for a pause (missed visits and cancellations).
-        $pdo->prepare("UPDATE patients SET noshow_reset_at = NOW(), noshow_reset_by = ?,
-                                           cancel_reset_at = NOW(), cancel_reset_by = ? WHERE id = ?")
-            ->execute([$_SESSION['name'] ?? 'admin', $_SESSION['name'] ?? 'admin', $rid]);
+        // ...for the whole account (the holder and every family member they book for).
+        reset_account_counts($pdo, $rid, 'all', $_SESSION['name'] ?? 'admin');
 
         $nm = $pdo->prepare("SELECT name FROM patients WHERE id=?");
         $nm->execute([$rid]);
@@ -386,7 +385,9 @@ if (current_role() === 'admin') {
 // ---- Who is blocked from booking online? ----
 // Same shared rule as the booking page: three missed visits inside the
 // rolling window (and only those after any staff reset) pauses booking.
-[$blockedCounts, $cancelCounts] = patient_counts_bulk($pdo, array_column($patients, 'id'));   // 2 queries for the whole list
+// Counted for the WHOLE account (holder + family members), exactly like the
+// booking page, so a pause shows here on everyone it affects.
+[$blockedCounts, $cancelCounts, $accountOf] = account_counts_bulk($pdo, array_column($patients, 'id'));
 
 // Active dentists (for the admin's manual "assign doctor" dropdown).
 $dentistList = $pdo->query("SELECT name FROM users WHERE role='dentist' AND status='active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);

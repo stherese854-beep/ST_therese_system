@@ -84,10 +84,11 @@ try {
         // Patients paused for frequent cancellations, waiting for a review.
         try {
             if (!function_exists('patient_cancel_count')) require_once __DIR__ . '/noshow_check.php';
-            $cr = 0;
-            foreach ($pdo->query("SELECT DISTINCT patient_id FROM appointments WHERE status='Cancelled' AND cancelled_by='patient'")
-                         ->fetchAll(PDO::FETCH_COLUMN) as $cpid) {
-                if (patient_cancel_count($pdo, $cpid) >= CANCEL_LIMIT) $cr++;
+            $cr = 0; $crSeen = [];                                // one per account, as on the booking page
+            [, $crN, $crH] = account_counts_bulk($pdo, $pdo->query("SELECT DISTINCT patient_id FROM appointments WHERE status='Cancelled' AND cancelled_by='patient'")
+                                                        ->fetchAll(PDO::FETCH_COLUMN));
+            foreach ($crN as $cpid => $n) {
+                if ($n >= CANCEL_LIMIT && !isset($crSeen[$crH[$cpid]])) { $crSeen[$crH[$cpid]] = true; $cr++; }
             }
             if ($cr > 0) $tbAdd('freqcancel', $cr, '🔁', "$cr patient" . ($cr > 1 ? 's' : '') . " with frequent cancellations to review", 'noshow?tab=cancels');
         } catch (Throwable $e) {}

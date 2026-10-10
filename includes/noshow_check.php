@@ -243,3 +243,50 @@ function patient_counts_bulk($pdo, array $ids, $months = NOSHOW_WINDOW_MONTHS) {
     }
     return [$noshow, $cancel];
 }
+
+// ============================================================
+//  WHOLE-ACCOUNT TOTALS (what actually pauses online booking)
+// ============================================================
+//  The booking page counts the account holder AND every family member
+//  they book for together (book.php, patient_notices.php). Staff screens
+//  use this so they show the same pause, on every member of the account.
+//  Returns [noshow, cancel, holder]: per listed patient id, the totals of
+//  their whole account, and the id of that account's holder.
+// ============================================================
+function account_counts_bulk($pdo, array $ids, $months = NOSHOW_WINDOW_MONTHS) {
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    $holder = [];
+    if (!$ids) return [[], [], []];
+    $q = $pdo->prepare("SELECT id, guardian_patient_id FROM patients WHERE id IN (" . in_placeholders($ids) . ")");
+    $q->execute($ids);
+    foreach ($q as $r) $holder[(int)$r['id']] = (int)($r['guardian_patient_id'] ?: $r['id']);
+    $holders = array_values(array_unique($holder));
+    // Every member of those accounts, even ones not in the list being shown.
+    $m = $pdo->prepare("SELECT id, COALESCE(guardian_patient_id, id) AS h FROM patients
+                         WHERE id IN (" . in_placeholders($holders) . ") OR guardian_patient_id IN (" . in_placeholders($holders) . ")");
+    $m->execute(array_merge($holders, $holders));
+    $memberOf = [];
+    foreach ($m as $r) $memberOf[(int)$r['id']] = (int)$r['h'];
+    [$ns, $nc] = patient_counts_bulk($pdo, array_keys($memberOf), $months);
+    $nsT = $ncT = [];
+    foreach ($memberOf as $pid => $h) {
+        $nsT[$h] = ($nsT[$h] ?? 0) + ($ns[$pid] ?? 0);
+        $ncT[$h] = ($ncT[$h] ?? 0) + ($nc[$pid] ?? 0);
+    }
+    $outNs = $outNc = [];
+    foreach ($holder as $pid => $h) { $outNs[$pid] = $nsT[$h] ?? 0; $outNc[$pid] = $ncT[$h] ?? 0; }
+    return [$outNs, $outNc, $holder];
+}
+
+// Staff "restore booking": clears the count for the whole account.
+function reset_account_counts($pdo, $patientId, $what, $byName) {
+    $q = $pdo->prepare("SELECT COALESCE(guardian_patient_id, id) FROM patients WHERE id = ?");
+    $q->execute([(int)$patientId]);
+    $h = (int)$q->fetchColumn();
+    if (!$h) return;
+    $fam = family_patient_ids($pdo, $h);
+    $set = $what === 'cancel' ? "cancel_reset_at = NOW(), cancel_reset_by = ?"
+         : "noshow_reset_at = NOW(), noshow_reset_by = ?, cancel_reset_at = NOW(), cancel_reset_by = ?";
+    $args = $what === 'cancel' ? [$byName] : [$byName, $byName];
+    $pdo->prepare("UPDATE patients SET $set WHERE id IN (" . in_placeholders($fam) . ")")->execute(array_merge($args, $fam));
+}
