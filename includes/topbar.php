@@ -156,7 +156,7 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="21" height="21">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
         </svg>
-        <?php if ($badgeCount > 0): ?><span class="notif-dot" id="notifDot"><?= $badgeCount ?></span><?php endif; ?>
+        <?php if ($badgeCount > 0): ?><span class="notif-dot<?= $badgeCount < 10 ? ' one' : '' ?>" id="notifDot"><?= $badgeCount > 99 ? '99+' : $badgeCount ?></span><?php endif; ?>
     </button>
     <div id="notifMenu">
         <div class="notif-head">Notifications</div>
@@ -235,9 +235,12 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
           border:1px solid #e3e9ee;cursor:pointer;display:grid;place-items:center;color:#44585a;
           box-shadow:0 4px 14px rgba(12,50,48,.10);transition:box-shadow .15s,border-color .15s;}
 #notifBtn:hover{box-shadow:0 6px 20px rgba(12,50,48,.16);border-color:var(--teal-light,#14b8a6);color:var(--teal,#0f766e);}
-.notif-dot{position:absolute;top:-2px;right:-2px;min-width:19px;height:19px;padding:0 5px;
-           background:#e05b5b;color:#fff;border-radius:100px;font-size:.7rem;font-weight:700;
-           display:grid;place-items:center;border:2px solid #fff;}
+/* A true circle for one digit (a pill for 10+). Sized in px together with its
+   own px font, so the text-size setting cannot squash the number inside it. */
+.notif-dot{position:absolute;top:-4px;right:-4px;box-sizing:content-box;min-width:18px;height:18px;padding:0 3px;
+           background:#e05b5b;color:#fff;border-radius:999px;font-size:11px;line-height:18px;font-weight:700;
+           text-align:center;font-variant-numeric:tabular-nums;border:2px solid #fff;}
+.notif-dot.one{padding:0;width:18px;}
 #notifMenu{position:absolute;top:calc(100% + 8px);right:0;width:280px;background:#fff;
            border:1px solid #e6efee;border-radius:14px;box-shadow:0 16px 40px rgba(12,50,48,.20);
            overflow:hidden;display:none;}
