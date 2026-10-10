@@ -313,12 +313,13 @@ function tabLink($key, $label, $count, $current) {
         <?php endif; ?>
 
         <!-- ===== Report period ===== -->
-        <div class="card-box mb-3" style="background:#f7f4ee;">
-            <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
-                <div style="font-size:.9rem;">
+        <div class="card-box mb-2 ns-compact" style="background:#f7f4ee;">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                <div style="font-size:.85rem;">
                     <strong>Report period:</strong> <?= e($periodLabel) ?> ·
-                    <strong>Generated:</strong> <?= date('F j, Y g:i A') ?> ·
+                    <strong>Generated:</strong> <?= date('M j, Y g:i A') ?> ·
                     <strong>By:</strong> <?= e($_SESSION['name'] ?? 'Admin') ?>
+                    <div class="text-muted2" style="font-size:.74rem;">Appointments that still need review are always listed, whatever the period.</div>
                 </div>
                 <div class="d-flex flex-wrap gap-2 align-items-center no-print">
                     <form method="GET" class="d-flex gap-1 align-items-center m-0">
@@ -339,12 +340,11 @@ function tabLink($key, $label, $count, $current) {
                     <a href="noshow?tab=<?= e($tab) ?>&period=all" class="btn btn-sm <?= $period === 'all' ? 'btn-dark-navy' : 'btn-light' ?>">All time</a>
                 </div>
             </div>
-            <div class="text-muted2 mt-1" style="font-size:.78rem;">Appointments that still need review are always listed, whatever the period.</div>
         </div>
 
         <!-- ===== Filters (these actually work) ===== -->
-        <div class="card-box mb-3 no-print">
-            <form method="GET" class="row g-2 align-items-end">
+        <div class="card-box mb-2 no-print ns-compact">
+            <form method="GET" class="row g-2 align-items-center">
                 <input type="hidden" name="tab" value="<?= e($tab) ?>">
                 <input type="hidden" name="period" value="<?= e($period) ?>">
                 <?php if ($period === 'week'): ?><input type="hidden" name="w" value="<?= e($pickW) ?>"><?php endif; ?>
@@ -355,8 +355,7 @@ function tabLink($key, $label, $count, $current) {
                     <!-- Only admin and staff choose a dentist. A dentist is always
                          locked to their own records, so no picker is shown. -->
                     <div class="col-md-3">
-                        <label class="field-label">Dentist</label>
-                        <select name="dentist" class="form-select form-select-sm">
+                        <select name="dentist" class="form-select form-select-sm" aria-label="Dentist">
                             <option value="">All dentists</option>
                             <?php foreach ($dentistOptions as $dn): ?>
                                 <option value="<?= e($dn) ?>" <?= ($filterDentist === $dn)?'selected':'' ?>><?= e($dn) ?></option>
@@ -366,8 +365,7 @@ function tabLink($key, $label, $count, $current) {
                 <?php endif; ?>
 
                 <div class="col-md-3">
-                    <label class="field-label">Status</label>
-                    <select name="status" class="form-select form-select-sm">
+                    <select name="status" class="form-select form-select-sm" aria-label="Status">
                         <option value="">All statuses</option>
                         <?php foreach (['Needs Review','No-show','Cancelled','Rescheduled','Expired'] as $st): ?>
                             <option value="<?= $st ?>" <?= ($filterStatus === $st)?'selected':'' ?>><?= $st ?></option>
@@ -376,9 +374,8 @@ function tabLink($key, $label, $count, $current) {
                 </div>
 
                 <div class="col-md-<?= $isDentistUser ? '6' : '4' ?>">
-                    <label class="field-label">Search Patient</label>
-                    <input name="q" class="form-control form-control-sm"
-                           placeholder="Patient name..." value="<?= e($searchName) ?>">
+                    <input name="q" class="form-control form-control-sm" aria-label="Search patient"
+                           placeholder="Search patient name..." value="<?= e($searchName) ?>">
                 </div>
 
                 <div class="col-md-2 d-flex gap-1">
@@ -392,8 +389,8 @@ function tabLink($key, $label, $count, $current) {
 
         <!-- ===== Summary cards — one container, Bootstrap grid:
              2 per row on phones (the rate gets a full row), 3 on tablets, all 5 on wide screens ===== -->
-        <div class="card-box ns-summary mb-3">
-            <div class="row g-3">
+        <div class="card-box ns-summary ns-compact mb-3">
+            <div class="row g-2">
                 <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
                     <div class="value">📅 <?= $totalAppts ?></div><div class="label">Total Appts</div></div></div>
                 <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
@@ -408,11 +405,12 @@ function tabLink($key, $label, $count, $current) {
             </div>
         </div>
         <style>
-        .ns-stat { height: 100%; padding: 14px 16px; border: 1px solid #e3e9ee; border-radius: 14px; background: #fbfdfd; }
-        .ns-stat .value { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
-        .ns-stat .label { font-size: .7rem; letter-spacing: 1px; color: var(--muted, #6b7a86); text-transform: uppercase; margin-top: 4px; }
-        .ns-stat .change { font-size: .78rem; color: var(--muted, #6b7a86); margin-top: 2px; }
-        @media (max-width: 575.98px) { .ns-stat { padding: 12px; } .ns-stat .value { font-size: 1.35rem; } }
+        .ns-compact { padding: 10px 14px !important; }
+        .ns-stat { height: 100%; padding: 8px 12px; border: 1px solid #e3e9ee; border-radius: 10px; background: #fbfdfd; }
+        .ns-stat .value { font-size: 1.2rem; font-weight: 700; line-height: 1.2; }
+        .ns-stat .label { font-size: .62rem; letter-spacing: .8px; color: var(--muted, #6b7a86); text-transform: uppercase; margin-top: 2px; }
+        .ns-stat .change { font-size: .72rem; color: var(--muted, #6b7a86); }
+        @media (max-width: 575.98px) { .ns-stat { padding: 8px 10px; } .ns-stat .value { font-size: 1.1rem; } }
         /* On paper: all five side by side, compact */
         @media print {
             .ns-summary { padding: 0 !important; border: none !important; }
