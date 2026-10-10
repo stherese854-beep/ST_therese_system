@@ -54,6 +54,8 @@
         return i;
     }
     // Text that cannot hold an icon (drop-down choices, tooltips) just loses the emoji.
+    // Only write it back when it really changed: writing the same text again counts as
+    // a new change, which would wake the watcher below again and again (a frozen page).
     function strip(s) { return s.replace(RE, function (e) { return /^[★☆✓]/.test(e) ? e : ''; }).replace(/^\s+/, '').replace(/ {2,}/g, ' '); }
 
     function convertText(node) {
@@ -62,7 +64,7 @@
         RE.lastIndex = 0;
         var p = node.parentNode;
         if (!p || SKIP[p.nodeName] || (p.closest && p.closest('[contenteditable=""],[contenteditable="true"],[data-keep-emoji]'))) return;
-        if (p.nodeName === 'OPTION' || p.nodeName === 'OPTGROUP') { node.nodeValue = strip(t); return; }
+        if (p.nodeName === 'OPTION' || p.nodeName === 'OPTGROUP') { var st = strip(t); if (st !== t) node.nodeValue = st; return; }
         var frag = document.createDocumentFragment(), last = 0, m, changed = false;
         while ((m = RE.exec(t))) {
             var ic = makeIcon(m[0]);
@@ -80,10 +82,10 @@
     function convertAttrs(el) {
         for (var k = 0; k < ATTRS.length; k++) {
             var v = el.getAttribute(ATTRS[k]);
-            if (v && RE.test(v)) { RE.lastIndex = 0; el.setAttribute(ATTRS[k], strip(v)); }
+            if (v && RE.test(v)) { RE.lastIndex = 0; var sv = strip(v); if (sv !== v) el.setAttribute(ATTRS[k], sv); }
             RE.lastIndex = 0;
         }
-        if ((el.type === 'button' || el.type === 'submit') && el.tagName === 'INPUT' && RE.test(el.value)) el.value = strip(el.value);
+        if ((el.type === 'button' || el.type === 'submit') && el.tagName === 'INPUT' && RE.test(el.value)) { var bv = strip(el.value); if (bv !== el.value) el.value = bv; }
         RE.lastIndex = 0;
     }
     function convert(root) {
@@ -121,7 +123,7 @@
     }).observe(document.documentElement, { childList: true, subtree: true, characterData: true,
                                             attributes: true, attributeFilter: ATTRS });
     // The page's own <title> and a last full sweep once it has loaded.
-    function sweep() { document.title = strip(document.title); convert(document.body); }
+    function sweep() { var t = strip(document.title); if (t !== document.title) document.title = t; convert(document.body); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sweep); else sweep();
 
     // Browser pop-ups (confirm / alert / prompt) are plain text: drop the emojis there.
