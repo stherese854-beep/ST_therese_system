@@ -29,8 +29,6 @@ $adminTabs = [
                 </a>
             <?php endif; ?>
         <?php endforeach; ?>
-        <?php if ($_curRole === 'admin'): ?>
-            <a href="cron_reminders" target="_blank" class="btn btn-sm btn-light">⏰ Run 24h Reminders</a>
-        <?php endif; ?>
+        <!-- Reminders send themselves once a day (includes/reminders.php), so no button is needed. -->
     </div>
 </div>
