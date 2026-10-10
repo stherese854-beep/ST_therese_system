@@ -266,6 +266,18 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
     // Turns the page — or one part of it — into a real .pdf file and downloads it.
     // body.pdf-mode hides menus, buttons and filters the same way printing does.
     // Uses html2pdf.js (loaded only the first time it is needed).
+    // Printing or saving a PDF from the Print / PDF menu goes into the Activity Log.
+    document.addEventListener('click', function (e) {
+        var b = e.target.closest('.print-menu [data-log]');
+        if (!b) return;
+        var fd = new FormData(), t = document.querySelector('meta[name="csrf-token"]');
+        fd.append('kind', b.dataset.log);
+        fd.append('page', document.title.replace(/\s+—\s+St\. Therese Dental Clinic$/, ''));
+        fd.append('file', b.dataset.file || '');
+        try { fetch('log_event', { method: 'POST', body: fd, credentials: 'same-origin', keepalive: true,
+                                   headers: t ? { 'X-CSRF-Token': t.content } : {} }); } catch (err) {}
+    }, true);
+
     window.downloadPdf = function (target, filename, opts) {
         opts = opts || {};
         function loadLib() {

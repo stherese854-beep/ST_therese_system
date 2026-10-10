@@ -43,9 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($id) {
+            $was = $pdo->prepare("SELECT name, email, role, specialty, contact, status FROM users WHERE id=?");
+            $was->execute([$id]); $was = $was->fetch() ?: [];
             $pdo->prepare("UPDATE users SET name=?,email=?,role=?,specialty=?,contact=?,status=? WHERE id=?")
                 ->execute([$name,$email,$role,$spec,$contact,$status,$id]);
-            log_activity($pdo, 'Updated user', "$name ($role)");
+            $chg = change_list($was, ['name' => $name, 'email' => $email, 'role' => $role, 'specialty' => $spec, 'contact' => $contact, 'status' => $status],
+                               ['name' => 'Name', 'email' => 'Email', 'role' => 'Role', 'specialty' => 'Specialty', 'contact' => 'Phone', 'status' => 'Status']);
+            log_activity($pdo, 'Updated user', "$name ($role)" . ($chg ? ' — ' . $chg : ''));
             set_flash('User updated.');
         } else {
             // New users get a random Strong temporary password (shown once, emailed).

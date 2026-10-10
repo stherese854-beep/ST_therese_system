@@ -107,6 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
     if (($_POST['action'] ?? '') === 'signin' && rate_limited($pdo, 'login_fail', 10, 900)) {
         $error = "Too many failed sign-in attempts. Please wait 15 minutes and try again.";
         $_POST['action'] = 'signin_blocked';
+        log_activity_as($pdo, null, trim($_POST['email'] ?? '') ?: 'Unknown', null, 'Sign-in blocked', 'Too many failed attempts from one connection (' . 'IP ' . client_ip() . ')');
     }
     if (($_POST['action'] ?? '') === 'signin') {
         $email = trim($_POST['email'] ?? '');
@@ -169,11 +170,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
                 $error = "No account found with that email. Please check the email or register.";
             }
             rate_hit($pdo, 'login_fail');
+            log_activity_as($pdo, null, $email, null, 'Failed sign-in', 'No account with this email (' . 'IP ' . client_ip() . ')');
         } else {
             // The email IS registered, so the only thing left to be wrong is
             // the password.
             $error = "Wrong password. Please try again.";
             rate_hit($pdo, 'login_fail');
+            log_activity_as($pdo, (int)$user['id'], $user['name'] . ' (' . $email . ')', $user['role'], 'Failed sign-in', 'Wrong password (' . 'IP ' . client_ip() . ')');
         }
     }
 

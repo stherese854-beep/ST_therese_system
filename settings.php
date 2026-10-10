@@ -41,13 +41,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash('Clinic phone: ' . $phoneError, 'error');
             header("Location: settings"); exit;
         }
+        $infoKeys = ['clinic_name' => 'Name', 'clinic_tagline' => 'Tagline', 'clinic_phone' => 'Phone', 'clinic_email' => 'Email',
+                     'clinic_address' => 'Address', 'operating_hours' => 'Hours text'];
+        $infoWas = [];
+        foreach ($pdo->query("SELECT setting_key, setting_value FROM settings") as $r) $infoWas[$r['setting_key']] = $r['setting_value'];
+        $infoNew = [];
+        foreach (array_keys($infoKeys) as $k) $infoNew[$k] = trim($_POST[$k] ?? '');
         save_setting($pdo, 'clinic_name',     trim($_POST['clinic_name']));
         save_setting($pdo, 'clinic_tagline',  trim($_POST['clinic_tagline']));
         save_setting($pdo, 'clinic_phone',    trim($_POST['clinic_phone']));
         save_setting($pdo, 'clinic_email',    trim($_POST['clinic_email']));
         save_setting($pdo, 'clinic_address',  trim($_POST['clinic_address']));
         save_setting($pdo, 'operating_hours', trim($_POST['operating_hours']));
-        log_activity($pdo, 'Updated clinic info');
+        log_activity($pdo, 'Updated clinic info', change_list($infoWas, $infoNew, $infoKeys) ?: 'Saved with no changes');
         set_flash('Settings saved.'); header("Location: settings"); exit;
     }
 

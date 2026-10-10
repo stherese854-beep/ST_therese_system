@@ -104,12 +104,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $ageIn = trim($_POST['age'] ?? '');
         $newDentist = trim($_POST['primary_dentist'] ?? '');
+        $pdWas = $pdo->prepare("SELECT name, date_of_birth, phone, email, primary_dentist, emergency_name, emergency_phone FROM patients WHERE id = ?");
+        $pdWas->execute([$pid]); $pdWas = $pdWas->fetch() ?: [];
         $pdo->prepare("UPDATE patients SET name = ?, date_of_birth = ?, age = ?, phone = ?, email = ?, primary_dentist = ?,
                               emergency_name = ?, emergency_phone = ? WHERE id = ?")
             ->execute([trim($_POST['name']), $dob ?: null, $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null),
                        $cleanPhone, $email, $newDentist ?: null,
                        trim($_POST['emergency_name'] ?? '') ?: null, $emPhone ?: null, $pid]);
-        log_activity($pdo, 'Updated patient details', patient_name_of($pdo, $pid));
+        $pdChg = change_list($pdWas, ['name' => trim($_POST['name']), 'date_of_birth' => $dob, 'phone' => $cleanPhone, 'email' => $email,
+                                      'primary_dentist' => $newDentist, 'emergency_name' => trim($_POST['emergency_name'] ?? ''), 'emergency_phone' => $emPhone],
+                             ['name' => 'Name', 'date_of_birth' => 'Birthday', 'phone' => 'Phone', 'email' => 'Email', 'primary_dentist' => 'Dentist',
+                              'emergency_name' => 'Emergency contact', 'emergency_phone' => 'Emergency phone']);
+        log_activity($pdo, 'Updated patient details', patient_name_of($pdo, $pid) . ($pdChg ? ' — ' . $pdChg : ''));
         // A new dentist: the patient's upcoming appointments go to them too (same date and time).
         if ($newDentist !== '' && $newDentist !== (string)$cur['primary_dentist']) {
             log_activity($pdo, 'Assigned dentist', patient_name_of($pdo, $pid) . ' → ' . $newDentist);
@@ -123,6 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ----- Overview: 🩺 Clinical information — the dentist (and admin) -----
     if ($action === 'update_clinical') {
+        $ciWas = $pdo->prepare("SELECT blood_type, allergies, medications, medical_conditions, medical_alert, gum_condition, oral_hygiene,
+                                       dental_habits, dental_anxiety, chart_remarks FROM patients WHERE id = ?");
+        $ciWas->execute([$pid]); $ciWas = $ciWas->fetch() ?: [];
         $pick = fn($v, $list) => in_array($v, $list, true) ? $v : null;
         $habits = array_values(array_intersect(DENTAL_HABITS, array_map('strval', (array)($_POST['dental_habits'] ?? []))));
         $pdo->prepare("UPDATE patients SET blood_type = ?, allergies = ?, medications = ?, medical_conditions = ?, medical_alert = ?,
@@ -134,7 +143,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                        $pick($_POST['gum_condition'] ?? '', GUM_CONDITIONS), $pick($_POST['oral_hygiene'] ?? '', ORAL_HYGIENE),
                        $habits ? implode(', ', $habits) : null, $pick($_POST['dental_anxiety'] ?? '', DENTAL_ANXIETY),
                        trim($_POST['chart_remarks'] ?? '') ?: null, $_SESSION['name'] ?? '', $pid]);
-        log_activity($pdo, 'Updated clinical information', patient_name_of($pdo, $pid));
+        $ciNow = $pdo->prepare("SELECT blood_type, allergies, medications, medical_conditions, medical_alert, gum_condition, oral_hygiene,
+                                       dental_habits, dental_anxiety, chart_remarks FROM patients WHERE id = ?");
+        $ciNow->execute([$pid]); $ciNow = $ciNow->fetch() ?: [];
+        $ciChg = change_list($ciWas, $ciNow, ['blood_type' => 'Blood type', 'allergies' => 'Allergies', 'medications' => 'Medications',
+                     'medical_conditions' => 'Conditions', 'medical_alert' => 'Alert', 'gum_condition' => 'Gums', 'oral_hygiene' => 'Hygiene',
+                     'dental_habits' => 'Habits', 'dental_anxiety' => 'Anxiety', 'chart_remarks' => 'Remarks']);
+        log_activity($pdo, 'Updated clinical information', patient_name_of($pdo, $pid) . ($ciChg ? ' — ' . $ciChg : ' — no changes'));
         set_flash('Clinical information saved.');
         header("Location: records?patient=$pid&tab=overview"); exit;
     }

@@ -473,6 +473,14 @@ function ensure_activity_log_schema($pdo) {
             $pdo->exec("ALTER TABLE activity_log ADD INDEX idx_actor_user (actor_user_id, created_at)");
         }
     } catch (Throwable $e) { /* ignore */ }
+
+    // Details hold "what changed" lists (before -> after), longer than 255.
+    try {
+        $col = $pdo->query("SHOW COLUMNS FROM activity_log LIKE 'details'")->fetch();
+        if ($col && stripos((string)$col['Type'], 'text') === false) {
+            $pdo->exec("ALTER TABLE activity_log MODIFY details TEXT NULL");
+        }
+    } catch (Throwable $e) { /* ignore */ }
 }
 
 // Records one activity-log entry. $action is a short label (e.g. "Logged in",
@@ -480,16 +488,70 @@ function ensure_activity_log_schema($pdo) {
 // of the account/appointment affected). Safe to call from anywhere — never
 // throws, so a logging hiccup can't break the page that called it.
 function log_activity($pdo, $action, $details = '') {
+    log_activity_as($pdo, isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null,
+                    $_SESSION['name'] ?? 'System', $_SESSION['role'] ?? null, $action, $details);
+}
+
+// Same, for someone who is not signed in (e.g. a failed sign-in: the name is
+// the email that was typed).
+function log_activity_as($pdo, $userId, $name, $role, $action, $details = '') {
     try {
         $pdo->prepare("INSERT INTO activity_log (actor_user_id, actor_name, actor_role, action, details) VALUES (?,?,?,?,?)")
-            ->execute([
-                isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null,
-                $_SESSION['name'] ?? 'System',
-                $_SESSION['role'] ?? null,
-                $action,
-                $details,
-            ]);
+            ->execute([$userId, mb_substr((string)$name, 0, 100), $role, mb_substr((string)$action, 0, 60),
+                       mb_substr((string)$details, 0, 2000)]);
     } catch (Throwable $e) { /* logging never blocks the real action */ }
+}
+
+// What changed, for the log: "Date: Oct 10, 2026 → Oct 12, 2026 · Dentist: A → B".
+// $labels = [key => label]; only keys whose value changed are listed. Long
+// text is shortened so one entry stays readable.
+function change_list(array $old, array $new, array $labels) {
+    $short = function ($v) {
+        $v = trim(preg_replace('/\s+/', ' ', (string)$v));
+        if ($v === '') return '–';
+        return mb_strlen($v) > 40 ? mb_substr($v, 0, 40) . '…' : $v;
+    };
+    $out = [];
+    foreach ($labels as $k => $label) {
+        $a = trim((string)($old[$k] ?? ''));
+        $b = trim((string)($new[$k] ?? ''));
+        if ($a === $b) continue;
+        $out[] = $label . ': ' . $short($a) . ' → ' . $short($b);
+    }
+    return implode(' · ', $out);
+}
+
+// Which group an activity belongs to (the Activity Log's category chips).
+const ACTIVITY_CATEGORIES = [
+    'signin'   => 'Sign-ins',
+    'appts'    => 'Appointments',
+    'records'  => 'Patients & Records',
+    'settings' => 'Settings',
+    'security' => 'Security',
+];
+function activity_category($action) {
+    $a = strtolower((string)$action);
+    if (preg_match('/failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported/', $a)) return 'security';
+    if (preg_match('/logged in|logged out|created account/', $a)) return 'signin';
+    if (preg_match('/appointment|arriv|no-show|attended|booked|day off|cancell|reschedul|booking/', $a)) return 'appts';
+    if (preg_match('/patient|treatment|x-ray|note|chart|health|clinical|follow-up|dentist|merged|booked-for|printed|pdf|report/', $a)) return 'records';
+    return 'settings';
+}
+// SQL that picks the same groups (so filters and counts run in the database).
+function activity_category_sql($cat) {
+    $re = [
+        'security' => "failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported",
+        'signin'   => "logged in|logged out|created account",
+        'appts'    => "appointment|arriv|no-show|attended|booked|day off|cancell|reschedul|booking",
+        'records'  => "patient|treatment|x-ray|note|chart|health|clinical|follow-up|dentist|merged|booked-for|printed|pdf|report",
+    ];
+    $order = ['security', 'signin', 'appts', 'records'];
+    $not = [];
+    foreach ($order as $k) {
+        if ($k === $cat) return '(' . implode(' AND ', array_merge($not, ["LOWER(action) REGEXP '" . $re[$k] . "'"])) . ')';
+        $not[] = "LOWER(action) NOT REGEXP '" . $re[$k] . "'";
+    }
+    return '(' . implode(' AND ', $not) . ')';   // settings = everything else
 }
 
 // Announcement text for display: escaped first (safe), then the simple
@@ -1309,8 +1371,8 @@ function print_menu($target = 'main', $filename = 'document', $printJs = 'window
     return '<div class="dropdown d-inline-block print-menu no-print" data-keep-text>'
          . '<button type="button" class="btn ' . e($btnClass) . ' dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">' . $label . '</button>'
          . '<ul class="dropdown-menu dropdown-menu-end shadow-sm">'
-         . '<li><button type="button" class="dropdown-item" onclick="' . e($printJs) . '">🖨 Print</button></li>'
-         . '<li><button type="button" class="dropdown-item" onclick="' . e($pdf) . '">📄 Download PDF file</button></li>'
+         . '<li><button type="button" class="dropdown-item" data-log="print" data-file="' . e($filename) . '" onclick="' . e($printJs) . '">🖨 Print</button></li>'
+         . '<li><button type="button" class="dropdown-item" data-log="pdf" data-file="' . e($filename) . '" onclick="' . e($pdf) . '">📄 Download PDF file</button></li>'
          . '</ul></div>';
 }
 

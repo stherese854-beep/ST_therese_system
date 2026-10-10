@@ -20,19 +20,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save_templates') {
+        $tplBefore = [];
+        foreach ($pdo->query("SELECT setting_key, setting_value FROM settings") as $r)
+            $tplBefore[$r['setting_key']] = (string)$r['setting_value'];
+        $changed = [];
         foreach ($catalogue as $kind => $t) {
             foreach (['subject','body'] as $field) {
                 $posted = trim($_POST["tpl_{$kind}_{$field}"] ?? '');
                 // Storing the built-in text is the same as storing nothing —
                 // keep the row empty so future default changes still apply.
                 $value  = ($posted === trim($t[$field])) ? '' : $posted;
+                if ($value !== ($tplBefore["tpl_{$kind}_{$field}"] ?? '')) $changed[$t['label']] = true;
                 save_setting($pdo, "tpl_{$kind}_{$field}", $value);
             }
         }
         foreach ($slip as $key => $f) {
             $posted = trim($_POST[$key] ?? '');
-            save_setting($pdo, $key, ($posted === trim($f['default'])) ? '' : $posted);
+            $value  = ($posted === trim($f['default'])) ? '' : $posted;
+            if ($value !== ($tplBefore[$key] ?? '')) $changed['Appointment slip'] = true;
+            save_setting($pdo, $key, $value);
         }
+        log_activity($pdo, 'Updated message templates', $changed ? 'Changed: ' . implode(', ', array_keys($changed)) : 'Saved with no changes');
         set_flash('Message templates saved.');
         header("Location: templates"); exit;
     }
@@ -42,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($catalogue[$kind])) {
             save_setting($pdo, "tpl_{$kind}_subject", '');
             save_setting($pdo, "tpl_{$kind}_body", '');
+            log_activity($pdo, 'Reset message template', $catalogue[$kind]['label'] . ' — back to the original wording');
             set_flash('"' . $catalogue[$kind]['label'] . '" was restored to its original wording.', 'info');
         }
         header("Location: templates"); exit;
@@ -53,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             save_setting($pdo, "tpl_{$kind}_body", '');
         }
         foreach ($slip as $key => $f) save_setting($pdo, $key, '');
+        log_activity($pdo, 'Reset message template', 'All messages — back to the original wording');
         set_flash('All messages were restored to their original wording.', 'info');
         header("Location: templates"); exit;
     }

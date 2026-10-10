@@ -21,6 +21,10 @@ require_once 'includes/mailer.php';   // real SMTP sending
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
+    // The settings as they were, so the log can say what changed.
+    $msgBefore = [];
+    foreach ($pdo->query("SELECT setting_key, setting_value FROM settings") as $r) $msgBefore[$r['setting_key']] = $r['setting_value'];
+
     if ($action === 'save_email') {
         save_setting($pdo, 'email_enabled',   isset($_POST['email_enabled']) ? '1':'0');
         $method = in_array($_POST['mail_method'] ?? '', ['smtp','resend','brevo'], true) ? $_POST['mail_method'] : 'smtp';
@@ -48,6 +52,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'smtp_verified', '0');
         save_setting($pdo, 'smtp_verified_at', '');
 
+        $newEmail = ['email_enabled' => isset($_POST['email_enabled']) ? '1' : '0', 'mail_method' => $method,
+                     'smtp_host' => trim($_POST['smtp_host']), 'smtp_port' => trim($_POST['smtp_port']),
+                     'smtp_from_email' => trim($_POST['from_email']), 'smtp_from_name' => trim($_POST['from_name']),
+                     'smtp_username' => trim($_POST['smtp_username'])];
+        $chg = change_list($msgBefore, $newEmail, ['email_enabled' => 'On', 'mail_method' => 'Method', 'smtp_host' => 'Server',
+                     'smtp_port' => 'Port', 'smtp_from_email' => 'From email', 'smtp_from_name' => 'From name', 'smtp_username' => 'Username']);
+        $secret = [];
+        if (trim($_POST['smtp_password'] ?? '') !== '') $secret[] = 'new password saved';
+        if (trim($_POST['mail_api_key'] ?? '') !== '')  $secret[] = 'new API key saved';
+        log_activity($pdo, 'Changed email settings', implode(' · ', array_filter([$chg, implode(', ', $secret)])) ?: 'Saved with no changes');
+
         set_flash('Email configuration saved. Now press "Send Test" to check it actually works.');
         header("Location: messaging"); exit;
     }
@@ -67,10 +82,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // It really went out, so the settings are PROVEN to work.
             save_setting($pdo, 'smtp_verified', '1');
             save_setting($pdo, 'smtp_verified_at', date('Y-m-d H:i:s'));
+            log_activity($pdo, 'Sent test email', "To $to — it worked");
             set_flash("✅ Test email sent to $to. Check the inbox (and the spam folder).");
         } else {
             save_setting($pdo, 'smtp_verified', '0');
             save_setting($pdo, 'smtp_verified_at', '');
+            log_activity($pdo, 'Sent test email', "To $to — failed: $err");
             set_flash("❌ Could not send: $err", 'error');
         }
         header("Location: messaging"); exit;
@@ -82,6 +99,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'sms_sender',    trim($_POST['sms_sender']));
         save_setting($pdo, 'sms_country',   trim($_POST['sms_country']));
         save_setting($pdo, 'sms_max_day',   trim($_POST['sms_max_day']));
+        $newSms = ['sms_enabled' => isset($_POST['sms_enabled']) ? '1' : '0', 'sms_provider' => trim($_POST['sms_provider']),
+                   'sms_sender' => trim($_POST['sms_sender']), 'sms_country' => trim($_POST['sms_country']), 'sms_max_day' => trim($_POST['sms_max_day'])];
+        log_activity($pdo, 'Changed SMS settings', change_list($msgBefore, $newSms, ['sms_enabled' => 'On', 'sms_provider' => 'Provider',
+                     'sms_sender' => 'Sender', 'sms_country' => 'Country', 'sms_max_day' => 'Max per day']) ?: 'Saved with no changes');
     }
 
     set_flash('Messaging configuration saved.');

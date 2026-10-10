@@ -150,7 +150,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
                       ? ' The patient was emailed the new details.'
                       : " (The email could not be sent — $err)";
         }
-        log_activity($pdo, 'Edited appointment', ($ap['patient_name'] ?? 'Appointment') . ' → ' . ($_POST['appointment_date'] ?? '') . ' ' . ($_POST['appointment_time'] ?? ''));
+        $fmtD = fn($d) => $d ? date('M j, Y', strtotime($d)) : '';
+        $chg = change_list(
+            ['date' => $fmtD($ap['appointment_date']), 'time' => $ap['appointment_time'], 'treatment' => $ap['treatment'], 'dentist' => $ap['dentist']],
+            ['date' => $fmtD($newDate), 'time' => $newTime, 'treatment' => $treat, 'dentist' => $dent],
+            ['date' => 'Date', 'time' => 'Time', 'treatment' => 'Treatment', 'dentist' => 'Dentist']);
+        log_activity($pdo, 'Edited appointment', ($ap['patient_name'] ?? 'Appointment') . ' — ' . ($chg ?: 'no changes') . ($note !== '' ? ' · Note: ' . $note : ''));
         set_flash('Appointment updated.' . $mailNote);
     }
     header("Location: appointments" . (isset($_POST['filter']) ? "?filter=".urlencode($_POST['filter']) : "")); exit;
