@@ -212,7 +212,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
         if (!$dateObj || $dateObj->format('Y-m-d') !== $date)               $err = 'Please choose a valid date.';
         elseif ($date < date('Y-m-d'))                                      $err = 'The date has already passed.';
         elseif (!in_array($time, clinic_time_slots($pdo), true))            $err = 'Please choose one of the clinic\'s time slots.';
-        elseif ($date === date('Y-m-d') && strtotime("$date $time") <= time()) $err = 'That time has already passed today.';
+        // The slot in progress right now can still be booked (a walk-in seen straight away); only ended slots are refused.
+        elseif ($date === date('Y-m-d') && strtotime("$date $time") + 3600 <= time()) $err = 'That time has already passed today.';
         elseif ($treatErr !== '')                                           $err = $treatErr;
     }
 
@@ -999,7 +1000,7 @@ $active = 'appointments';
           <div class="col-md-3">
             <label class="field-label">Time *</label>
             <select name="time" id="sb-time" class="form-select" required>
-              <?php foreach ($bookSlots as $sl): ?><option><?= e($sl) ?></option><?php endforeach; ?>
+              <?php foreach ($bookSlots as $sl): ?><option value="<?= e($sl) ?>"><?= e($sl) ?></option><?php endforeach; ?>
             </select>
           </div>
           <div class="col-md-6">
@@ -1091,15 +1092,18 @@ function sbFilter() {
     [].forEach.call(s.options, function (o) { o.hidden = q !== '' && o.text.toLowerCase().indexOf(q) === -1; });
     sbOpen(false);
 }
-// Today: times that have already passed are not offered.
+// Today: slots that have already ENDED are not offered. The slot going on right
+// now stays open (marked "now") so a walk-in can be booked and seen straight away.
 function sbTimes() {
     var d = document.getElementById('sb-date').value, now = new Date(), today = now.toISOString().slice(0, 10);
     today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
     var sel = document.getElementById('sb-time'), firstOk = null;
     [].forEach.call(sel.options, function (o) {
         var m = o.value.match(/(\d+):(\d+) (AM|PM)/), h = (+m[1] % 12) + (m[3] === 'PM' ? 12 : 0);
-        var past = d === today && (h * 60 + +m[2]) <= (now.getHours() * 60 + now.getMinutes());
+        var start = h * 60 + +m[2], mins = now.getHours() * 60 + now.getMinutes();
+        var past = d === today && start + 60 <= mins, current = d === today && start <= mins && mins < start + 60;
         o.disabled = past; if (!past && firstOk === null) firstOk = o.value;
+        o.textContent = o.value + (current ? '  (now)' : '');
     });
     if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled && firstOk) sel.value = firstOk;
 }
