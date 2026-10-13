@@ -486,8 +486,8 @@ $active = 'patients';
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="avatar" style="background:<?= $avatarColors[$i % 5] ?>"><?= strtoupper(substr($p['name'],0,1)) ?></span>
                                     <div>
-                                        <strong><?= e($p['name']) ?></strong><br>
-                                        <small class="text-muted2"><?= e($p['email']) ?></small>
+                                        <strong><?= e($p['name']) ?></strong>
+                                        <?php if (trim((string)$p['email']) !== ''): ?><br><small class="text-muted2"><?= e($p['email']) ?></small><?php endif; ?>
                                         <?php if (empty($p['user_id'])): ?>
                                             <br><small class="text-muted2" style="font-size:.7rem;"><?= !empty($p['guardian_patient_id']) ? '👪 Booked by ' . e($p['booked_by_name'] ?: '–') . ' · no login of their own' : 'Walk-in · no online account yet' ?></small>
                                             <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
