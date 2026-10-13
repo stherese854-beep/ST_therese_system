@@ -435,6 +435,7 @@ $active = 'patients';
                 <?php if ($isDentist): ?>
                     <!-- Dentists: new patients come in through a walk-in visit or a booking -->
                     <button type="button" class="btn btn-dark-navy" onclick="wiOpen()" data-keep-text>+ Walk-in</button>
+                    <a href="appointments?book=1" class="btn btn-teal" data-keep-text>+ Book Appointment</a>
                 <?php else: ?>
                     <!-- Opens the Add Patient modal -->
                     <button class="btn btn-dark-navy" data-bs-toggle="modal" data-bs-target="#patientModal" onclick="openAdd()">+ Add Patient</button>
