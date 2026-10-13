@@ -340,7 +340,7 @@ $active = 'records';
             <label class="field-label mb-0">Patient:</label>
             <form method="GET" class="m-0">
                 <input type="hidden" name="tab" value="<?= e($tab) ?>">
-                <select name="patient" class="form-select" style="min-width:280px;" onchange="this.form.submit()">
+                <select name="patient" class="form-select" style="min-width:280px;" onchange="this.form.submit()" data-search="Search patient…">
                     <?php foreach ($patients as $p): ?>
                         <option value="<?= $p['id'] ?>" <?= $p['id']==$pid?'selected':'' ?>><?= e($p['name']) ?></option>
                     <?php endforeach; ?>

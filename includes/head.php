@@ -162,6 +162,9 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
             inp.type = 'search'; inp.autocomplete = 'off';
             inp.className = 'form-control form-control-sm mb-1 select-search';
             inp.placeholder = sel.dataset.search || 'Type to search…';
+            // Same width as its drop-down (not the whole card).
+            if (sel.style.maxWidth) inp.style.maxWidth = sel.style.maxWidth;
+            if (sel.style.minWidth) { inp.style.minWidth = sel.style.minWidth; inp.style.width = sel.style.minWidth; }
             sel.parentNode.insertBefore(inp, sel);
             var picked = false;
             function pick(v) {
