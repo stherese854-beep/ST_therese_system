@@ -476,8 +476,8 @@ $active = 'patients';
                                     <div>
                                         <strong><?= e($p['name']) ?></strong><br>
                                         <small class="text-muted2"><?= e($p['email']) ?></small>
-                                        <?php if (!empty($p['guardian_patient_id']) && empty($p['user_id'])): ?>
-                                            <br><small class="text-muted2" style="font-size:.7rem;">👪 Booked by <?= e($p['booked_by_name'] ?: '–') ?> · no login of their own</small>
+                                        <?php if (empty($p['user_id'])): ?>
+                                            <br><small class="text-muted2" style="font-size:.7rem;"><?= !empty($p['guardian_patient_id']) ? '👪 Booked by ' . e($p['booked_by_name'] ?: '–') . ' · no login of their own' : 'Walk-in · no online account yet' ?></small>
                                             <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
                                                 <?php if (isset($openInvites[(int)$p['id']])): ?>
                                                     <br><span class="badge-pill b-pending" style="font-size:.66rem;">✉️ Invite sent to <?= e($openInvites[(int)$p['id']]['email']) ?></span>
@@ -927,7 +927,7 @@ function validatePauseBooking(){
     }
 </script>
 <!-- ===== Pause online booking ===== -->
-<!-- ===== Give a booked-for adult their own account ===== -->
+<!-- ===== Give a patient without a login their own account ===== -->
 <div class="modal fade" id="ownInviteModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <form method="POST" class="modal-content">
@@ -939,13 +939,13 @@ function validatePauseBooking(){
       </div>
       <div class="modal-body">
         <div class="card-box mb-3" style="background:#f7fafa;padding:12px 14px;">
-          <div class="text-muted2" style="font-size:.8rem;">Booked-for person</div>
+          <div class="text-muted2" style="font-size:.8rem;">Patient</div>
           <div style="font-weight:600;" id="oi-name"></div>
         </div>
         <div class="alert" style="background:#eef7f6;border:1px solid #cfe0dd;color:#3f5350;font-size:.82rem;">
           An invite link is emailed to them (it works for <?= INVITE_HOURS ?> hours). When they set a password, this same record
-          becomes their own account — appointments, dental chart, records and X-rays stay with it. The person who booked for
-          them no longer sees them. Only for ages <?= MIN_ACCOUNT_AGE ?>+.
+          becomes their own account — appointments, dental chart, records and X-rays stay with it, so no duplicate
+          record is made. If someone was booking for them, that person no longer sees them. Only for ages <?= MIN_ACCOUNT_AGE ?>+.
         </div>
         <div id="oi-age-warn" class="alert alert-danger py-2" style="font-size:.82rem;display:none;"></div>
         <label class="field-label">Their email address</label>

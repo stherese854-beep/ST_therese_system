@@ -54,15 +54,15 @@ include 'includes/head.php';
 
     <?php if (!$inv): ?>
         <p class="text-center mt-3">This invite link has expired, was already used, or is not valid.</p>
-        <p class="text-muted2 text-center" style="font-size:.88rem;">Ask the person who books for you to send a new invite
-            from <b>People I Book For</b>, or contact the clinic.</p>
+        <p class="text-muted2 text-center" style="font-size:.88rem;">Ask the clinic (or the person who books for you,
+            from <b>People I Book For</b>) to send a new invite.</p>
         <div class="text-center"><a href="login" class="btn btn-teal" data-keep-text>Go to sign in</a></div>
     <?php else: ?>
         <p class="text-center mb-3">Hello <b><?= e($inv['name']) ?></b>! Set a password to get your own patient account.</p>
         <div class="alert" style="background:#eef7f6;border:1px solid #cfe0dd;color:#3f5350;font-size:.84rem;">
             Your appointments, dental chart and records move to your new account.
             <b>You will sign in with <?= e($inv['email']) ?>.</b>
-            After this, the person who booked for you will no longer see or manage your appointments.
+            <?php if (!empty($inv['guardian_patient_id'])): ?>After this, the person who booked for you will no longer see or manage your appointments.<?php endif; ?>
         </div>
         <?php if ($error): ?><div class="alert alert-danger py-2" style="font-size:.88rem;"><?= e($error) ?></div><?php endif; ?>
         <form method="POST">

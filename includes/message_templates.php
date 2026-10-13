@@ -125,7 +125,7 @@ function message_catalogue() {
     'account_invite' => [
         'group'   => 'To the patient',
         'label'   => 'Own-account invite',
-        'when'    => 'Sent to someone booked under another person’s account when they are given their own account. {link} is required.',
+        'when'    => 'Sent when a patient without a login (booked for by someone else, or a walk-in) is given their own account. {link} is required.',
         'vars'    => ['patient','by','link','hours','clinic'],
         'subject' => 'Your own patient account at {clinic}',
         'body'    => "Hello {patient},

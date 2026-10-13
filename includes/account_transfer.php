@@ -94,7 +94,8 @@ function pending_account_invite($pdo, $patientId) {
 // Why this person cannot get their own account yet ('' = they can).
 function own_account_problem($pdo, $person) {
     if (!$person) return 'That person could not be found.';
-    if (!empty($person['user_id']) || empty($person['guardian_patient_id'])) return 'This person already has their own account.';
+    if (!empty($person['user_id'])) return 'This person already has their own account.';
+    if (($person['status'] ?? '') === 'Archived') return 'This record is in the Archive. Restore it first.';
     $age = account_age($person);
     if ($age === null) return 'Their birthday is not on file. Please ask the clinic to add it first.';
     if ($age < MIN_ACCOUNT_AGE) return 'Only people aged ' . MIN_ACCOUNT_AGE . ' or older can have their own account. '
@@ -123,14 +124,15 @@ function send_account_invite($pdo, $patientId, $email, $invitedBy) {
     $token = bin2hex(random_bytes(32));
     $pdo->prepare("INSERT INTO account_invites (patient_id, guardian_patient_id, email, token, expires_at, invited_by)
                    VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL " . INVITE_HOURS . " HOUR), ?)")
-        ->execute([(int)$patientId, (int)$person['guardian_patient_id'], $email, $token, $invitedBy]);
+        ->execute([(int)$patientId, $person['guardian_patient_id'] ? (int)$person['guardian_patient_id'] : null, $email, $token, $invitedBy]);
 
+    // "{by} has been booking your appointments": the account holder, or the clinic for a walk-in record.
     $g = $pdo->prepare("SELECT name FROM patients WHERE id = ?");
     $g->execute([(int)$person['guardian_patient_id']]);
     $cat = message_catalogue()['account_invite'];
     [$subj, $body] = tpl_message($pdo, 'account_invite', $cat['subject'], $cat['body'], [
         'patient' => $person['name'],
-        'by'      => $g->fetchColumn() ?: 'the person who booked for you',
+        'by'      => $g->fetchColumn() ?: 'The clinic',
         'link'    => site_base_url($pdo) . '/claim_account?t=' . $token,
         'hours'   => INVITE_HOURS,
         'clinic'  => clinic_name($pdo),
@@ -159,7 +161,7 @@ function find_account_invite($pdo, $token) {
                          WHERE i.token = ? AND i.accepted_at IS NULL AND i.cancelled_at IS NULL AND i.expires_at > NOW()");
     $q->execute([$token]);
     $inv = $q->fetch();
-    if (!$inv || !empty($inv['user_id']) || empty($inv['cur_guardian']) || $inv['pstatus'] === 'Archived') return null;
+    if (!$inv || !empty($inv['user_id']) || $inv['pstatus'] === 'Archived') return null;
     return $inv;
 }
 
@@ -182,13 +184,14 @@ function accept_account_invite($pdo, $inv, $password, $phone) {
         $pdo->rollBack();
         return [0, 'Something went wrong while creating the account. Please try again.'];
     }
-    // Tell the person who used to book for them (pop-up in their portal).
+    // Tell the person who used to book for them (pop-up in their portal), if anyone did.
     if (!function_exists('add_patient_notice')) require_once __DIR__ . '/patient_notices.php';
-    add_patient_notice($pdo, (int)$inv['guardian_patient_id'], 'own_account', 'good',
+    if ((int)$inv['guardian_patient_id'] > 0) add_patient_notice($pdo, (int)$inv['guardian_patient_id'], 'own_account', 'good',
         $inv['name'] . ' now has their own account',
         $inv['name'] . " accepted the invite and now signs in with their own account. Their appointments and dental "
         . "records moved with them, so they no longer appear under People I Book For.");
-    log_activity($pdo, 'Booked-for person got their own account', $inv['name'] . ' (' . $inv['email'] . ')');
+    log_activity($pdo, (int)$inv['guardian_patient_id'] > 0 ? 'Booked-for person got their own account' : 'Patient got their own account',
+                 $inv['name'] . ' (' . $inv['email'] . ')');
     return [$uid, ''];
 }
 
