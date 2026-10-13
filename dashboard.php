@@ -267,7 +267,7 @@ $active = 'dashboard';
                 <div class="clock"><span class="time" id="clock">--:--</span><br><span id="clock-date"></span></div>
                 <button type="button" class="btn btn-dark-navy" onclick="wiOpen()" data-keep-text>+ Walk-in</button>
                 <a href="appointments?book=1" class="btn btn-teal">+ Book Appointment</a>
-                <a href="patients" class="btn btn-dark-navy">+ New Patient</a>
+                <?php if (!$isDentist): ?><a href="patients" class="btn btn-dark-navy">+ New Patient</a><?php endif; ?>
             </div>
         </div>
 

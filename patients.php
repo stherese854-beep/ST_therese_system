@@ -30,7 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash($ep, 'error');
             header("Location: patients"); exit;
         }
-        $newpass = $_POST['password'] ?? '';
+        // A DENTIST does not add patients here (they come in through + Walk-in or a
+        // booking) and never creates logins or sets passwords; admin and staff can.
+        if (current_role() === 'dentist' && (int)($_POST['id'] ?? 0) <= 0) {
+            set_flash('Dentists add new patients with + Walk-in or Book Appointment.', 'error');
+            header("Location: patients"); exit;
+        }
+        $newpass = current_role() === 'dentist' ? '' : ($_POST['password'] ?? '');
         if ($newpass !== '' && ($pwp = password_problem($newpass)) !== '') {   // only Strong passwords
             set_flash($pwp, 'error');
             header("Location: patients"); exit;
@@ -426,8 +432,13 @@ $active = 'patients';
                     <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#mergeModal"
                             data-keep-text title="Two records for the same person? Move everything onto one">🔀 Merge records</button>
                 <?php endif; ?>
-                <!-- Opens the Add Patient modal -->
-                <button class="btn btn-dark-navy" data-bs-toggle="modal" data-bs-target="#patientModal" onclick="openAdd()">+ Add Patient</button>
+                <?php if ($isDentist): ?>
+                    <!-- Dentists: new patients come in through a walk-in visit or a booking -->
+                    <button type="button" class="btn btn-dark-navy" onclick="wiOpen()" data-keep-text>+ Walk-in</button>
+                <?php else: ?>
+                    <!-- Opens the Add Patient modal -->
+                    <button class="btn btn-dark-navy" data-bs-toggle="modal" data-bs-target="#patientModal" onclick="openAdd()">+ Add Patient</button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -464,7 +475,7 @@ $active = 'patients';
                             <?php if ($search !== '' || $statusFilter !== ''): ?>
                                 No patients match your search. <a href="patients" style="color:var(--teal);">Clear filters</a>
                             <?php else: ?>
-                                No patients yet. Click <strong>+ Add Patient</strong> to add the first one.
+                                No patients yet. Click <strong><?= $isDentist ? '+ Walk-in' : '+ Add Patient' ?></strong> to add the first one.
                             <?php endif; ?>
                         </td></tr>
                     <?php endif; ?>
@@ -675,7 +686,7 @@ $active = 'patients';
                 <div class="text-muted2 mb-3" style="font-size:.78rem;">Why this patient came back. Shows on their record.</div>
             </div>
 
-            <div id="f-pass-wrap">
+            <div id="f-pass-wrap"<?= $isDentist ? ' hidden' : '' ?>><!-- passwords: admin / staff only -->
                 <label class="field-label">Password</label>
                 <div class="pw-wrap mb-1">
                     <input type="password" name="password" id="f-pass" class="form-control" data-pw-meter autocomplete="new-password"
@@ -757,6 +768,7 @@ $active = 'patients';
 </div>
 
 <?php include 'includes/family_choice.php'; ?>
+<?php if ($isDentist) { require_once 'includes/walkins.php'; echo walkin_form($pdo); } ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
