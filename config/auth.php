@@ -1449,6 +1449,33 @@ if (php_sapi_name() !== 'cli' && !empty($_SESSION['user_id'])) {
 }
 
 // ============================================================
+//  SIGN OUT AFTER 15 MINUTES WITHOUT USE  (dentist, staff, admin)
+// ============================================================
+//  Clinic computers are shared: an open session must not leave patient
+//  records on screen for whoever sits down next. Every request counts as
+//  activity; while someone is reading a page, the page itself tells the
+//  server they are still there (keepalive.php, see includes/head.php) and
+//  warns 60 seconds before signing out. Patients are not affected.
+// ============================================================
+const IDLE_SIGNOUT_MINUTES = 15;
+if (php_sapi_name() !== 'cli' && !empty($_SESSION['user_id'])
+    && in_array($_SESSION['role'] ?? '', ['admin', 'staff', 'dentist'], true)) {
+    $__peek = strpos($_SERVER['SCRIPT_NAME'] ?? '', 'keepalive') !== false && isset($_GET['peek']);
+    $__last = (int)($_SESSION['last_active'] ?? 0);
+    if ($__last > 0 && time() - $__last > IDLE_SIGNOUT_MINUTES * 60 + 30) {
+        log_activity($pdo, 'Logged out (inactive)', 'No activity for ' . IDLE_SIGNOUT_MINUTES . ' minutes');
+        $_SESSION = [];
+        session_regenerate_id(true);
+        if ($__peek || strpos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false) {
+            header('Content-Type: application/json'); echo json_encode(['signed_out' => true]); exit;
+        }
+        header('Location: ' . app_url('login?toast=idle'));
+        exit;
+    }
+    if (!$__peek) $_SESSION['last_active'] = time();     // a "peek" only asks, it is not activity
+}
+
+// ============================================================
 //  PRINT / PDF DROP-DOWN  (every page that prints)
 // ============================================================
 //   [ 🖨 Print / PDF ▾ ]  ->  🖨 Print   |   📄 Download PDF file

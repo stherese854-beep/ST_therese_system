@@ -18,10 +18,11 @@ function odo_back($pid, $sid) {
     exit;
 }
 
-// If a DENTIST edits a chart, record them as the patient's primary dentist.
+// If a DENTIST charts a patient who has no primary dentist yet, they become it.
+// (A dentist covering for a colleague does NOT take the patient over.)
 function touch_primary_dentist($pdo, $pid) {
     if (current_role() === 'dentist') {
-        $pdo->prepare("UPDATE patients SET primary_dentist=? WHERE id=?")
+        $pdo->prepare("UPDATE patients SET primary_dentist=? WHERE id=? AND (primary_dentist IS NULL OR primary_dentist = '')")
             ->execute([$_SESSION['name'] ?? '', $pid]);
     }
 }
@@ -32,7 +33,7 @@ $odoSql = "SELECT p.id, p.name FROM patients p
            LEFT JOIN users u ON p.user_id = u.id
            WHERE (u.id IS NULL OR u.role = 'patient')";
 $odoPrm = [];
-if (current_role() === 'dentist') { $odoSql .= " AND p.primary_dentist = ?"; $odoPrm[] = $_SESSION['name'] ?? ''; }
+if (current_role() === 'dentist') { $odoSql .= " AND " . dentist_patient_sql('p.id', 'p.primary_dentist', $_SESSION['name'] ?? '', $odoPrm); }
 $odoSql .= " ORDER BY p.name";
 $odoStmt = $pdo->prepare($odoSql); $odoStmt->execute($odoPrm);
 $patients = $odoStmt->fetchAll();

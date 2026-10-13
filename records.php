@@ -28,7 +28,8 @@ $recSql = "SELECT p.id, p.name FROM patients p
            LEFT JOIN users u ON p.user_id = u.id
            WHERE (u.id IS NULL OR u.role = 'patient')";
 $recPrm = [];
-if (current_role() === 'dentist') { $recSql .= " AND p.primary_dentist = ?"; $recPrm[] = $_SESSION['name'] ?? ''; }
+// A DENTIST: their own patients + anyone they are seeing (covering a colleague, walk-in).
+if (current_role() === 'dentist') { $recSql .= " AND " . dentist_patient_sql('p.id', 'p.primary_dentist', $_SESSION['name'] ?? '', $recPrm); }
 $recSql .= " ORDER BY p.name";
 $recStmt = $pdo->prepare($recSql); $recStmt->execute($recPrm);
 $patients = $recStmt->fetchAll();
@@ -371,6 +372,13 @@ $active = 'records';
         <?php if ($pid && $patientRow): ?>
             <?= clinical_styles() ?>
             <?= patient_alert_banner($patientRow) ?>
+            <?php if (current_role() === 'dentist' && !empty($patientRow['primary_dentist'])
+                      && !in_array($patientRow['primary_dentist'], dentist_name_variants($_SESSION['name'] ?? ''), true)): ?>
+                <div class="alert py-2" style="background:#eef7f6;border:1px solid #cfe0dd;color:#3f5350;font-size:.88rem;">
+                    👥 <b><?= e($patientRow['primary_dentist']) ?>'s patient</b> — you can open their records because you are seeing them
+                    (an appointment or walk-in with you). They stay <?= e($patientRow['primary_dentist']) ?>'s patient.
+                </div>
+            <?php endif; ?>
         <?php endif; ?>
 
         <?php if (!$pid): ?>

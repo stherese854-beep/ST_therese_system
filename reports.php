@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     if (current_role() === 'dentist') {
         $own = [];
         $ownSql = "SELECT COUNT(*) FROM patients p WHERE p.id = ? AND " .
-                  dentist_match_sql('p.primary_dentist', $_SESSION['name'] ?? '', $own);
+                  dentist_patient_sql('p.id', 'p.primary_dentist', $_SESSION['name'] ?? '', $own);
         $chk = $pdo->prepare($ownSql); $chk->execute(array_merge([$pid], $own));
         if (!(int)$chk->fetchColumn()) deny_access("Changed clinical info of patient #$pid");
     }
@@ -99,7 +99,8 @@ $repSql = "SELECT p.* FROM patients p
 $repPrm = [];
 if ($filterDentist !== '') {
     // Match the dentist in either shape the data uses (full or short name).
-    $repSql .= " AND " . dentist_match_sql('p.primary_dentist', $filterDentist, $repPrm);
+    $repSql .= " AND " . ($isDentistUser ? dentist_patient_sql('p.id', 'p.primary_dentist', $filterDentist, $repPrm)
+                                         : dentist_match_sql('p.primary_dentist', $filterDentist, $repPrm));
 }
 $repSql .= " ORDER BY p.name";
 $repStmt = $pdo->prepare($repSql); $repStmt->execute($repPrm);

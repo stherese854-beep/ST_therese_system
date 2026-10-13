@@ -608,6 +608,62 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
 <body>
 <?php include __DIR__ . '/inapp_banner.php';   // "open in your browser" notice inside Messenger/Facebook/etc. ?>
 <?php
+// ---- Idle sign-out timer (dentist, staff, admin) — see config/auth.php ----
+if (!empty($_SESSION['user_id']) && in_array($_SESSION['role'] ?? '', ['admin', 'staff', 'dentist'], true)):
+    $__idleLimit = IDLE_SIGNOUT_MINUTES * 60; ?>
+<div id="idle-warn" class="idle-warn" hidden role="alertdialog" aria-modal="true" aria-labelledby="idle-title">
+    <div class="idle-box">
+        <h5 id="idle-title" class="mb-1">Still there?</h5>
+        <p class="mb-3" style="font-size:.92rem;">For privacy you will be signed out in <b id="idle-secs">60</b> seconds.</p>
+        <div class="d-flex justify-content-end gap-2">
+            <a href="logout" class="btn btn-light" data-keep-text>Sign out now</a>
+            <button type="button" class="btn btn-teal" id="idle-stay" data-keep-text>Stay signed in</button>
+        </div>
+    </div>
+</div>
+<style>
+.idle-warn { position: fixed; inset: 0; z-index: 100001; background: rgba(15,30,30,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.idle-warn[hidden] { display: none; }
+.idle-box { background: #fff; border-radius: 14px; padding: 20px 22px; width: 100%; max-width: 380px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+</style>
+<script>
+(function () {
+    var LIMIT = <?= (int)$__idleLimit ?> * 1000, WARN = 60 * 1000;
+    var lastUse = Date.now(), lastPing = Date.now(), warnTimer = null, count = null;
+    var box = document.getElementById('idle-warn'), secs = document.getElementById('idle-secs');
+    function ping() { lastPing = Date.now(); return fetch('keepalive', { credentials: 'same-origin', cache: 'no-store' }); }
+    function used() {
+        lastUse = Date.now();
+        // Reading / typing on one page sends no requests: tell the server every 5 minutes.
+        if (Date.now() - lastPing > 5 * 60 * 1000) ping().catch(function () {});
+    }
+    ['mousemove', 'keydown', 'click', 'scroll', 'touchstart', 'input'].forEach(function (ev) {
+        document.addEventListener(ev, function () { if (box.hidden) used(); }, { passive: true, capture: true });
+    });
+    function signOut() { location.href = 'logout?idle=1'; }
+    function showWarning() {
+        // Another tab may still be in use: ask the server first.
+        fetch('keepalive?peek=1', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.signed_out) return signOut();
+            if (d.idle * 1000 < LIMIT - WARN) { lastUse = Date.now() - d.idle * 1000; return; }   // busy elsewhere
+            box.hidden = false; var left = 60; secs.textContent = left;
+            count = setInterval(function () {
+                left--; secs.textContent = left;
+                if (left <= 0) { clearInterval(count); fetch('keepalive?peek=1', { credentials: 'same-origin' }).finally(signOut); }
+            }, 1000);
+        }).catch(function () {});
+    }
+    document.getElementById('idle-stay').onclick = function () {
+        clearInterval(count); box.hidden = true; ping().then(function () { lastUse = Date.now(); });
+    };
+    setInterval(function () {
+        if (box.hidden && Date.now() - lastUse >= LIMIT - WARN) showWarning();
+    }, 15000);
+})();
+</script>
+<?php endif;
+
 // ---- Toast pop-up (shows a one-time flash message, or a ?toast= URL message) ----
 $__flash = function_exists('take_flash') ? take_flash() : null;
 // Only known codes are accepted, so nobody can craft a link that shows their
@@ -615,6 +671,7 @@ $__flash = function_exists('take_flash') ? take_flash() : null;
 $__urlToasts = [
     'loggedout' => ['msg' => 'You have been logged out.', 'type' => 'info'],
     'pwreset'   => ['msg' => 'Password reset! You can now sign in with your new password.', 'type' => 'success'],
+    'idle'      => ['msg' => 'You were signed out after 15 minutes without activity, to keep patient records private. Please sign in again.', 'type' => 'info'],
 ];
 if (!$__flash && isset($_GET['toast'], $__urlToasts[$_GET['toast']]) && $_SERVER['REQUEST_METHOD'] === 'GET') {
     $__flash = $__urlToasts[$_GET['toast']];

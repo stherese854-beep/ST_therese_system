@@ -95,6 +95,34 @@ function dentist_match_sql($column, $fullName, &$params) {
 }
 
 // ============================================================
+//  WHICH PATIENTS MAY A DENTIST OPEN?
+// ============================================================
+//  Their own patients (primary dentist, any spelling of their name)
+//  PLUS anyone they are seeing: an appointment with them, or a walk-in
+//  visit with them, from 30 days ago to 30 days ahead. So a dentist who
+//  covers for a colleague (day off, auto-assigned, walk-in) can open the
+//  chart and records of the patient in their chair.
+//  $idCol / $primaryCol: e.g. 'p.id', 'p.primary_dentist'.
+// ============================================================
+const DENTIST_COVER_DAYS = 30;
+function dentist_patient_sql($idCol, $primaryCol, $fullName, &$params) {
+    $own  = dentist_match_sql($primaryCol, $fullName, $params);
+    $appt = dentist_match_sql('ca.dentist', $fullName, $params);
+    $sql  = "($own OR $idCol IN (SELECT ca.patient_id FROM appointments ca WHERE $appt
+                AND ca.appointment_date BETWEEN CURDATE() - INTERVAL " . DENTIST_COVER_DAYS . " DAY AND CURDATE() + INTERVAL " . DENTIST_COVER_DAYS . " DAY
+                AND ca.status NOT IN ('Cancelled','Disapproved','Expired'))";
+    try {   // walk-in visits (table may not exist yet on an old database)
+        global $pdo;
+        if ($pdo && $pdo->query("SHOW TABLES LIKE 'walk_in_visits'")->rowCount()) {
+            $wk  = dentist_match_sql('cw.dentist', $fullName, $params);
+            $sql .= " OR $idCol IN (SELECT cw.patient_id FROM walk_in_visits cw WHERE $wk
+                         AND cw.visit_date >= CURDATE() - INTERVAL " . DENTIST_COVER_DAYS . " DAY)";
+        }
+    } catch (Throwable $e) {}
+    return $sql . ')';
+}
+
+// ============================================================
 //  IS THIS SLOT AVAILABLE?
 // ============================================================
 //  Used when an appointment is booked or moved. Checks three things:

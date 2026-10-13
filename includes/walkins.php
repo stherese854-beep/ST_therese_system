@@ -72,7 +72,7 @@ function walkin_patients($pdo) {
               LEFT JOIN users u ON u.id = p.user_id
              WHERE p.status <> 'Archived' AND (u.id IS NULL OR u.role = 'patient')";
     $prm = [];
-    if (current_role() === 'dentist') { $sql .= " AND " . dentist_match_sql('p.primary_dentist', $_SESSION['name'] ?? '', $prm); }
+    if (current_role() === 'dentist') { $sql .= " AND " . dentist_patient_sql('p.id', 'p.primary_dentist', $_SESSION['name'] ?? '', $prm); }
     $st = $pdo->prepare($sql . " ORDER BY p.name"); $st->execute($prm);
     return $st->fetchAll();
 }

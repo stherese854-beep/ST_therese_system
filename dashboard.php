@@ -49,10 +49,15 @@ if ($showWelcomePopup) unset($_SESSION['show_welcome_popup']);
 $firstName = explode(' ', $myName)[0];
 
 // A reusable WHERE fragment so a dentist's numbers are scoped to their patients.
-$apptScope = $isDentist ? " AND dentist = " . $pdo->quote($myName) : "";
+// (any spelling of the dentist's name — "Dr. Ana Santos" = "Ana Santos")
+$dnP = []; $dnSql = $isDentist ? dentist_match_sql('dentist', $myName, $dnP) : '';
+foreach ($dnP as $i => $v) $dnSql = preg_replace('/\?/', $pdo->quote($v), $dnSql, 1);
+$apptScope = $isDentist ? " AND " . $dnSql : "";
+$pdP = []; $pdSql = $isDentist ? dentist_match_sql('primary_dentist', $myName, $pdP) : '1=1';
+foreach ($pdP as $v) $pdSql = preg_replace('/\?/', $pdo->quote($v), $pdSql, 1);
 
 $totalPatients = $isDentist
-    ? $pdo->query("SELECT COUNT(*) FROM patients WHERE primary_dentist = " . $pdo->quote($myName))->fetchColumn()
+    ? $pdo->query("SELECT COUNT(*) FROM patients WHERE $pdSql")->fetchColumn()
     : $pdo->query("SELECT COUNT(*) FROM patients")->fetchColumn();
 
 // "Today's Appointments" must count TODAY only (was counting every date before).
@@ -75,7 +80,7 @@ $appts = $pdo->query(
 
 // Recent patients
 $recent = $isDentist
-    ? $pdo->query("SELECT * FROM patients WHERE primary_dentist = " . $pdo->quote($myName) . " ORDER BY id DESC LIMIT 4")->fetchAll()
+    ? $pdo->query("SELECT * FROM patients WHERE $pdSql ORDER BY id DESC LIMIT 4")->fetchAll()
     : $pdo->query("SELECT * FROM patients ORDER BY id DESC LIMIT 4")->fetchAll();
 
 // Treatment breakdown (count per treatment type)
@@ -83,7 +88,7 @@ $breakdown = $pdo->query("SELECT treatment, COUNT(*) AS cnt FROM appointments WH
 
 // Real sub-figures for the stat cards (replaces the old hard-coded numbers).
 $newPatientsMonth = $isDentist
-    ? $pdo->query("SELECT COUNT(*) FROM patients WHERE primary_dentist = " . $pdo->quote($myName) . " AND MONTH(created_at)=MONTH(CURDATE()) AND YEAR(created_at)=YEAR(CURDATE())")->fetchColumn()
+    ? $pdo->query("SELECT COUNT(*) FROM patients WHERE $pdSql AND MONTH(created_at)=MONTH(CURDATE()) AND YEAR(created_at)=YEAR(CURDATE())")->fetchColumn()
     : (int)$pdo->query("SELECT COUNT(*) FROM patients WHERE MONTH(created_at)=MONTH(CURDATE()) AND YEAR(created_at)=YEAR(CURDATE())")->fetchColumn();
 $confirmedToday = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date=CURDATE() AND status='Confirmed'$apptScope")->fetchColumn();
 $completedMonth = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE status='Completed' AND MONTH(appointment_date)=MONTH(CURDATE()) AND YEAR(appointment_date)=YEAR(CURDATE())$apptScope")->fetchColumn();
@@ -144,8 +149,8 @@ function render_sparkline($values, $color, $height = 30, $barW = 8, $gap = 4) {
 // more than a month, a daily line would get too dense to read, so it folds
 // to one point per month instead — same idea, coarser grain.
 function patient_growth_series($pdo, $isDentist, $myName) {
-    $where  = $isDentist ? "WHERE primary_dentist = ?" : "";
-    $params = $isDentist ? [$myName] : [];
+    $params = [];
+    $where  = $isDentist ? "WHERE " . dentist_match_sql('primary_dentist', $myName, $params) : "";
 
     $earliestStmt = $pdo->prepare("SELECT MIN(created_at) FROM patients $where");
     $earliestStmt->execute($params);
@@ -240,11 +245,11 @@ function render_linechart($labels, $values, $color, $width = 220, $height = 46) 
 $patientsGrowth = patient_growth_series($pdo, $isDentist, $myName);
 
 $apptsTrend = $isDentist
-    ? seven_day_counts($pdo, 'appointments', 'appointment_date', ' AND dentist = ?', [$myName])
+    ? seven_day_counts($pdo, 'appointments', 'appointment_date', $apptScope)
     : seven_day_counts($pdo, 'appointments', 'appointment_date');
 
 $pendingTrend = $isDentist
-    ? seven_day_counts($pdo, 'appointments', 'appointment_date', " AND status='Pending' AND dentist = ?", [$myName])
+    ? seven_day_counts($pdo, 'appointments', 'appointment_date', " AND status='Pending'" . $apptScope)
     : seven_day_counts($pdo, 'appointments', 'appointment_date', " AND status='Pending'");
 
 $treatTrend = seven_day_counts($pdo, 'treatments', 'treatment_date', " AND status='Completed'");

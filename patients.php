@@ -339,7 +339,8 @@ $myName    = $_SESSION['name'] ?? '';
 
 $where = ["status <> 'Archived'"];   // archived patients live on the Archive page, not here
 $params = [];
-if ($isDentist) { $where[] = "primary_dentist = ?"; $params[] = $myName; }
+// (own patients + anyone they are seeing, any spelling of their name)
+if ($isDentist) { $where[] = dentist_patient_sql('id', 'primary_dentist', $myName, $params); }
 if ($search !== '') { $where[] = "(name LIKE ? OR email LIKE ?)"; $params[] = "%$search%"; $params[] = "%$search%"; }
 if ($statusFilter !== '') { $where[] = "status = ?"; $params[] = $statusFilter; }
 
