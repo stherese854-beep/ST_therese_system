@@ -967,7 +967,7 @@ function patient_name_of($pdo, $pid) {
 //  attached to it) is simply hidden until an admin restores it or
 //  permanently deletes it from the Archive page.
 // ============================================================
-function archive_user($pdo, $userId, $archivedByName) {
+function archive_user($pdo, $userId, $archivedByName, $family = 'keep') {
     $userId = (int)$userId;
     if ($userId <= 0) return;
     $info = $pdo->prepare("SELECT name FROM users WHERE id = ?");
@@ -977,8 +977,21 @@ function archive_user($pdo, $userId, $archivedByName) {
     $pdo->prepare("UPDATE users
                     SET pre_archive_status = status, status = 'archived',
                         archived_at = NOW(), archived_by = ?
-                    WHERE id = ?")
+                    WHERE id = ? AND status <> 'archived'")
         ->execute([$archivedByName, $userId]);
+
+    // The account's own patient record goes to the Archive with it (so it no
+    // longer shows in Patients or can be booked), and the family members it
+    // books for are kept or archived as the admin chose.
+    $pq = $pdo->prepare("SELECT id FROM patients WHERE user_id = ?");
+    $pq->execute([$userId]);
+    foreach ($pq->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+        $pdo->prepare("UPDATE patients
+                          SET pre_archive_status = status, status = 'Archived', archived_at = NOW(), archived_by = ?
+                        WHERE id = ? AND status <> 'Archived'")
+            ->execute([$archivedByName, (int)$pid]);
+        archive_family($pdo, (int)$pid, $archivedByName, $family);
+    }
 
     log_activity($pdo, 'Archived user', $name ?: "user #$userId");
 }
@@ -996,6 +1009,18 @@ function restore_user($pdo, $userId) {
                         archived_at = NULL, archived_by = NULL, pre_archive_status = NULL
                     WHERE id = ?")
         ->execute([$userId]);
+
+    // Their patient record and any family members archived with them come back too.
+    $pq = $pdo->prepare("SELECT id FROM patients WHERE user_id = ?");
+    $pq->execute([$userId]);
+    foreach ($pq->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+        $pdo->prepare("UPDATE patients
+                          SET status = COALESCE(NULLIF(pre_archive_status,''), 'Active'),
+                              archived_at = NULL, archived_by = NULL, pre_archive_status = NULL
+                        WHERE id = ? AND status = 'Archived'")
+            ->execute([(int)$pid]);
+        restore_family($pdo, (int)$pid);
+    }
 
     log_activity($pdo, 'Restored user', $name ?: "user #$userId");
 }
@@ -1021,9 +1046,47 @@ function ensure_patient_archive_schema($pdo) {
             $pdo->exec("ALTER TABLE patients ADD COLUMN pre_archive_status VARCHAR(20) DEFAULT NULL");
         }
     } catch (Throwable $e) { /* older MySQL / already applied — ignore */ }
+    // A family member archived together with the account holder points to them
+    // here, so restoring the holder brings them back too.
+    try {
+        if (!$pdo->query("SHOW COLUMNS FROM patients LIKE 'archived_with'")->rowCount()) {
+            $pdo->exec("ALTER TABLE patients ADD COLUMN archived_with INT DEFAULT NULL");
+        }
+    } catch (Throwable $e) { /* ignore */ }
 }
 
-function archive_patient($pdo, $patientId, $archivedByName) {
+// ============================================================
+//  FAMILY MEMBERS WHEN THEIR ACCOUNT HOLDER IS REMOVED
+// ============================================================
+//  $family = 'keep'    -> they stay active as the clinic's own patients
+//                         (the default: nothing of theirs is lost)
+//            'archive' -> they go to the Archive with the holder and come
+//                         back when the holder is restored
+// ============================================================
+function family_member_names($pdo, $holderPid) {
+    $q = $pdo->prepare("SELECT name FROM patients WHERE guardian_patient_id = ? AND status <> 'Archived' ORDER BY name");
+    $q->execute([(int)$holderPid]);
+    return $q->fetchAll(PDO::FETCH_COLUMN);
+}
+function archive_family($pdo, $holderPid, $archivedByName, $family) {
+    if ($family !== 'archive' || (int)$holderPid <= 0) return 0;
+    $q = $pdo->prepare("UPDATE patients
+                           SET pre_archive_status = status, status = 'Archived', archived_at = NOW(),
+                               archived_by = ?, archived_with = ?
+                         WHERE guardian_patient_id = ? AND status <> 'Archived'");
+    $q->execute([$archivedByName, (int)$holderPid, (int)$holderPid]);
+    if ($q->rowCount()) log_activity($pdo, 'Archived family members', $q->rowCount() . ' with ' . patient_name_of($pdo, $holderPid));
+    return $q->rowCount();
+}
+function restore_family($pdo, $holderPid) {
+    $pdo->prepare("UPDATE patients
+                      SET status = COALESCE(NULLIF(pre_archive_status,''), 'Active'),
+                          archived_at = NULL, archived_by = NULL, pre_archive_status = NULL, archived_with = NULL
+                    WHERE archived_with = ? AND status = 'Archived'")
+        ->execute([(int)$holderPid]);
+}
+
+function archive_patient($pdo, $patientId, $archivedByName, $family = 'keep') {
     $patientId = (int)$patientId;
     if ($patientId <= 0) return;
 
@@ -1041,7 +1104,9 @@ function archive_patient($pdo, $patientId, $archivedByName) {
     // Also archive their login account, if they have one, so they can't
     // sign in or book online while archived.
     if (!empty($p['user_id'])) {
-        archive_user($pdo, $p['user_id'], $archivedByName);
+        archive_user($pdo, $p['user_id'], $archivedByName, $family);   // also handles the family
+    } else {
+        archive_family($pdo, $patientId, $archivedByName, $family);
     }
 
     log_activity($pdo, 'Archived patient', $p['name'] ?: "patient #$patientId");
@@ -1065,8 +1130,11 @@ function restore_patient($pdo, $patientId) {
         ->execute([$patientId]);
 
     if (!empty($p['user_id'])) {
-        restore_user($pdo, $p['user_id']);
+        restore_user($pdo, $p['user_id']);    // also brings back family archived with them
+    } else {
+        restore_family($pdo, $patientId);
     }
+    $pdo->prepare("UPDATE patients SET archived_with = NULL WHERE id = ?")->execute([$patientId]);
 
     log_activity($pdo, 'Restored patient', $p['name'] ?: "patient #$patientId");
 }
@@ -1139,6 +1207,20 @@ function delete_patient_records($pdo, $patientId) {
     // ...and anything of theirs still waiting in the Archive.
     require_once __DIR__ . '/../includes/record_archive.php';
     purge_patient_archived_records($pdo, $patientId);
+
+    // Family members they booked for are NOT deleted with them: they become the
+    // clinic's own patients (active, or still in the Archive if they were
+    // archived), with all their records and visits kept.
+    try {
+        $fam = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE guardian_patient_id = ?");
+        $fam->execute([$patientId]);
+        if ($n = (int)$fam->fetchColumn()) {
+            $pdo->prepare("UPDATE patients SET guardian_patient_id = NULL, relationship = NULL, archived_with = NULL
+                            WHERE guardian_patient_id = ?")->execute([$patientId]);
+            log_activity($pdo, 'Family members kept as own patients', "$n after " . patient_name_of($pdo, $patientId) . ' was deleted');
+        }
+        $pdo->prepare("DELETE FROM account_invites WHERE guardian_patient_id = ? AND accepted_at IS NULL")->execute([$patientId]);
+    } catch (Throwable $e) { /* ignore */ }
 
     $pdo->prepare("DELETE FROM patients WHERE id = ?")->execute([$patientId]);
 }

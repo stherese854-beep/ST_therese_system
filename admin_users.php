@@ -94,7 +94,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Deleting no longer removes the account right away — it moves it to
             // the Archive first. An admin can restore it or permanently delete it
             // from there.
-            archive_user($pdo, $delId, $_SESSION['name'] ?? null);
+            // Family members this account books for: kept as the clinic's own
+            // patients unless the admin chose to archive them too.
+            archive_user($pdo, $delId, $_SESSION['name'] ?? null, ($_POST['family'] ?? 'keep') === 'archive' ? 'archive' : 'keep');
             $moved[] = $u['name'];
         }
         $msg = count($moved) === 1 ? $moved[0] . ' moved to Archive.' : (count($moved) . ' users moved to Archive.');
@@ -111,6 +113,12 @@ $staff      = $pdo->query("SELECT COUNT(*) FROM users WHERE role='admin'")->fetc
 $patientsU  = $pdo->query("SELECT COUNT(*) FROM users WHERE role='patient'")->fetchColumn();
 
 $users = $pdo->query("SELECT * FROM users WHERE status <> 'archived' ORDER BY role, name")->fetchAll();
+// Who books for family members? (asked about when their account is archived)
+$famByUser = [];
+foreach ($pdo->query("SELECT h.user_id, d.name, d.relationship FROM patients h JOIN patients d ON d.guardian_patient_id = h.id
+                       WHERE h.user_id IS NOT NULL AND d.status <> 'Archived' ORDER BY d.name") as $f) {
+    $famByUser[(int)$f['user_id']][] = $f['name'] . ($f['relationship'] ? ' (' . $f['relationship'] . ')' : '');
+}
 $archivedCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE status = 'archived'")->fetchColumn();
 
 $page_title = "User Management";
@@ -159,7 +167,7 @@ $active = 'users';
                     <button class="btn btn-teal" data-bs-toggle="modal" data-bs-target="#userModal" onclick="openAddUser()">+ Add User</button>
                 </div>
             </div>
-            <?= bulk_bar('bulk-users', 'delete', 'users to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive.', 'Move') ?>
+            <?= bulk_bar('bulk-users', 'delete', 'users to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive. Family members they book for are kept as the clinic patients.', 'Move') ?>
             <div class="table-responsive">
                 <table class="data">
                     <thead><tr><th>User</th><th>Role</th><th>Specialty / Position</th><th>Contact</th><th>Status</th><th>Last Login</th><th class="no-print">Actions</th></tr></thead>
@@ -181,8 +189,10 @@ $active = 'users';
                             <td class="no-print">
                                 <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
                                 <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode($u) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
-                                <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')">
+                                <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')"
+                                      <?php if (!empty($famByUser[(int)$u['id']])): ?>data-family='<?= e(json_encode($famByUser[(int)$u['id']])) ?>' data-who="<?= e($u['name']) ?>"<?php endif; ?>>
                                     <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $u['id'] ?>">
+                                    <input type="hidden" name="family" value="keep">
                                     <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;" title="Move to Archive">🗑</button>
                                 </form>
                             </td>
@@ -238,6 +248,7 @@ $active = 'users';
     </form>
 </div></div></div>
 
+<?php include 'includes/family_choice.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>

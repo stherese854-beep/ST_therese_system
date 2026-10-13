@@ -139,10 +139,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // patient record, dental chart and appointments, are removed for
                 // good. A trace of the email is kept in deleted_accounts_log so
                 // the login page can still recognize it later.
+                // Family members they book for are kept (delete_patient_records detaches them).
+                $fk = $pdo->prepare("SELECT COUNT(*) FROM patients d JOIN patients h ON d.guardian_patient_id = h.id WHERE h.user_id = ?");
+                $fk->execute([$id]); $famKept = (int)$fk->fetchColumn();
                 delete_user_completely($pdo, $id, $_SESSION['name'] ?? null);
 
                 $extra = ($u['role'] === 'patient')
                        ? ' Their patient record, dental chart and appointments were removed too.'
+                         . ($famKept ? ' The ' . $famKept . ' family member' . ($famKept > 1 ? 's they booked for were' : ' they booked for was') . " kept as the clinic's own patient" . ($famKept > 1 ? 's' : '') . '.' : '')
                        : '';
                 set_flash(($u['name'] ?: 'User') . ' permanently deleted.' . $extra, 'info');
             } else {
@@ -174,6 +178,7 @@ foreach ($archivedPatientsOnly as $p) {
     $archived[] = [
         'type' => 'patient', 'id' => $p['id'], 'name' => $p['name'], 'email' => $p['email'],
         'role' => 'patient', 'archived_by' => $p['archived_by'], 'archived_at' => $p['archived_at'],
+        'with' => !empty($p['archived_with']) ? patient_name_of($pdo, $p['archived_with']) : '',
     ];
 }
 usort($archived, fn($a, $b) => strcmp($b['archived_at'] ?? '', $a['archived_at'] ?? ''));
@@ -247,7 +252,8 @@ $active = 'archive';
                         <tr>
                             <td><div class="d-flex align-items-center gap-2">
                                 <span class="avatar" style="background:#9a9a9a;"><?= e($initials) ?></span>
-                                <div><strong><?= e($u['name']) ?></strong><br><small class="text-muted2"><?= e($u['email'] ?: 'No login account') ?></small></div>
+                                <div><strong><?= e($u['name']) ?></strong><br><small class="text-muted2"><?= e($u['email'] ?: 'No login account') ?></small>
+                                    <?php if (!empty($u['with'])): ?><br><small class="text-muted2">Family member — archived with <?= e($u['with']) ?>; restored with them</small><?php endif; ?></div>
                             </div></td>
                             <td><span class="badge-pill <?= $roleBadge ?>"><?= ucfirst($u['role']) ?></span></td>
                             <td><?= e($u['archived_by'] ?: '–') ?></td>

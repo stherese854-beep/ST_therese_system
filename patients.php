@@ -158,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $delPatientName = $delNameStmt->fetchColumn();
         if ($delPatientName === false) continue;
 
-        archive_patient($pdo, $delId, $_SESSION['name'] ?? null);
+        archive_patient($pdo, $delId, $_SESSION['name'] ?? null, ($_POST['family'] ?? 'keep') === 'archive' ? 'archive' : 'keep');   // family: keep or archive too
         $movedNames[] = $delPatientName ?: ('#' . $delId);
       }
         set_flash(count($movedNames) === 1 ? $movedNames[0] . ' moved to Archive.' : count($movedNames) . ' patients moved to Archive.', 'info');
@@ -449,7 +449,7 @@ $active = 'patients';
         <!-- Patients table -->
         <div class="card-box">
             <?php if (current_role() === 'admin'): ?>
-                <?= bulk_bar('bulk-patients', 'delete', 'patients to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive.', 'Move') ?>
+                <?= bulk_bar('bulk-patients', 'delete', 'patients to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive. Family members they book for are kept as the clinic patients.', 'Move') ?>
             <?php endif; ?>
             <div class="table-responsive">
                 <table class="data">
@@ -593,9 +593,11 @@ $active = 'patients';
                                     title="Message">✉️</button>
                                 <?php if (current_role() === 'admin'): ?>
                                     <?= bulk_pick('bulk-patients', $p['id'], 'Select ' . $p['name']) ?>
-                                    <form method="POST" class="d-inline" onsubmit="return confirm('Move this patient to Archive?')">
+                                    <form method="POST" class="d-inline" onsubmit="return confirm('Move this patient to Archive?')"
+                                          <?php if (!empty($p['family_members'])): ?>data-family='<?= e(json_encode($p['family_members'])) ?>' data-who="<?= e($p['name']) ?>"<?php endif; ?>>
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="id" value="<?= $p['id'] ?>">
+                                        <input type="hidden" name="family" value="keep">
                                         <button class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;" title="Move to Archive">🗑</button>
                                     </form>
                                 <?php endif; ?>
@@ -754,6 +756,7 @@ $active = 'patients';
   </div>
 </div>
 
+<?php include 'includes/family_choice.php'; ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
