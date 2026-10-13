@@ -210,6 +210,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: records?patient=$pid&tab=treatments#plans"); exit;
     }
 
+    // ----- A walk-in visit entered by mistake: to the Archive (restorable) -----
+    if ($action === 'delete_walkin') {
+        $w = archive_record($pdo, 'walkin', (int)($_POST['id'] ?? 0), ['patient_id' => $pid]);
+        if ($w) log_activity($pdo, 'Archived walk-in visit', $w['patient_name'] . ' — ' . $w['visit_date'] . ' · ' . $w['services']);
+        set_flash($w ? 'Walk-in visit moved to the Archive.' : 'That visit could not be found.', $w ? 'info' : 'error');
+        header("Location: records?patient=$pid&tab=treatments"); exit;
+    }
+
     if ($action === 'delete_treatment') {
         $done = 0;
         foreach (bulk_ids() as $tid) {             // one record, or several ticked ones
@@ -284,7 +292,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------- Load this patient's records ----------
-$treatments = $xrays = $notes = [];
+$treatments = $xrays = $notes = $walkins = [];
 $patientRow = null;
 $toothMap   = [];
 if ($pid) {
@@ -304,6 +312,9 @@ if ($pid) {
 
     $t = $pdo->prepare("SELECT * FROM treatments WHERE patient_id=? ORDER BY treatment_date DESC, id DESC");
     $t->execute([$pid]); $treatments = $t->fetchAll();
+
+    require_once 'includes/walkins.php';
+    $walkins = walkins_for_patients($pdo, [$pid]);                // visits without an appointment
 
     $x = $pdo->prepare("SELECT * FROM xrays WHERE patient_id=? ORDER BY created_at DESC");
     $x->execute([$pid]); $xrays = $x->fetchAll();
@@ -604,6 +615,34 @@ $active = 'records';
                   $hereQ = $pdo->prepare("SELECT id, treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
                                            AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");
                   $hereQ->execute([$pid]); $here = $hereQ->fetch(); ?>
+            <?php if ($walkins): ?>
+                <!-- Walk-in visits (no appointment) -->
+                <div class="card-box mb-3">
+                    <h6 class="mb-2">🏥 Walk-in visits <small class="text-muted2">— came in without an appointment</small></h6>
+                    <div class="table-responsive"><table class="data">
+                        <thead><tr><th>Date</th><th>Time</th><th>Service</th><th>Dentist</th><th>Note</th><th></th></tr></thead>
+                        <tbody>
+                        <?php foreach ($walkins as $w): ?>
+                            <tr>
+                                <td><?= date('M j, Y', strtotime($w['visit_date'])) ?><?= $w['visit_date'] === date('Y-m-d') ? ' <span class="badge-pill b-confirmed" style="font-size:.66rem;">today</span>' : '' ?></td>
+                                <td><?= e($w['visit_time']) ?></td>
+                                <td><?= e($w['services']) ?></td>
+                                <td><?= e($w['dentist']) ?></td>
+                                <td class="text-muted2" style="font-size:.85rem;"><?= e($w['notes'] ?: '–') ?></td>
+                                <td><form method="POST" class="m-0" onsubmit="return confirm('Move this walk-in visit to the Archive?
+
+<?= $ARCH_NOTE ?>')">
+                                    <input type="hidden" name="action" value="delete_walkin">
+                                    <input type="hidden" name="patient_id" value="<?= $pid ?>">
+                                    <input type="hidden" name="id" value="<?= (int)$w['id'] ?>">
+                                    <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;" title="Move to Archive">🗑</button>
+                                </form></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table></div>
+                </div>
+            <?php endif; ?>
             <?php if ($here): ?>
                 <div class="card-box mb-3 flex-between flex-wrap gap-2" style="border-left:5px solid var(--teal-light);">
                     <div>🟢 <b>The patient is at the clinic today</b> for <?= e($here['treatment']) ?> (<?= e($here['appointment_time']) ?>).

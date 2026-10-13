@@ -123,12 +123,16 @@ if ($patientId) {
     $stmt->execute([$patientId]);
     $patient = $stmt->fetch();
 
+    $pWalkins = [];
     if ($patient) {
         $t = $pdo->prepare("SELECT * FROM treatments WHERE patient_id=? ORDER BY treatment_date DESC");
         $t->execute([$patientId]); $pTreatments = $t->fetchAll();
 
         $a = $pdo->prepare("SELECT * FROM appointments WHERE patient_id=? ORDER BY appointment_date DESC");
         $a->execute([$patientId]); $pAppointments = $a->fetchAll();
+
+        require_once 'includes/walkins.php';
+        $pWalkins = walkins_for_patients($pdo, [$patientId]);       // visits without an appointment
 
         $c = $pdo->prepare("SELECT * FROM odontogram WHERE patient_id=?");
         $c->execute([$patientId]); $pChart = $c->fetchAll();
@@ -613,6 +617,22 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                 <?php if (empty($pAppointments)): ?><tr><td colspan="5" class="text-muted2 text-center">No appointments on record.</td></tr><?php endif; ?>
                                 </tbody>
                             </table>
+                            <h6 class="mt-3">Walk-in Visits <small class="text-muted2">(no appointment)</small></h6>
+                            <table class="data" style="font-size:.82rem;">
+                                <thead><tr><th>Date</th><th>Time</th><th>Service</th><th>Dentist</th><th>Note</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($pWalkins as $w): ?>
+                                    <tr>
+                                        <td><?= e($w['visit_date']) ?></td>
+                                        <td><?= e($w['visit_time']) ?></td>
+                                        <td><?= e($w['services']) ?></td>
+                                        <td><?= e($w['dentist']) ?></td>
+                                        <td><?= e($w['notes'] ?: '–') ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (empty($pWalkins)): ?><tr><td colspan="5" class="text-muted2 text-center">No walk-in visits.</td></tr><?php endif; ?>
+                                </tbody>
+                            </table>
                             </div><!-- /appointments -->
 
                         <?php elseif ($type === 'treatment' && $patient): ?>
@@ -632,6 +652,22 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                     </tr>
                                 <?php endforeach; ?>
                                 <?php if (empty($pTreatments)): ?><tr><td colspan="6" class="text-muted2 text-center">No treatments on record.</td></tr><?php endif; ?>
+                                </tbody>
+                            </table>
+                            <h6 class="mt-3">Walk-in Visits <small class="text-muted2">(no appointment)</small></h6>
+                            <table class="data" style="font-size:.82rem;">
+                                <thead><tr><th>Date</th><th>Time</th><th>Service</th><th>Dentist</th><th>Note</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($pWalkins as $w): ?>
+                                    <tr>
+                                        <td><?= e($w['visit_date']) ?></td>
+                                        <td><?= e($w['visit_time']) ?></td>
+                                        <td><?= e($w['services']) ?></td>
+                                        <td><?= e($w['dentist']) ?></td>
+                                        <td><?= e($w['notes'] ?: '–') ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (empty($pWalkins)): ?><tr><td colspan="5" class="text-muted2 text-center">No walk-in visits.</td></tr><?php endif; ?>
                                 </tbody>
                             </table>
 

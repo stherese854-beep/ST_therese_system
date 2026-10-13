@@ -45,12 +45,14 @@ function ensure_clinical_columns($pdo) {
 
 /**
  * Patient type and last visit come from the patient's real visits:
- * "New" until a visit is Completed, then "Returning"; last visit = latest completed one.
+ * "New" until they have visited (a Completed appointment or a walk-in visit),
+ * then "Returning"; last visit = the latest one.
  */
 function sync_visit_info($pdo, $patientId) {
     try {
-        $q = $pdo->prepare("SELECT MAX(appointment_date) FROM appointments
-                             WHERE patient_id = ? AND status = 'Completed' AND appointment_date <= CURDATE()");
+        require_once __DIR__ . '/walkins.php';
+        $q = $pdo->prepare("SELECT MAX(visit_date) FROM " . clinic_visits_sql() . " v
+                             WHERE patient_id = ? AND visit_date <= CURDATE()");
         $q->execute([(int)$patientId]);
         $last = $q->fetchColumn() ?: null;
         $type = $last ? 'Returning' : 'New';

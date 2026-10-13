@@ -68,6 +68,14 @@ $completed  = $byStatus['Completed'] ?? 0;
 $noShows    = $byStatus['No-show'] ?? 0;
 $cancelled  = $byStatus['Cancelled'] ?? 0;
 $attendBase = $completed + $noShows;                         // visits that were due and resolved
+// Walk-in visits (no appointment) in the same range — counted as visits, not as appointments.
+$walkinCount = 0;
+try {
+    $wq = $pdo->prepare("SELECT COUNT(*) FROM walk_in_visits WHERE visit_date >= ?" . ($endStr ? " AND visit_date <= ?" : ""));
+    $wq->execute($endStr ? [$startStr, $endStr] : [$startStr]);
+    $walkinCount = (int)$wq->fetchColumn();
+} catch (Throwable $e) {}
+$visitCount = $completed + $walkinCount;
 $pct = fn($n, $d) => $d > 0 ? round($n * 100 / $d) . '%' :  '–';
 
 $patientCount = (int)$pdo->query("SELECT COUNT(*) FROM patients p LEFT JOIN users u ON p.user_id = u.id
@@ -243,8 +251,8 @@ $active = 'analytics';
 .viz-card details table { width: 100%; margin-top: 6px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .viz-card details td, .viz-card details th { padding: 4px 6px; border-bottom: 1px solid var(--grid); text-align: left; }
 .viz-card details td:last-child, .viz-card details th:last-child { text-align: right; }
-.kpi-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-@media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.kpi-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 560px)  { .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .kpi { background: #fff; border-radius: 14px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .kpi .label { font-size: .74rem; color: var(--muted); }
@@ -273,7 +281,7 @@ $active = 'analytics';
     .print-head { border-bottom: 2px solid #0d3b3b; padding-bottom: 6px; margin-bottom: 12px; font-size: 12px; color: #333; }
     .print-head strong { font-size: 15px; color: #0d3b3b; }
     .page-head { margin-bottom: 4px !important; }
-    .kpi-row { grid-template-columns: repeat(6, 1fr) !important; gap: 6px !important; }
+    .kpi-row { grid-template-columns: repeat(7, 1fr) !important; gap: 6px !important; }
     .kpi, .viz-card { box-shadow: none !important; border: 1px solid #dfe6ea; break-inside: avoid; page-break-inside: avoid; }
     .viz-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
     .viz-card details:not([open]) { display: none; }
@@ -338,6 +346,7 @@ $active = 'analytics';
         <!-- Headline numbers -->
         <div class="kpi-row" id="sec-kpis">
             <div class="kpi"><div class="label">Appointments</div><div class="value"><?= number_format($total) ?></div><div class="note">in this range</div></div>
+            <div class="kpi"><div class="label">Visits</div><div class="value"><?= number_format($visitCount) ?></div><div class="note"><?= $completed ?> booked · <?= $walkinCount ?> walk-in</div></div>
             <div class="kpi"><div class="label">Completion rate</div><div class="value"><?= $pct($completed, $attendBase) ?></div><div class="note"><?= $completed ?> of <?= $attendBase ?> due visits</div></div>
             <div class="kpi"><div class="label">No-show rate</div><div class="value"><?= $pct($noShows, $attendBase) ?></div><div class="note"><?= $noShows ?> missed</div></div>
             <div class="kpi"><div class="label">Cancellation rate</div><div class="value"><?= $pct($cancelled, $total) ?></div><div class="note"><?= $cancelled ?> cancelled</div></div>

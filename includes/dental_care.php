@@ -120,6 +120,9 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
         }
         $days[$s['visit_date']]['chart'][] = ['s' => $s, 'chg' => $chg, 'first' => !$prev];
     }
+    // Walk-in visits (came in without an appointment) are visits too.
+    require_once __DIR__ . '/walkins.php';
+    foreach (walkins_for_patients($pdo, [$pid]) as $w) $days[$w['visit_date']]['walkin'][] = $w;
     krsort($days);
 
     ob_start(); ?>
@@ -172,11 +175,15 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
         <?= bulk_bar('bulk-treatment', 'archive_item', 'records', ['item_type' => 'treatment'], '🗑 Delete selected', 'They will be moved to My Archive, where you can restore them.') ?>
         <?php foreach ($days as $date => $d):
             $dentists = array_unique(array_filter(array_merge(array_column($d['treat'] ?? [], 'dentist'),
+                                                               array_column($d['walkin'] ?? [], 'dentist'),
                                                                array_map(fn($c) => $c['s']['created_by'], $d['chart'] ?? [])))); ?>
             <div class="dc-visit">
                 <div class="dc-date"><?= date('l, F j, Y', strtotime($date)) ?></div>
                 <?php if ($dentists): ?><div class="text-muted2" style="font-size:.85rem;">with <?= e(implode(', ', $dentists)) ?></div><?php endif; ?>
 
+                <?php foreach ($d['walkin'] ?? [] as $w): ?>
+                    <div class="dc-item"><b>🏥 Walk-in visit</b> — <?= e($w['services']) ?><?= $w['visit_time'] ? ' <span class="text-muted2">(' . e($w['visit_time']) . ')</span>' : '' ?></div>
+                <?php endforeach; ?>
                 <?php foreach ($d['treat'] ?? [] as $tr):
                     $tip = $tr['status'] === 'Completed' ? aftercare_tip($tr['treatment_name']) : ''; ?>
                     <div class="dc-item">

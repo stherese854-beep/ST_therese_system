@@ -265,6 +265,7 @@ $active = 'dashboard';
             </div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock">--:--</span><br><span id="clock-date"></span></div>
+                <button type="button" class="btn btn-dark-navy" onclick="wiOpen()" data-keep-text>+ Walk-in</button>
                 <a href="appointments?book=1" class="btn btn-teal">+ Book Appointment</a>
                 <a href="patients" class="btn btn-dark-navy">+ New Patient</a>
             </div>
@@ -281,6 +282,8 @@ $active = 'dashboard';
         $annSeeAll = '';
         include 'includes/announcements_card.php';
         ?>
+
+        <?php require_once 'includes/walkins.php'; include 'includes/walkins_today.php'; ?>
 
         <!-- row-match: the appointments card is exactly as tall as the calendar; its list scrolls inside -->
         <div class="row row-match">
@@ -434,6 +437,7 @@ $active = 'dashboard';
 <?php if ($showWelcomePopup): ?>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <?php endif; ?>
+<?= walkin_form($pdo) ?>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
     startClock();          // live clock (top right)

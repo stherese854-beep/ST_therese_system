@@ -614,9 +614,12 @@ $active = 'appointments';
             <div><h1>Appointments</h1><div class="sub">Schedule management</div></div>
             <div class="d-flex align-items-center gap-3">
                 <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
+                <button type="button" class="btn btn-dark-navy" onclick="wiOpen()" data-keep-text>+ Walk-in</button>
                 <button type="button" class="btn btn-teal" onclick="openStaffBook()">+ Book Appointment</button>
             </div>
         </div>
+
+        <?php require_once 'includes/walkins.php'; include 'includes/walkins_today.php'; ?>
 
         <!-- Filter tabs + search -->
         <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
@@ -936,6 +939,7 @@ $active = 'appointments';
 
 <?= health_form_styles() ?>
 <?= treatment_picker_assets() ?>
+<?= walkin_form($pdo, false) ?>
 <!-- ===== The clinic books for a patient ===== -->
 <div class="modal fade" id="staffBookModal" tabindex="-1" aria-labelledby="sbTitle">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">

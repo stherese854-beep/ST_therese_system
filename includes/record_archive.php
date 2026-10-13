@@ -18,6 +18,7 @@ const RECORD_ARCHIVE_TYPES = [
     'xray'        => ['xrays',          'X-ray'],
     'note'        => ['clinical_notes', 'Clinical note'],
     'appointment' => ['appointments',   'Appointment'],
+    'walkin'      => ['walk_in_visits', 'Walk-in visit'],
 ];
 
 function ensure_record_archive_table($pdo) {
@@ -49,6 +50,9 @@ function record_archive_summary($type, $r) {
         case 'note':
             $n = trim(preg_replace('/\s+/', ' ', (string)($r['note'] ?? '')));
             return mb_strlen($n) > 90 ? mb_substr($n, 0, 90) . '…' : $n;
+        case 'walkin':
+            return trim((!empty($r['visit_date']) ? $d($r['visit_date']) : '') . (!empty($r['visit_time']) ? ' ' . $r['visit_time'] : '')
+                 . (!empty($r['services']) ? ' · ' . $r['services'] : ''));
         case 'appointment':
             return trim($d($r['appointment_date'] ?? '')
                  . (!empty($r['appointment_time']) ? ' ' . date('g:i A', strtotime($r['appointment_time'])) : '')

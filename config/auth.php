@@ -73,7 +73,9 @@ if (!$__schemaOk) {
     require_once __DIR__ . '/../includes/clinical.php';
     ensure_clinical_columns($pdo);                  // allergies, medications, dental notes, emergency contact
     require_once __DIR__ . '/../includes/record_archive.php';
-    ensure_record_archive_table($pdo);              // deleted treatments / X-rays / notes / appointments wait in the Archive
+    ensure_record_archive_table($pdo);
+    require_once __DIR__ . '/../includes/walkins.php';
+    ensure_walkin_table($pdo);                      // walk-in visits (no appointment)              // deleted treatments / X-rays / notes / appointments wait in the Archive
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
 
@@ -946,6 +948,11 @@ function activity_badge($action) {
 function patient_has_clinic_record($pdo, $pid) {
     $pid = (int)$pid;
     if ($pid <= 0) return false;
+    try {
+        $w = $pdo->prepare("SELECT 1 FROM walk_in_visits WHERE patient_id = ? LIMIT 1");
+        $w->execute([$pid]);
+        if ($w->fetchColumn()) return true;
+    } catch (Throwable $e) {}
     $st = $pdo->prepare("SELECT (EXISTS(SELECT 1 FROM appointments WHERE patient_id = ? AND status = 'Completed')
                               OR EXISTS(SELECT 1 FROM treatments  WHERE patient_id = ?))");
     $st->execute([$pid, $pid]);
@@ -1199,7 +1206,7 @@ function delete_patient_records($pdo, $patientId) {
     // Child tables first. Each is wrapped so an older database that is
     // missing a table cannot stop the rest of the clean-up.
     foreach (['treatments','xrays','clinical_notes','odontogram',
-              'chart_sessions','appointments','reviews'] as $table) {
+              'chart_sessions','appointments','reviews','walk_in_visits'] as $table) {
         try { $pdo->prepare("DELETE FROM $table WHERE patient_id = ?")->execute([$patientId]); }
         catch (Throwable $e) { /* table not present — skip */ }
     }

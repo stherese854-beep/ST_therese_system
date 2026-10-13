@@ -30,7 +30,7 @@ define('INVITE_HOURS', 48);
 
 // Every table whose rows belong to a patient record.
 const PATIENT_LINKED_TABLES = ['appointments', 'chart_sessions', 'clinical_notes', 'odontogram',
-                               'treatments', 'xrays', 'reviews', 'patient_notices'];
+                               'treatments', 'xrays', 'reviews', 'patient_notices', 'walk_in_visits'];
 
 function ensure_account_transfer_tables($pdo) {
     static $done = false;

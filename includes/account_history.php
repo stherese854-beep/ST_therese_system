@@ -144,6 +144,17 @@ function account_history($pdo, $userId, $pid) {
             }
         }
 
+        // ---- Walk-in visits (came in without an appointment) ----
+        try {
+            require_once __DIR__ . '/walkins.php';
+            foreach (walkins_for_patients($pdo, $fam) as $w) {
+                $for = (int)$w['patient_id'] !== (int)$pid ? ' for <b>' . e($w['patient_name']) . '</b>' : '';
+                $events[] = ah_event($w['visit_date'] . ' ' . date('H:i:s', strtotime($w['visit_time'] ?: '00:00')), 'appts', '🏥',
+                    ($for ? 'Visited the clinic (walk-in)' . $for : 'You visited the clinic (walk-in)')
+                    . ': <b>' . e($w['services']) . '</b>' . ($w['dentist'] ? ' with ' . e($w['dentist']) : '') . '.', 'good');
+            }
+        } catch (Throwable $e) {}
+
         // ---- Treatments recorded at the clinic ----
         try {
             $st = $pdo->prepare("SELECT * FROM treatments WHERE patient_id IN (" . in_placeholders($fam) . ")");
