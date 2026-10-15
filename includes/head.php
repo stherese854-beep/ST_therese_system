@@ -160,7 +160,8 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
             sel.dataset.searchReady = '1';
             var inp = document.createElement('input');
             inp.type = 'search'; inp.autocomplete = 'off';
-            inp.className = 'form-control form-control-sm mb-1 select-search';
+            // data-search-big: a full-size search box (e.g. the Odontogram's patient picker)
+            inp.className = 'form-control' + (sel.hasAttribute('data-search-big') ? '' : ' form-control-sm') + ' mb-1 select-search';
             inp.placeholder = sel.dataset.search || 'Type to search…';
             // Same width as its drop-down (not the whole card).
             if (sel.style.maxWidth) inp.style.maxWidth = sel.style.maxWidth;

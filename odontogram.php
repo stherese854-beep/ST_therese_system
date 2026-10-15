@@ -323,10 +323,6 @@ $active = 'odontogram';
                             <!-- Saves every tooth changed since "Edit Chart" in one go -->
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;white-space:nowrap;" onclick="odoDone()">✔ Done<span id="odo-done-count"></span></button>
                             <?php endif; ?>
-                            <?php if ($canEditChart && $pid): ?>
-                                <!-- Next: on to this patient's treatment records (saves any unsaved teeth first) -->
-                                <button type="button" class="btn btn-dark-navy btn-sm" onclick="odoNext()" data-keep-text style="white-space:nowrap;">Next →</button>
-                            <?php endif; ?>
                             <!-- Print this chart, or download it as a PDF file -->
                             <?= print_menu('main', pdf_name('Dental-Chart', $printPatient['name'] ?? '', isset($session['visit_date']) ? $session['visit_date'] : date('Y-m-d')), 'window.print()', 'btn-gold btn-sm') ?>
                         </div>
@@ -335,7 +331,7 @@ $active = 'odontogram';
                     <!-- Choose which patient -->
                     <form method="GET" class="mt-3 no-print">
                         <label class="field-label">Patient</label>
-                        <select name="patient" class="form-select" style="max-width:280px;" onchange="this.form.submit()" data-search="Search patient…">
+                        <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-big>
                             <?php foreach ($patients as $p): ?>
                                 <option value="<?= $p['id'] ?>" <?= $p['id']==$pid?'selected':'' ?>><?= e($p['name']) ?></option>
                             <?php endforeach; ?>
@@ -348,7 +344,7 @@ $active = 'odontogram';
                     <?php if ($hereToday): ?>
                         <div class="no-print mt-3" style="background:#eaf7ef;border-left:4px solid #1f8a54;border-radius:8px;padding:9px 14px;font-size:.9rem;color:#24543a;">
                             🟢 <b>Here today</b><?= !empty($hereToday['walkin']) ? ' (walk-in)' : '' ?> for <b><?= e($hereToday['treatment']) ?></b> (<?= e($hereToday['appointment_time']) ?>).
-                            Click a tooth to record what you find, then <b>Next →</b> for the treatment record — or just <b>Next →</b> if nothing changed.
+                            Click a tooth to record what you find, then <b>Next</b> (below the chart) for the treatment record — or just <b>Next</b> if nothing changed.
                             <?php if ($session && $session['visit_date'] !== date('Y-m-d')): ?>
                                 <div class="mt-1" style="font-size:.84rem;">The chart below is from <?= date('M j, Y', strtotime($session['visit_date'])) ?>.
                                     To keep today's findings as their own visit, click <b>+ New Chart</b> first.</div>
@@ -458,6 +454,13 @@ $active = 'odontogram';
                         <?php endif; ?>
                         <div class="odo-print-sign">Dentist's signature: ______________________________</div>
                     </div>
+
+                    <?php if ($canEditChart && $pid): ?>
+                        <!-- Next: done with the chart -> this patient's treatment records (saves any unsaved teeth first) -->
+                        <div class="d-flex justify-content-end mt-3 no-print">
+                            <button type="button" class="btn btn-dark-navy" onclick="odoNext()" data-keep-text>Next: Treatment Records →</button>
+                        </div>
+                    <?php endif; ?>
                 </div>
 
                 <!-- ===== PROGRESS: what changed since the previous visit ===== -->
