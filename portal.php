@@ -165,14 +165,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$m) { set_flash('That person could not be found.', 'error'); header("Location: portal?view=records"); exit; }
             $forId = (int)$m['id']; $forName = $m['name'];
         }
+        $fromRecords = ($_POST['back'] ?? '') === 'records';      // asked from that person's records page
         if (open_chart_request($pdo, $forId)) {
             set_flash('A printed copy was already requested — the clinic will let you know when it is ready.', 'info');
         } else {
             $pdo->prepare("INSERT INTO chart_requests (patient_id, holder_id) VALUES (?, ?)")->execute([$forId, $pid]);
             log_activity($pdo, 'Requested a printed dental chart', $forName);
-            set_flash('Request sent! The clinic will print your dental chart and let you know when it is ready.');
+            set_flash('Request sent! The clinic will print ' . ($mid ? $forName . '’s' : 'your') . ' dental chart and let you know when it is ready.');
         }
-        header("Location: portal?view=" . ($mid ? 'family#member-' . $mid : 'records')); exit;
+        header("Location: portal?view=" . ($mid ? ($fromRecords ? 'records&member=' . $mid : 'family#member-' . $mid) : 'records')); exit;
     }
 
     // ---- Give a booked-for adult their own account (emailed invite) ----
@@ -1267,9 +1268,13 @@ include 'includes/head.php';
                                 · Born <?= $fm['date_of_birth'] ? date('M j, Y', strtotime($fm['date_of_birth'])) : '–' ?>
                                 · Age <?= !empty($fm['age']) ? e($fm['age']) : '–' ?></div></div>
                     </div>
-                    <?php if (patient_chart_visible($pdo)): ?>
-                    <a href="portal?view=chart&member=<?= $fmId ?>" class="btn btn-sm btn-outline-teal" data-keep-text>🦷 View / print dental chart</a>
-                    <?php endif; ?>
+                    <div class="d-flex flex-wrap gap-2">
+                        <!-- Their visits, treatments and dentist notes (the same page as My Records) -->
+                        <a href="portal?view=records&member=<?= $fmId ?>" class="btn btn-sm btn-outline-teal" data-keep-text>📋 View records</a>
+                        <?php if (patient_chart_visible($pdo)): ?>
+                        <a href="portal?view=chart&member=<?= $fmId ?>" class="btn btn-sm btn-outline-teal" data-keep-text>🦷 View / print dental chart</a>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="row g-3">
@@ -1527,7 +1532,31 @@ include 'includes/head.php';
         <?php else: ?>
             <!-- ===== MY DENTAL CARE: what to do next + one timeline of visits (see includes/dental_care.php) ===== -->
             <?= dental_summary_styles() ?>
-            <?= my_dental_care_html($pdo, $me, $myTreatments) ?>
+            <?php if ($family): ?>
+                <!-- Whose records: mine, or a person I book for (?member=ID, only this account’s family) -->
+                <div class="card-box mb-3 no-print" style="padding:12px 18px;">
+                    <?php if ($chartMember): ?>
+                        <h5 class="mb-1"><?= e($chartMember['name']) ?>’s Records</h5>
+                        <div class="text-muted2 mb-2" style="font-size:.85rem;"><?= $chartMember['relationship'] ? e($chartMember['relationship']) . ' · ' : '' ?>booked by you — view only</div>
+                    <?php endif; ?>
+                    <div class="d-flex flex-wrap gap-2 align-items-center" style="font-size:.85rem;">
+                        <span class="text-muted2">Records of:</span>
+                        <a href="portal?view=records" class="btn btn-sm <?= $chartMember ? 'btn-light' : 'btn-teal' ?>" data-keep-text>Me</a>
+                        <?php foreach ($family as $fm): ?>
+                            <a href="portal?view=records&member=<?= (int)$fm['id'] ?>" data-keep-text
+                               class="btn btn-sm <?= ($chartMember && (int)$chartMember['id'] === (int)$fm['id']) ? 'btn-teal' : 'btn-light' ?>">
+                                <?= e($fm['name']) ?><?= $fm['relationship'] ? ' · ' . e($fm['relationship']) : '' ?></a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+            <?php if ($chartMember):
+                $mt = $pdo->prepare("SELECT * FROM treatments WHERE patient_id = ? ORDER BY treatment_date DESC");
+                $mt->execute([(int)$chartMember['id']]); ?>
+                <?= my_dental_care_html($pdo, $chartMember, $mt->fetchAll(), true) ?>
+            <?php else: ?>
+                <?= my_dental_care_html($pdo, $me, $myTreatments) ?>
+            <?php endif; ?>
         <?php endif; ?>
     </main>
 </div>

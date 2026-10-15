@@ -58,15 +58,20 @@ function tooth_label($tooth) {
 
 /**
  * The whole My Records "dental care" block for one patient. $treatments = their (non-archived) rows.
+ * $forMember = true: the account holder is viewing a person they book for (People I Book For),
+ * so the wording says "their / Juan's", links point to that person, and nothing can be deleted.
  *
  * The tooth details (teeth needing attention, what changed on the chart, printed copy)
  * only appear when the clinic has turned the dental chart OFF for patients
  * (System → Patient Portal). When it is ON, the patient already sees every tooth on
  * "My Dental Chart", so My Records only shows treatments, notes and the next visit.
  */
-function my_dental_care_html($pdo, $patient, array $treatments) {
+function my_dental_care_html($pdo, $patient, array $treatments, $forMember = false) {
     global $UPPER_TEETH, $LOWER_TEETH;
     $pid = (int)$patient['id'];
+    $first = trim(strtok((string)($patient['name'] ?? ''), ' ')) ?: 'This person';
+    $whose = $forMember ? $first . '’s' : 'your';                                  // "Juan’s" / "your"
+    $memberQs = $forMember ? '&member=' . $pid : '';
     $chartOn  = patient_chart_visible($pdo);
     $sessions = $chartOn ? [] : get_chart_sessions($pdo, $pid);   // tooth details only when the chart is hidden
     $hasChart = $chartOn ? (bool)latest_session_id($pdo, $pid) : (bool)$sessions;
@@ -142,13 +147,13 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
 
     <!-- ===== 1. What you need to do ===== -->
     <div class="card-box mb-3" data-keep-text>
-        <h5 class="mb-1">✅ What you need to do</h5>
+        <h5 class="mb-1">✅ <?= $forMember ? 'What ' . e($first) . ' needs' : 'What you need to do' ?></h5>
         <?php if (!$todo && !$next): ?>
             <div class="ds-good mt-2">Nothing right now. 🎉 Keep brushing twice a day, floss daily, and visit for a check-up every 6 months.</div>
         <?php else: ?>
             <ul class="dc-todo list-unstyled mb-0 mt-2">
                 <?php if ($next): ?>
-                    <li>📅 Your dentist recommends your next visit on <b><?= date('l, F j, Y', strtotime($next)) ?></b>.</li>
+                    <li>📅 <?= $forMember ? 'The dentist recommends ' . e($whose) : 'Your dentist recommends your' ?> next visit on <b><?= date('l, F j, Y', strtotime($next)) ?></b>.</li>
                 <?php endif; ?>
                 <?php foreach ($todo as [$ic, $txt, $svc]): ?>
                     <li><?= $ic ?> <?= e($txt) ?></li>
@@ -158,21 +163,24 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
         <?php endif; ?>
         <div class="ds-actions">
             <?php if ($chartOn): ?>
-                <?php if ($hasChart): ?><a href="portal?view=chart" class="btn btn-sm btn-light">🦷 See and print my dental chart →</a><?php endif; ?>
+                <?php if ($hasChart): ?><a href="portal?view=chart<?= $memberQs ?>" class="btn btn-sm btn-light">🦷 See and print <?= $forMember ? e($whose) : 'my' ?> dental chart →</a><?php endif; ?>
             <?php elseif ($req): ?>
-                <span class="badge-pill b-pending">📄 Printed copy of your dental chart requested <?= date('M j', strtotime($req['created_at'])) ?> — the clinic will let you know when it is ready</span>
+                <span class="badge-pill b-pending">📄 Printed copy of <?= e($whose) ?> dental chart requested <?= date('M j', strtotime($req['created_at'])) ?> — the clinic will let you know when it is ready</span>
             <?php elseif ($sessions): ?>
-                <form method="POST" class="m-0"><input type="hidden" name="action" value="request_chart_copy"><input type="hidden" name="member_id" value="0">
-                    <button class="btn btn-sm btn-light">📄 Request a printed copy of my dental chart</button></form>
+                <form method="POST" class="m-0"><input type="hidden" name="action" value="request_chart_copy">
+                    <input type="hidden" name="member_id" value="<?= $forMember ? $pid : 0 ?>"><input type="hidden" name="back" value="records">
+                    <button class="btn btn-sm btn-light">📄 Request a printed copy of <?= $forMember ? e($whose) : 'my' ?> dental chart</button></form>
             <?php endif; ?>
         </div>
     </div>
 
     <!-- ===== 2. My visits ===== -->
     <div class="card-box">
-        <h5 class="mb-1">🦷 My Visits</h5>
+        <h5 class="mb-1">🦷 <?= $forMember ? e($whose) . ' Visits' : 'My Visits' ?></h5>
         <div class="text-muted2 mb-3" style="font-size:.85rem;">Everything from each visit in one place — newest first.</div>
+        <?php if (!$forMember): /* a booked-for person's records are view only */ ?>
         <?= bulk_bar('bulk-treatment', 'archive_item', 'records', ['item_type' => 'treatment'], '🗑 Delete selected', 'They will be moved to My Archive, where you can restore them.') ?>
+        <?php endif; ?>
         <?php foreach ($days as $date => $d):
             $dentists = array_unique(array_filter(array_merge(array_column($d['treat'] ?? [], 'dentist'),
                                                                array_column($d['walkin'] ?? [], 'dentist'),
@@ -191,11 +199,11 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
                             <div><b>🛠 <?= e(ucfirst($tr['treatment_name'])) ?></b><?= $tr['tooth'] ? ' — ' . e(tooth_label($tr['tooth'])) : '' ?></div>
                             <div class="d-flex align-items-center gap-2">
                                 <span class="badge-pill b-<?= $tr['status']==='Completed'?'completed':($tr['status']==='Planned'?'pending':'progress') ?>"><?= e($tr['status']) ?></span>
-                                <?= archive_button('treatment', $tr['id']) ?>
+                                <?= $forMember ? '' : archive_button('treatment', $tr['id']) ?>
                             </div>
                         </div>
                         <?php if (trim((string)$tr['notes']) !== ''): ?>
-                            <div class="dc-note">💬 <b>Note from your dentist:</b> <?= nl2br(e($tr['notes'])) ?></div>
+                            <div class="dc-note">💬 <b>Note from <?= $forMember ? 'the' : 'your' ?> dentist:</b> <?= nl2br(e($tr['notes'])) ?></div>
                         <?php endif; ?>
                         <?php if ($tip): ?><div class="dc-tip">💡 <?= e($tip) ?></div><?php endif; ?>
                     </div>
@@ -221,7 +229,7 @@ function my_dental_care_html($pdo, $patient, array $treatments) {
             </div>
         <?php endforeach; ?>
         <?php if (!$days): ?>
-            <p class="text-muted2 text-center py-3 mb-0">No visits recorded yet. They appear here after your first visit at the clinic.</p>
+            <p class="text-muted2 text-center py-3 mb-0">No visits recorded yet. They appear here after <?= e($whose) ?> first visit at the clinic.</p>
         <?php endif; ?>
     </div>
     <?php return ob_get_clean();
