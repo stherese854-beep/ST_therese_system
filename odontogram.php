@@ -189,7 +189,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 //  LOAD THE PAGE
 // ============================================================
 // ($patients / $allowedPids were loaded above, before the actions.)
-$pid = (int)($_GET['patient'] ?? ($patients[0]['id'] ?? 0));
+// No patient is opened by default: the page starts with an empty "Search patient…" box.
+$pid = (int)($_GET['patient'] ?? 0);
 if ($pid && !in_array($pid, $allowedPids, true)) {
     deny_access("Dental chart of patient #$pid");
 }
@@ -212,7 +213,7 @@ foreach ($sessions as $s) if ((int)$s['id'] === $sid) $session = $s;
 
 // Only the latest visit (or a patient with no visit yet) can be edited.
 $isLatestVisit = !$sessions || $sid === ($validIds[0] ?? 0);
-$canEditVisit  = $canEditChart && $isLatestVisit;
+$canEditVisit  = $canEditChart && $isLatestVisit && $pid > 0;
 
 // Is the patient at the clinic today (marked Arrived)? Then show what they came for.
 $hereToday = null;
@@ -315,7 +316,7 @@ $active = 'odontogram';
                 <div class="card-box">
                     <div class="flex-between">
                         <h5 class="mb-0">Dental Chart
-                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= $canEditVisit ? 'Click a tooth to set its condition and note — then ✔ Done saves them all' : ($canEditChart ? 'Past visit — view only' : 'View only — only the dentist can change this chart') ?></small>
+                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= !$pid ? 'Search for a patient to open their chart' : ($canEditVisit ? 'Click a tooth to set its condition and note — then ✔ Done saves them all' : ($canEditChart ? 'Past visit — view only' : 'View only — only the dentist can change this chart')) ?></small>
                         </h5>
                         <div class="d-flex gap-2">
                             <?php if ($canEditVisit): ?>
@@ -324,7 +325,9 @@ $active = 'odontogram';
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;white-space:nowrap;" onclick="odoDone()">✔ Done<span id="odo-done-count"></span></button>
                             <?php endif; ?>
                             <!-- Print this chart, or download it as a PDF file -->
+                            <?php if ($pid): ?>
                             <?= print_menu('main', pdf_name('Dental-Chart', $printPatient['name'] ?? '', isset($session['visit_date']) ? $session['visit_date'] : date('Y-m-d')), 'window.print()', 'btn-gold btn-sm') ?>
+                            <?php endif; ?>
                         </div>
                     </div>
 
@@ -332,6 +335,7 @@ $active = 'odontogram';
                     <form method="GET" class="mt-3 no-print">
                         <label class="field-label">Patient</label>
                         <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-combo>
+                            <option value="" hidden <?= $pid ? '' : 'selected' ?>>Search patient…</option>
                             <?php foreach ($patients as $p): ?>
                                 <option value="<?= $p['id'] ?>" <?= $p['id']==$pid?'selected':'' ?>><?= e($p['name']) ?></option>
                             <?php endforeach; ?>
@@ -341,6 +345,13 @@ $active = 'odontogram';
                           if ($pid) { $alq = $pdo->prepare("SELECT allergies, medical_alert FROM patients WHERE id = ?"); $alq->execute([$pid]);
                                       $alRow = $alq->fetch(); if ($alRow && ($alB = patient_alert_banner($alRow))) echo '<div class="mt-2">' . clinical_styles() . $alB . '</div>'; } ?>
 
+                    <?php if (!$pid): ?>
+                        <!-- Nothing opened yet -->
+                        <div class="text-center text-muted2 py-5" style="font-size:.95rem;">
+                            <div style="font-size:2rem;margin-bottom:6px;">🦷</div>
+                            <?= $patients ? 'Search for a patient above to open their dental chart.' : 'No patients yet.' ?>
+                        </div>
+                    <?php else: ?>
                     <?php if ($hereToday): ?>
                         <div class="no-print mt-3" style="background:#eaf7ef;border-left:4px solid #1f8a54;border-radius:8px;padding:9px 14px;font-size:.9rem;color:#24543a;">
                             🟢 <b>Here today</b><?= !empty($hereToday['walkin']) ? ' (walk-in)' : '' ?> for <b><?= e($hereToday['treatment']) ?></b> (<?= e($hereToday['appointment_time']) ?>).
@@ -461,6 +472,7 @@ $active = 'odontogram';
                             <button type="button" class="btn btn-dark-navy" onclick="odoNext()" data-keep-text>Next: Treatment Records →</button>
                         </div>
                     <?php endif; ?>
+                    <?php endif; /* a patient is open */ ?>
                 </div>
 
                 <!-- ===== PROGRESS: what changed since the previous visit ===== -->

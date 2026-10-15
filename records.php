@@ -34,7 +34,8 @@ $recSql .= " ORDER BY p.name";
 $recStmt = $pdo->prepare($recSql); $recStmt->execute($recPrm);
 $patients = $recStmt->fetchAll();
 
-$pid = (int)($_GET['patient'] ?? ($patients[0]['id'] ?? 0));
+// No patient is opened by default: the page starts with an empty "Search patient…" box.
+$pid = (int)($_GET['patient'] ?? 0);
 $tab = $_GET['tab'] ?? 'overview';
 if (!in_array($tab, ['overview', 'treatments', 'xrays', 'notes', 'health', 'chart'], true)) $tab = 'overview';
 
@@ -359,6 +360,7 @@ $active = 'records';
             <form method="GET" class="m-0" style="flex:1;max-width:420px;">
                 <input type="hidden" name="tab" value="<?= e($tab) ?>">
                 <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-combo>
+                    <option value="" hidden <?= $pid ? '' : 'selected' ?>>Search patient…</option>
                     <?php foreach ($patients as $p): ?>
                         <option value="<?= $p['id'] ?>" <?= $p['id']==$pid?'selected':'' ?>><?= e($p['name']) ?></option>
                     <?php endforeach; ?>
@@ -376,7 +378,8 @@ $active = 'records';
             <?php endif; ?>
         </div>
 
-        <!-- Tabs -->
+        <!-- Tabs (once a patient is open) -->
+        <?php if ($pid): ?>
         <div class="mb-3 d-flex gap-2 flex-wrap" data-keep-text>
             <?php
             $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 X-rays','notes'=>'📝 Notes',
@@ -385,6 +388,7 @@ $active = 'records';
                 <a href="records?patient=<?= $pid ?>&tab=<?= $k ?>" class="btn btn-sm <?= $tab===$k?'btn-dark-navy':'btn-light' ?>"><?= $label ?></a>
             <?php endforeach; ?>
         </div>
+        <?php endif; ?>
 
         <?php if ($pid && $patientRow): ?>
             <?= clinical_styles() ?>
@@ -399,7 +403,10 @@ $active = 'records';
         <?php endif; ?>
 
         <?php if (!$pid): ?>
-            <div class="card-box text-center text-muted2 py-4">Add a patient first, then you can record their treatments here.</div>
+            <div class="card-box text-center text-muted2 py-5" style="font-size:.95rem;">
+                <div style="font-size:2rem;margin-bottom:6px;">📋</div>
+                <?= $patients ? 'Search for a patient above to open their records.' : 'Add a patient first, then you can record their treatments here.' ?>
+            </div>
 
         <?php elseif ($tab === 'health'): ?>
             <!-- ===== HEALTH FORM: the latest health questionnaire ===== -->
