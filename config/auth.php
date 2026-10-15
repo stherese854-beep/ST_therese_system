@@ -41,6 +41,7 @@ if (php_sapi_name() !== 'cli') {
 }
 session_start();               // turn on PHP sessions (remembers who is logged in)
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
+require_once __DIR__ . '/../includes/relationships.php';   // "Raquel is your Child" — the words, age checks
 
 // ---- Self-healing database (new tables / columns) ----
 // These checks only need to run once after each update of the system, not on
@@ -58,6 +59,7 @@ if (!$__schemaOk) {
     ensure_activity_log_schema($pdo);               // self-heals the activity_log table
     ensure_patient_archive_schema($pdo);            // self-heals the patients table's archive columns
     ensure_dependents_schema($pdo);                 // family members booked by a patient get their own record (needs assign.php)
+    migrate_relationship_direction($pdo);           // one time: relationships now describe the patient ("Raquel is your Child")
     ensure_booking_review_schema($pdo);             // health questionnaire + cancellation review columns
     require_once __DIR__ . '/../includes/patient_notices.php';
     ensure_patient_notices_table($pdo);             // cancellation / no-show pop-ups

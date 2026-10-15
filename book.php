@@ -195,6 +195,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     if ($treatJoined !== '') $_POST['treatment'] = $treatJoined;
     $relationshipPosted = trim($_POST['relationship'] ?? '');
     if ($relationshipPosted === 'Other relative') $relationshipPosted = trim($_POST['relationship_other'] ?? '');
+    // Someone this account booked for before keeps the relationship on file (only the
+    // clinic changes it), so it is not checked again here.
+    $knownDependent = null;
+    if (($_POST['for'] ?? 'myself') === 'other' && $me['id']) {
+        $kd = $pdo->prepare("SELECT id, name, relationship FROM patients WHERE guardian_patient_id = ?");
+        $kd->execute([$me['id']]);
+        foreach ($kd->fetchAll() as $r) if (person_name_key($r['name']) === person_name_key($patientName)) $knownDependent = $r;
+        if ($knownDependent && trim((string)$knownDependent['relationship']) !== '') $relationshipPosted = $knownDependent['relationship'];
+    }
+    $relAgeError = (($_POST['for'] ?? 'myself') === 'other' && !$knownDependent)
+                 ? relationship_age_problem($relationshipPosted, trim($_POST['patient_dob'] ?? ''), $me['date_of_birth'] ?? null, $patientName) : '';
 
     if ($tooMany) {
         $bookError = "Too many booking attempts from this connection. Please wait a while and try again, or contact the clinic.";
@@ -203,7 +214,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     } elseif ($phoneError !== '') {
         $bookError = $phoneError;
     } elseif (($_POST['for'] ?? 'myself') === 'other' && $relationshipPosted === '') {
-        $bookError = 'Please tell us your relationship to the patient.';
+        $bookError = 'Please tell us who the patient is to you.';
     } elseif ($treatError !== '') {
         $bookError = $treatError;
     } elseif ($healthError !== '') {
@@ -214,6 +225,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = "That time has already passed today. Please choose a later time.";
     } elseif (($_POST['for'] ?? 'myself') === 'other' && ($dobErr = birth_date_error($_POST['patient_dob'] ?? '', true)) !== '') {
         $bookError = $dobErr;
+    } elseif ($relAgeError !== '') {
+        $bookError = e($relAgeError);                 // e.g. a 5-year-old cannot be your parent
     } elseif ($manualBlockReason !== '') {
         // Staff paused this account by hand and left a message for the patient.
         $bookError = "<strong>Online booking is currently paused on your account.</strong><br><br>"
@@ -300,7 +313,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         // Email the patient a "request received" confirmation (if email is set up).
         if (!empty($me['email'])) {
             $who = ($forWhom === 'Someone else')
-                 ? "<strong>" . e($patientName) . "</strong> (booked by you, relationship: " . e($relationship ?: 'n/a') . ")"
+                 ? "<strong>" . e($patientName) . "</strong> (" . ($relationship ? e(relationship_phrase($relationship)) . ', ' : '') . "booked by you)"
                  : "<strong>" . e($patientName) . "</strong>";
             $cat = message_catalogue()['confirmation'];
             [$mailSubj, $body] = tpl_message($pdo, 'confirmation', $cat['subject'], $cat['body'], [
@@ -419,7 +432,7 @@ include 'includes/head.php';
 
         <?php if (!empty($confirm['booked_by'])): ?>
             <p>Thank you, <b><?= e($confirm['booked_by']) ?></b>! You booked this appointment for
-               <b><?= e($confirm['patient_name']) ?></b><?= $confirm['relationship'] ? ' (your ' . e(strtolower($confirm['relationship'])) . ')' : '' ?>.</p>
+               <b><?= e($confirm['patient_name']) ?></b><?= $confirm['relationship'] ? ' (' . e(relationship_phrase($confirm['relationship'])) . ')' : '' ?>.</p>
         <?php else: ?>
             <p>Thank you, <b><?= e($me['name']) ?></b>! Your booking request has been submitted.</p>
         <?php endif; ?>
@@ -431,7 +444,7 @@ include 'includes/head.php';
         <div class="card-box text-start bk-done-rows" style="background:#f6f9fa;">
             <div class="flex-between py-1"><span>Patient</span><b><?= e($confirm['patient_name'] ?? $me['name']) ?></b></div>
             <?php if (!empty($confirm['booked_by'])): ?>
-                <div class="flex-between py-1"><span>Booked by</span><b><?= e($confirm['booked_by']) ?><?= $confirm['relationship'] ? ' (' . e($confirm['relationship']) . ')' : '' ?></b></div>
+                <div class="flex-between py-1"><span>Booked by</span><b><?= e($confirm['booked_by']) ?> (you)</b></div>
             <?php endif; ?>
             <div class="flex-between py-1"><span>Treatment</span><b><?= e($confirm['treatment']) ?></b></div>
             <?php if (!empty($confirm['reason'])): ?>
@@ -635,24 +648,24 @@ include 'includes/head.php';
                         <?php endforeach; ?>
                     </select>
                     <?php endif; ?>
-                    <label class="field-label">Your relationship to the patient *</label>
+                    <!-- Who the PATIENT is to you ("Raquel is my child") — see includes/relationships.php -->
+                    <div id="rel-pick">
+                    <label class="field-label">Who is the patient to you? *</label>
                     <select name="relationship" id="sel-rel" class="form-select mb-1" onchange="relOther()">
                         <option value="">— Please select —</option>
-                        <option>Parent</option>
-                        <option>Guardian</option>
-                        <option>Spouse</option>
-                        <option>Child</option>
-                        <option>Sibling</option>
-                        <option>Grandparent</option>
-                        <option>Friend</option>
-                        <!-- value kept as "Other relative" so saved bookings still match; shown as "Other" -->
+                        <?php foreach (RELATIONSHIPS as $rk => [$rlabel]): ?>
+                            <option value="<?= e($rk) ?>"><?= e($rlabel) ?></option>
+                        <?php endforeach; ?>
                         <option value="Other relative">Other (please specify)</option>
                     </select>
                     <div id="rel-other-wrap" style="display:none;">
                         <input type="text" name="relationship_other" id="sel-rel-other" class="form-control mb-1" maxlength="40"
-                               placeholder="Please specify, e.g. Cousin, Neighbor, Godchild, Caregiver">
+                               placeholder="They are my… e.g. cousin, niece, godchild">
                     </div>
-                    <div id="rel-warn" class="text-danger small mb-2" style="display:none;">Please choose your relationship to the patient.</div>
+                    </div>
+                    <!-- Someone booked before: their relationship is on file (only the clinic changes it) -->
+                    <div id="rel-fixed" class="mb-2" style="display:none;font-size:.9rem;"></div>
+                    <div id="rel-warn" class="text-danger small mb-2" style="display:none;">Please choose who the patient is to you.</div>
 
                 </div>
 
@@ -884,14 +897,15 @@ function validateStep3() {
 
     // When booking for someone else, the relationship AND their birthday are required.
     var forOther = document.querySelector('input[name="for"]:checked').value === 'other';
-    if (forOther && document.getElementById('sel-rel').value === '') {
-        document.getElementById('rel-warn').textContent = 'Please choose your relationship to the patient.';
+    var knownPerson = !!(document.getElementById('sel-family') && document.getElementById('sel-family').value !== '');
+    if (forOther && !knownPerson && document.getElementById('sel-rel').value === '') {
+        document.getElementById('rel-warn').textContent = 'Please choose who the patient is to you.';
         document.getElementById('rel-warn').style.display = 'block';
         return;
     }
-    if (forOther && document.getElementById('sel-rel').value === 'Other relative'
+    if (forOther && !knownPerson && document.getElementById('sel-rel').value === 'Other relative'
         && document.getElementById('sel-rel-other').value.trim() === '') {
-        document.getElementById('rel-warn').textContent = 'Please type your relationship to the patient (e.g. Cousin, Neighbor, Caregiver).';
+        document.getElementById('rel-warn').textContent = 'Please type who the patient is to you (e.g. cousin, niece, godchild).';
         document.getElementById('rel-warn').style.display = 'block';
         document.getElementById('sel-rel-other').focus();
         return;
@@ -908,6 +922,14 @@ function validateStep3() {
         document.getElementById('sel-dob').focus();
         return;
     }
+    // The relationship has to fit the birthdays (a 5-year-old cannot be your parent).
+    var relMsg = forOther && !knownPerson ? relAgeProblem(document.getElementById('sel-rel').value, document.getElementById('sel-dob').value, (fn + ' ' + ln).trim()) : '';
+    if (relMsg) {
+        document.getElementById('rel-warn').textContent = relMsg;
+        document.getElementById('rel-warn').style.display = 'block';
+        document.getElementById('sel-rel').focus();
+        return;
+    }
 
     var phoneMsg = phoneProblem(phone, true);
     if (phoneMsg) {
@@ -918,6 +940,29 @@ function validateStep3() {
     document.getElementById('phone-warn').style.display = 'none';
     hfPrefillFor();          // show the health answers of the person this booking is for
     goStep(3);
+}
+
+// Same rules as relationship_age_problem() in includes/relationships.php.
+var REL_RULES = <?= json_encode(array_map(fn($r) => $r[1], RELATIONSHIPS)) ?>, HOLDER_DOB = <?= json_encode((string)($me['date_of_birth'] ?? '')) ?>;
+var REL_WORDS = <?= json_encode(array_combine(array_keys(RELATIONSHIPS), array_map('relationship_phrase', array_keys(RELATIONSHIPS)))) ?>;
+function yearsBetween(a, b) {          // full years from date a to date b (negative if b is earlier)
+    var x = new Date(a + 'T00:00:00'), y = new Date(b + 'T00:00:00'), sign = 1;
+    if (y < x) { var t = x; x = y; y = t; sign = -1; }
+    var n = y.getFullYear() - x.getFullYear();
+    if (y.getMonth() < x.getMonth() || (y.getMonth() === x.getMonth() && y.getDate() < x.getDate())) n--;
+    return sign * n;
+}
+function relAgeProblem(rel, dob, name) {
+    var rule = REL_RULES[rel];
+    if (!rule || !dob) return '';
+    var today = new Date().toISOString().slice(0, 10), age = yearsBetween(dob, today), what = REL_WORDS[rel], n = rule[1];
+    name = name || 'This person';
+    if (rule[0] === 'adult' && age < n) return name + ' is ' + age + ' — your spouse / partner must be 18 or older. Please choose who they are to you.';
+    if (rule[0] === 'older' && (HOLDER_DOB ? yearsBetween(dob, HOLDER_DOB) < n : age < n + 6))
+        return name + ' is ' + age + ' — too young to be ' + what + (HOLDER_DOB ? ' (they would be at least ' + n + ' years older than you)' : '') + '. Please choose who they are to you.';
+    if (rule[0] === 'younger' && HOLDER_DOB && yearsBetween(HOLDER_DOB, dob) < n)
+        return name + ' is ' + age + ' — too old to be ' + what + ' (they would be at least ' + n + ' years younger than you). Please choose who they are to you.';
+    return '';
 }
 
 // "Other": ask what the relationship is.
@@ -975,15 +1020,23 @@ function pickFamily() {
     var sel = document.getElementById('sel-family'), f = sel && sel.value !== '' ? FAMILY[+sel.value] : null;
     var fn = document.getElementById('sel-fname'), ln = document.getElementById('sel-lname');
     var rel = document.getElementById('sel-rel'), relOtherBox = document.getElementById('sel-rel-other');
+    var fixed = document.getElementById('rel-fixed'), pick = document.getElementById('rel-pick');
     if (f) {
         fn.value = f.first; ln.value = f.last; fn.readOnly = true; ln.readOnly = true;
-        var known = [].some.call(rel.options, function (o) { return o.value === f.relationship || o.text === f.relationship; });
+        var known = [].some.call(rel.options, function (o) { return o.value === f.relationship; });
         if (f.relationship && !known) { rel.value = 'Other relative'; relOtherBox.value = f.relationship; }
         else { rel.value = f.relationship; relOtherBox.value = ''; }
+        // Their relationship is on file: shown, not chosen again (only the clinic changes it).
+        if (f.relationship) {
+            fixed.textContent = f.first + ' is ' + (REL_WORDS[f.relationship] || 'your ' + f.relationship.toLowerCase()) + '.';
+            fixed.style.display = ''; pick.style.display = 'none';
+        } else { fixed.style.display = 'none'; pick.style.display = ''; }
         document.getElementById('sel-dob').value = f.dob || ''; document.getElementById('sel-dob').dispatchEvent(new Event('change', {bubbles: true}));
     } else {
         fn.value = ''; ln.value = ''; fn.readOnly = false; ln.readOnly = false;
         rel.value = ''; relOtherBox.value = ''; document.getElementById('sel-dob').value = '';
+        document.getElementById('sel-dob').dispatchEvent(new Event('change', {bubbles: true}));   // clears the "Age …" note
+        fixed.style.display = 'none'; pick.style.display = '';
         fn.focus();
     }
     relOther();

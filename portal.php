@@ -1269,10 +1269,11 @@ include 'includes/head.php';
                 <div class="row g-3">
                     <!-- Relationship + phone: shown, not editable (the clinic corrects them if needed) -->
                     <div class="col-lg-5">
-                        <div class="field-label">Relationship</div>
-                        <div class="mb-2"><?= $fm['relationship'] ? e($fm['relationship']) : '<span class="text-muted2">–</span>' ?></div>
+                        <div class="field-label">Who they are to you</div>
+                        <div class="mb-2"><?= $fm['relationship'] ? e(ucfirst(relationship_phrase($fm['relationship']))) : '<span class="text-muted2">–</span>' ?></div>
                         <div class="field-label">Phone number</div>
-                        <div class="mb-1"><?= !empty($fm['phone']) ? e($fm['phone']) : '<span class="text-muted2">– (none on file)</span>' ?></div>
+                        <div class="mb-1"><?= !empty($fm['phone']) ? e($fm['phone'])
+                            : '<span class="text-muted2">Uses your number' . (!empty($me['phone']) ? ' (' . e($me['phone']) . ')' : '') . '</span>' ?></div>
                         <div class="text-muted2" style="font-size:.78rem;">Something wrong here? Please tell the clinic and they will correct it.</div>
 
                         <div class="mt-3" style="font-size:.85rem;">

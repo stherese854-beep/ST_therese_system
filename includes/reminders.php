@@ -105,7 +105,7 @@ function send_due_reminders($pdo) {
         $subject = tpl_fill(tpl($pdo, 'reminder', 'subject', $cat['subject']), $vars);
         $bodyTxt = tpl_fill(tpl($pdo, 'reminder', 'body', $cat['body']), $vars);
         if (($a['booked_for'] ?? '') === 'Someone else') {
-            $bodyTxt = "Patient: " . $a['patient_name'] . ($a['relationship'] ? ' (your ' . strtolower($a['relationship']) . ')' : '')
+            $bodyTxt = "Patient: " . $a['patient_name'] . ($a['relationship'] ? ' (' . relationship_phrase($a['relationship']) . ')' : '')
                      . "\n\n" . $bodyTxt;
         }
         $buttons = '';

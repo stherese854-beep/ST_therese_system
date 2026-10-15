@@ -83,6 +83,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$name, $email, $phone, $status, $ptype, $vreason, $id]);
             if ($canDob) {
                 $pdo->prepare("UPDATE patients SET date_of_birth=?, age=? WHERE id=?")->execute([$dob ?: null, $age, $id]);
+                // Who a booked-for person is to the account holder (People I Book For shows it).
+                $gq = $pdo->prepare("SELECT p.guardian_patient_id, p.relationship, g.date_of_birth AS gdob, g.name AS gname
+                                       FROM patients p LEFT JOIN patients g ON g.id = p.guardian_patient_id WHERE p.id = ?");
+                $gq->execute([$id]); $gRow = $gq->fetch();
+                if ($gRow && $gRow['guardian_patient_id'] && isset($_POST['relationship'])) {
+                    $rel = trim($_POST['relationship']);
+                    if ($rel === '__other') $rel = mb_substr(trim($_POST['relationship_other'] ?? ''), 0, 40);
+                    if ($rel !== '' && ($relErr = relationship_age_problem($rel, $dob, $gRow['gdob'], $name)) !== '') {
+                        set_flash('Saved, except the relationship: ' . preg_replace(['/\byour\b/', '/\byou\b/'], [$gRow['gname'] . '’s', $gRow['gname']], $relErr), 'error');
+                        header("Location: patients"); exit;
+                    }
+                    if ($rel !== (string)$gRow['relationship']) {
+                        $pdo->prepare("UPDATE patients SET relationship = ? WHERE id = ?")->execute([$rel ?: null, $id]);
+                        log_activity($pdo, 'Changed relationship', $name . ': ' . ($rel ?: '–') . ' (to ' . $gRow['gname'] . ')');
+                    }
+                }
             }
 
             // If this patient has a LOGIN account, keep it in sync (name + email),
@@ -368,6 +384,7 @@ foreach ($pdo->query("SELECT id, name, relationship, guardian_patient_id FROM pa
 foreach ($patients as &$pp) {
     $g = (int)($pp['guardian_patient_id'] ?? 0);
     $pp['booked_by_name'] = $g ? ($pNames[$g] ?? '') : '';
+    $pp['rel_phrase']     = $g ? relationship_phrase($pp['relationship'] ?? '', 'their') : '';   // "their child"
     $pp['family_members'] = $familyOf[(int)$pp['id']] ?? [];
 }
 unset($pp);
@@ -655,6 +672,20 @@ $active = 'patients';
                 <div class="col"><label class="field-label">Age</label>
                     <input type="number" name="age" id="f-age" class="form-control mb-3" min="0" max="120" step="1" data-digits></div>
             </div>
+            <!-- A person booked by someone else: who they are to that person (checked against both birthdays) -->
+            <div id="f-rel-wrap" style="display:none;">
+                <label class="field-label">Who they are to <span id="f-rel-booker"></span></label>
+                <select name="relationship" id="f-rel" class="form-select mb-1"
+                        onchange="document.getElementById('f-rel-other').style.display = this.value === '__other' ? '' : 'none'">
+                    <option value="">–</option>
+                    <?php foreach (array_keys(RELATIONSHIPS) as $rk): ?>
+                        <option value="<?= e($rk) ?>"><?= e(ucfirst(relationship_phrase($rk, 'their'))) ?></option>
+                    <?php endforeach; ?>
+                    <option value="__other">Other (type it)</option>
+                </select>
+                <input type="text" name="relationship_other" id="f-rel-other" class="form-control mb-1" maxlength="40" placeholder="e.g. cousin, niece, godchild" style="display:none;">
+                <div class="text-muted2 mb-3" style="font-size:.76rem;">The account holder sees this on People I Book For but cannot change it.</div>
+            </div>
             <?php endif; ?>
             <div class="row">
                 <div class="col"><label class="field-label">Phone</label>
@@ -841,6 +872,13 @@ function validatePauseBooking(){
         if (document.getElementById('f-dob')) {           // admin / staff only
             document.getElementById('f-dob').value = p.date_of_birth || '';
             document.getElementById('f-age').value = (p.age === null || p.age === undefined) ? '' : p.age;
+            // Booked by someone else: who they are to that person
+            var rw = document.getElementById('f-rel-wrap'), rs = document.getElementById('f-rel'), ro = document.getElementById('f-rel-other');
+            rw.style.display = p.guardian_patient_id ? '' : 'none';
+            document.getElementById('f-rel-booker').textContent = p.booked_by_name || 'the person who books for them';
+            var rel = p.relationship || '', known = [].some.call(rs.options, function (o) { return o.value === rel; });
+            rs.value = rel === '' ? '' : (known ? rel : '__other');
+            ro.value = known ? '' : rel; ro.style.display = rs.value === '__other' ? '' : 'none';
         }
         toggleReason();
     }
@@ -848,7 +886,7 @@ function validatePauseBooking(){
     // ----- Data + colors for the read-only dental chart in the View modal -----
     const TOOTH_DATA   = <?= json_encode($toothData ?: (object)[]) ?>;
     const TOOTH_COLORS = {Healthy:'#6bbf6b',Decayed:'#e0a92e',Filled:'#3b9ae0',Missing:'#e05b5b',
-                          Crowned:'#a06fd6',Extracted:'#999999',Impacted:'#d99a00',Fractured:'#cc4444'};
+                          Crowned:'#a06fd6',Extracted:'#999999',Impacted:'#d99a00',Fractured:'#cc4444',Other:'#d6589c'};
     const UPPER_TEETH  = ['18','17','16','15','14','13','12','11','21','22','23','24','25','26','27','28'];
     const LOWER_TEETH  = ['48','47','46','45','44','43','42','41','31','32','33','34','35','36','37','38'];
 
@@ -900,7 +938,7 @@ function validatePauseBooking(){
           +     '<p><b>Email:</b> '+esc(p.email||'–')+'</p>'
           +     '<p><b>Phone:</b> '+esc(p.phone||'–')+'</p>'
           +     '<p><b>Age:</b> '+(p.age||'–')+'</p>'
-          +     (p.booked_by_name ? '<p><b>Booked by:</b> '+esc(p.booked_by_name)+(p.relationship ? ' <span class="text-muted2">('+esc(p.relationship)+')</span>' : '')+'</p>' : '')
+          +     (p.booked_by_name ? '<p><b>Booked by:</b> '+esc(p.booked_by_name)+(p.rel_phrase ? ' <span class="text-muted2">(the patient is '+esc(p.rel_phrase)+')</span>' : '')+'</p>' : '')
           +     (p.family_members && p.family_members.length ? '<p><b>Family members:</b> '+p.family_members.map(esc).join(', ')+'</p>' : '')
           +   '</div>'
           +   '<div class="col-md-6">'
