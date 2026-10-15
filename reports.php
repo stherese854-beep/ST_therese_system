@@ -245,7 +245,7 @@ body.print-compact #report-area .report-counts strong { font-size: 13px; }
 body.print-compact #report-area .report-counts span { font-size: 8px; }
 /* Shrink the dental chart */
 body.print-compact #report-area .odo-arch { padding: 4px 3px !important; gap: 2px !important; margin: 3px 0 !important; }
-body.print-compact #report-area .tooth { width: 20px !important; }
+body.print-compact #report-area .tooth { flex: 0 0 20px !important; width: 20px !important; }
 body.print-compact #report-area .tooth svg { width: 18px !important; height: 19px !important; }
 body.print-compact #report-area .tooth .num { font-size: .48rem !important; margin-top: 0 !important; }
 body.print-compact #report-area .report-signature { margin-top: 10px !important; padding-top: 6px !important; }

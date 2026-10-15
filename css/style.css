@@ -317,11 +317,14 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 
 /* ========================== ODONTOGRAM =========================== */
 .odo-section-label { display: inline-block; background: #e7eef0; color: var(--muted); font-size: .65rem; letter-spacing: 1px; padding: 3px 14px; border-radius: 20px; text-transform: uppercase; }
-.odo-arch { border: 1px dashed #bcdada; border-radius: 14px; padding: 22px 12px; background: #f3fafa; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 8px 0; }
-.tooth { width: 42px; text-align: center; cursor: pointer; }
-.tooth svg { display: block; margin: 0 auto; }
+.odo-arch { border: 1px dashed #bcdada; border-radius: 14px; padding: 22px 12px; background: #f3fafa; display: flex; gap: 6px; justify-content: center; flex-wrap: nowrap; margin: 8px 0; }
+.tooth { flex: 0 1 42px; min-width: 0; text-align: center; cursor: pointer; }
+/* All 16 teeth of an arch stay on ONE row: on a narrower screen they shrink
+   a little instead of the last tooth dropping onto a line of its own. */
+.tooth svg { display: block; margin: 0 auto; width: 100%; max-width: 40px; height: auto; }
 .tooth .num { font-size: .68rem; color: var(--muted); margin-top: 2px; }
 .tooth:hover svg path { stroke-width: 2.5; }
+@media (max-width: 576px) { .odo-arch { gap: 2px; padding: 14px 4px; } .tooth .num { font-size: .58rem; } }
 .odo-midline { text-align: center; color: var(--muted); font-size: .65rem; letter-spacing: 2px; margin: 6px 0; }
 .odo-legend { display: flex; flex-wrap: wrap; gap: 14px; background: #f3fafa; border-radius: 12px; padding: 12px 16px; margin-top: 8px; }
 .odo-legend span { font-size: .8rem; color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
