@@ -16,7 +16,14 @@ $wiToday = walkins_today($pdo, current_role() === 'dentist' ? ($_SESSION['name']
             <tbody>
             <?php foreach ($wiToday as $w): ?>
                 <tr>
-                    <td><strong><?= in_array(current_role(), ['admin', 'dentist'], true) ? '<a href="records?patient=' . (int)$w['patient_id'] . '&tab=treatments">' . e($w['patient_name']) . '</a>' : e($w['patient_name']) ?></strong></td>
+                    <td><div class="d-flex align-items-center gap-2">
+                        <strong><?= e($w['patient_name']) ?></strong>
+                        <?php if (in_array(current_role(), ['admin', 'dentist'], true)): ?>
+                            <!-- 👁 open their treatment records (the name itself is not a link) -->
+                            <a href="records?patient=<?= (int)$w['patient_id'] ?>&tab=treatments" class="btn btn-sm icon-btn btn-outline-teal"
+                               data-tip="View <?= e($w['patient_name']) ?>'s records" aria-label="View records">👁</a>
+                        <?php endif; ?>
+                    </div></td>
                     <td class="date-blue"><?= e($w['visit_time']) ?></td>
                     <td><?= e($w['services']) ?></td>
                     <td><?= e($w['dentist']) ?></td>
