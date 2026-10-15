@@ -139,7 +139,7 @@ function walkin_form($pdo, $assets = true) {
     <div id="wi-warn" class="alert alert-danger py-2 mb-2" style="display:none;font-size:.85rem;"></div>
     <div class="d-flex justify-content-end gap-2">
       <button type="button" class="btn btn-light" data-keep-text onclick="wiClose()">Cancel</button>
-      <button class="btn btn-teal" data-keep-text>Save walk-in visit</button>
+      <button class="btn btn-teal" data-keep-text>Save</button>
     </div>
   </form>
 </div>

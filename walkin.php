@@ -82,8 +82,14 @@ sync_visit_info($pdo, $pid);                                    // last visit + 
 log_activity($pdo, 'Walk-in visit', $patient['name'] . ' — ' . $services . ' with ' . $dentist);
 
 $msg = 'Walk-in visit saved for ' . $patient['name'] . ' (' . $services . ').' . ($note ?? '');
-$ownPatient = $role !== 'dentist' || empty($patient['primary_dentist']) || $patient['primary_dentist'] === $dentist;
-if (($role === 'dentist' || $role === 'admin') && $ownPatient) {
+// A DENTIST goes to the patient's dental chart first (then "Next →" for the
+// treatment record) — the same steps as an appointment marked Arrived.
+// (They may open this patient now: they are seeing them today.)
+if ($role === 'dentist') {
+    set_flash($msg . ' Check the teeth, then click Next for the treatment record.');
+    header("Location: odontogram?patient=$pid"); exit;
+}
+if ($role === 'admin') {
     set_flash($msg . ' Record the treatment below.');
     header("Location: records?patient=$pid&tab=treatments"); exit;
 }

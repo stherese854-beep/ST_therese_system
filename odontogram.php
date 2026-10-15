@@ -220,6 +220,13 @@ if ($pid && $canEditChart) {
     $hq = $pdo->prepare("SELECT treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
                           AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");
     $hq->execute([$pid]); $hereToday = $hq->fetch() ?: null;
+    if (!$hereToday) {                                   // or came in today as a walk-in
+        try {
+            $wq = $pdo->prepare("SELECT services AS treatment, visit_time AS appointment_time, 1 AS walkin FROM walk_in_visits
+                                  WHERE patient_id = ? AND visit_date = CURDATE() ORDER BY id DESC LIMIT 1");
+            $wq->execute([$pid]); $hereToday = $wq->fetch() ?: null;
+        } catch (Throwable $e) {}
+    }
 }
 
 // The chart we are editing (+ each tooth's typed condition and note).
@@ -340,7 +347,7 @@ $active = 'odontogram';
 
                     <?php if ($hereToday): ?>
                         <div class="no-print mt-3" style="background:#eaf7ef;border-left:4px solid #1f8a54;border-radius:8px;padding:9px 14px;font-size:.9rem;color:#24543a;">
-                            🟢 <b>Here today</b> for <b><?= e($hereToday['treatment']) ?></b> (<?= e($hereToday['appointment_time']) ?>).
+                            🟢 <b>Here today</b><?= !empty($hereToday['walkin']) ? ' (walk-in)' : '' ?> for <b><?= e($hereToday['treatment']) ?></b> (<?= e($hereToday['appointment_time']) ?>).
                             Click a tooth to record what you find, then <b>Next →</b> for the treatment record — or just <b>Next →</b> if nothing changed.
                             <?php if ($session && $session['visit_date'] !== date('Y-m-d')): ?>
                                 <div class="mt-1" style="font-size:.84rem;">The chart below is from <?= date('M j, Y', strtotime($session['visit_date'])) ?>.
