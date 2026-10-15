@@ -62,6 +62,16 @@ function sync_visit_info($pdo, $patientId) {
     } catch (Throwable $e) {}
 }
 
+// Odontogram and Treatment Records open the patient last opened on either page
+// (or the first one in the list), so they never start empty. Their search box
+// still says "Search patient…" until a patient is searched for or picked.
+// Returns [patient id, true when it is the last one opened].
+function default_open_patient(array $allowedPids) {
+    $last = (int)($_SESSION['last_patient_id'] ?? 0);
+    if ($last && in_array($last, $allowedPids, true)) return [$last, true];
+    return [(int)($allowedPids[0] ?? 0), false];
+}
+
 /** [date or null, where it comes from] — the next booked appointment, else the follow-up date. */
 function next_visit_info($pdo, $patient) {
     $q = $pdo->prepare("SELECT appointment_date, appointment_time FROM appointments

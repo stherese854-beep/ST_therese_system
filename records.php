@@ -34,7 +34,9 @@ $recSql .= " ORDER BY p.name";
 $recStmt = $pdo->prepare($recSql); $recStmt->execute($recPrm);
 $patients = $recStmt->fetchAll();
 
-// No patient is opened by default: the page starts with an empty "Search patient…" box.
+// A patient picked (?patient=) shows in the search box; otherwise the last patient
+// opened is shown and the box says "Search patient…" (see default_open_patient()).
+$pickedPatient = isset($_GET['patient']);
 $pid = (int)($_GET['patient'] ?? 0);
 $tab = $_GET['tab'] ?? 'overview';
 if (!in_array($tab, ['overview', 'treatments', 'xrays', 'notes', 'health', 'chart'], true)) $tab = 'overview';
@@ -45,6 +47,9 @@ $allowedPids = array_map('intval', array_column($patients, 'id'));
 if ($pid && !in_array($pid, $allowedPids, true)) {
     deny_access("Records of patient #$pid");
 }
+$fromLast = false;
+if (!$pickedPatient) [$pid, $fromLast] = default_open_patient($allowedPids);
+if ($pid && $_SERVER['REQUEST_METHOD'] !== 'POST') $_SESSION['last_patient_id'] = $pid;
 
 // Name of the selected patient (saved into the treatments table).
 $patientName = '';
@@ -360,11 +365,14 @@ $active = 'records';
             <form method="GET" class="m-0" style="flex:1;max-width:420px;">
                 <input type="hidden" name="tab" value="<?= e($tab) ?>">
                 <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-combo>
-                    <option value="" hidden <?= $pid ? '' : 'selected' ?>>Search patient…</option>
+                    <option value="" hidden <?= $pickedPatient ? '' : 'selected' ?>>Search patient…</option>
                     <?php foreach ($patients as $p): ?>
-                        <option value="<?= $p['id'] ?>" <?= $p['id']==$pid?'selected':'' ?>><?= e($p['name']) ?></option>
+                        <option value="<?= $p['id'] ?>" <?= ($pickedPatient && $p['id']==$pid) ? 'selected' : '' ?>><?= e($p['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
+                <?php if (!$pickedPatient && $pid): ?>
+                    <div class="text-muted2 mt-1" style="font-size:.82rem;">Showing <b><?= e($patientName) ?></b><?= $fromLast ? ' — the last patient you opened' : '' ?></div>
+                <?php endif; ?>
             </form>
             <?php if (empty($patients)): ?><span class="text-muted2">No patients yet.</span><?php endif; ?>
             <?php if ($pid && $patientRow):

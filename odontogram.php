@@ -189,11 +189,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 //  LOAD THE PAGE
 // ============================================================
 // ($patients / $allowedPids were loaded above, before the actions.)
-// No patient is opened by default: the page starts with an empty "Search patient…" box.
+// A patient picked (?patient=) shows in the search box; otherwise the last patient
+// opened is shown and the box says "Search patient…" (see default_open_patient()).
+$pickedPatient = isset($_GET['patient']);
 $pid = (int)($_GET['patient'] ?? 0);
 if ($pid && !in_array($pid, $allowedPids, true)) {
     deny_access("Dental chart of patient #$pid");
 }
+$fromLast = false;
+if (!$pickedPatient) [$pid, $fromLast] = default_open_patient($allowedPids);
+if ($pid) $_SESSION['last_patient_id'] = $pid;
 
 // No visit is created just by opening the page: a patient who has not been
 // seen yet has an EMPTY chart history. The first visit is made when the
@@ -335,11 +340,14 @@ $active = 'odontogram';
                     <form method="GET" class="mt-3 no-print">
                         <label class="field-label">Patient</label>
                         <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-combo>
-                            <option value="" hidden <?= $pid ? '' : 'selected' ?>>Search patient…</option>
+                            <option value="" hidden <?= $pickedPatient ? '' : 'selected' ?>>Search patient…</option>
                             <?php foreach ($patients as $p): ?>
-                                <option value="<?= $p['id'] ?>" <?= $p['id']==$pid?'selected':'' ?>><?= e($p['name']) ?></option>
+                                <option value="<?= $p['id'] ?>" <?= ($pickedPatient && $p['id']==$pid) ? 'selected' : '' ?>><?= e($p['name']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <?php if (!$pickedPatient && $pid): ?>
+                            <div class="text-muted2 mt-1" style="font-size:.82rem;">Showing <b><?= e($printPatient['name'] ?? '') ?></b><?= $fromLast ? ' — the last patient you opened' : '' ?></div>
+                        <?php endif; ?>
                     </form>
                     <?php // ⚠️ Allergies / medical alert — check before treating
                           if ($pid) { $alq = $pdo->prepare("SELECT allergies, medical_alert FROM patients WHERE id = ?"); $alq->execute([$pid]);
