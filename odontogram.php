@@ -582,13 +582,21 @@ $active = 'odontogram';
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+            <!-- The tooth itself: its color follows the condition chosen below -->
+            <div class="text-center mb-3">
+                <svg width="64" height="67" viewBox="0 0 40 42" aria-hidden="true">
+                    <path id="modal-tooth-shape" class="t-Healthy" d="M8 6 Q20 0 32 6 Q36 18 30 30 Q26 40 20 40 Q14 40 10 30 Q4 18 8 6 Z" stroke-width="1.6"/>
+                    <path id="modal-tooth-x" d="M10 8 L30 30 M30 8 L10 30" stroke="#e05b5b" stroke-width="2" fill="none" style="display:none;"/>
+                </svg>
+                <div id="modal-tooth-cond" class="text-muted2" style="font-size:.85rem;">Healthy</div>
+            </div>
             <label class="field-label">Condition</label>
             <select id="modal-status" class="form-select" onchange="odoOtherToggle()">
                 <?php foreach ($TOOTH_STATUSES as $st): ?>
                     <option value="<?= $st ?>"><?= $st === 'Other' ? 'Other (type it)' : $st ?></option>
                 <?php endforeach; ?>
             </select>
-            <input type="text" id="modal-other" class="form-control mt-2" maxlength="100" style="display:none;"
+            <input type="text" id="modal-other" class="form-control mt-2" maxlength="100" style="display:none;" oninput="odoPreview()"
                    placeholder="Type the condition, e.g. Sensitive, Root stump, Discolored">
             <label class="field-label mt-3">Note <span class="text-muted2">(optional)</span></label>
             <textarea id="modal-notes" class="form-control" rows="2" maxlength="255"
@@ -732,7 +740,15 @@ $active = 'odontogram';
         showPanel(openNum);
         bootstrap.Modal.getOrCreateInstance($('toothModal')).show();
     };
+    // The tooth picture in the pop-up follows the chosen condition.
+    window.odoPreview = function () {
+        var st = $('modal-status').value;
+        $('modal-tooth-shape').setAttribute('class', 't-' + st);
+        $('modal-tooth-x').style.display = (st === 'Missing' || st === 'Extracted') ? '' : 'none';
+        $('modal-tooth-cond').textContent = label({ status: st, other: st === 'Other' ? $('modal-other').value.trim() : '' });
+    };
     window.odoOtherToggle = function () {
+        odoPreview();
         var on = $('modal-status').value === 'Other';
         $('modal-other').style.display = on ? '' : 'none';
         if (on) setTimeout(function () { $('modal-other').focus(); }, 50);
