@@ -121,27 +121,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: portal?view=profile#my-health"); exit;
     }
 
-    // ---- My Family: a relative's relationship / phone, or their health questionnaire ----
-    // Only relatives linked to THIS account. Name, birthday and age stay clinic-only.
-    if (in_array($action, ['save_family_member', 'save_family_health'], true) && $pid) {
+    // ---- My Family: a relative's health questionnaire ----
+    // Only relatives linked to THIS account. Their name, birthday, relationship and
+    // phone are shown but not editable here — the clinic corrects them if needed.
+    if ($action === 'save_family_health' && $pid) {
         $mid = (int)($_POST['member_id'] ?? 0);
         $own = $pdo->prepare("SELECT id, name FROM patients WHERE id = ? AND guardian_patient_id = ?");
         $own->execute([$mid, $pid]);
         $member = $own->fetch();
         if (!$member) {
             set_flash('That person could not be found.', 'error');
-        } elseif ($action === 'save_family_member') {
-            $rel = trim($_POST['relationship'] ?? '');
-            if ($rel === 'Other') $rel = trim($_POST['relationship_other'] ?? '');
-            [$mPhone, $mPhoneErr] = validate_phone($_POST['phone'] ?? '', false);   // optional
-            if ($rel === '')           set_flash('Please say how they are related to you.', 'error');
-            elseif ($mPhoneErr !== '') set_flash($mPhoneErr, 'error');
-            else {
-                $pdo->prepare("UPDATE patients SET relationship = ?, phone = ? WHERE id = ?")
-                    ->execute([mb_substr($rel, 0, 40), $mPhone ?: null, $mid]);
-                log_activity($pdo, 'Updated booked-for person', $member['name']);
-                set_flash($member['name'] . '’s details were updated.');
-            }
         } else {
             [$hfNew, $hfErr] = health_form_from_post($_POST);
             if ($hfErr !== '') set_flash($hfErr, 'error');
@@ -1251,7 +1240,6 @@ include 'includes/head.php';
                 </div>
             <?php endif; ?>
 
-            <?php $relChoices = ['Parent','Guardian','Spouse','Child','Sibling','Grandparent','Friend']; ?>
             <?php foreach ($family as $fm):
                 $fmId = (int)$fm['id'];
                 [$fmHealth] = patient_health($pdo, $fmId);
@@ -1259,7 +1247,6 @@ include 'includes/head.php';
                                         WHERE patient_id = ? AND appointment_date >= CURDATE() AND status IN ('Pending','Confirmed')
                                         ORDER BY appointment_date, STR_TO_DATE(REPLACE(appointment_time,' ',''), '%h:%i%p') LIMIT 3");
                 $fmUp->execute([$fmId]); $fmUpcoming = $fmUp->fetchAll();
-                $relIsOther = $fm['relationship'] && !in_array($fm['relationship'], $relChoices, true);
             ?>
             <div class="card-box mb-3" id="member-<?= $fmId ?>">
                 <div class="flex-between flex-wrap gap-2 mb-2">
@@ -1280,25 +1267,13 @@ include 'includes/head.php';
                 </div>
 
                 <div class="row g-3">
-                    <!-- Relationship + phone -->
+                    <!-- Relationship + phone: shown, not editable (the clinic corrects them if needed) -->
                     <div class="col-lg-5">
-                        <form method="POST">
-                            <input type="hidden" name="action" value="save_family_member">
-                            <input type="hidden" name="member_id" value="<?= $fmId ?>">
-                            <label class="field-label">Relationship to you</label>
-                            <select name="relationship" class="form-select mb-2"
-                                    onchange="this.nextElementSibling.style.display = this.value === 'Other' ? '' : 'none'">
-                                <?php foreach ($relChoices as $rc): ?>
-                                    <option <?= $fm['relationship'] === $rc ? 'selected' : '' ?>><?= $rc ?></option>
-                                <?php endforeach; ?>
-                                <option value="Other" <?= $relIsOther ? 'selected' : '' ?>>Other (please specify)</option>
-                            </select>
-                            <input type="text" name="relationship_other" class="form-control mb-2" maxlength="40" placeholder="e.g. Cousin, Neighbor, Godchild, Caregiver"
-                                   value="<?= $relIsOther ? e($fm['relationship']) : '' ?>" style="<?= $relIsOther ? '' : 'display:none;' ?>">
-                            <label class="field-label">Phone number <span class="text-muted2">(optional)</span></label>
-                            <input name="phone" class="form-control mb-2" placeholder="09XX XXX XXXX" value="<?= e($fm['phone'] ?? '') ?>" <?= phone_input_attrs() ?>>
-                            <button class="btn btn-teal btn-sm" data-keep-text>💾 Save</button>
-                        </form>
+                        <div class="field-label">Relationship</div>
+                        <div class="mb-2"><?= $fm['relationship'] ? e($fm['relationship']) : '<span class="text-muted2">–</span>' ?></div>
+                        <div class="field-label">Phone number</div>
+                        <div class="mb-1"><?= !empty($fm['phone']) ? e($fm['phone']) : '<span class="text-muted2">– (none on file)</span>' ?></div>
+                        <div class="text-muted2" style="font-size:.78rem;">Something wrong here? Please tell the clinic and they will correct it.</div>
 
                         <div class="mt-3" style="font-size:.85rem;">
                             <div class="field-label">Upcoming appointments</div>
