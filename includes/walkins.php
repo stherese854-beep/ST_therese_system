@@ -105,8 +105,9 @@ function walkin_form($pdo, $assets = true) {
       <label><input type="radio" name="patient_mode" value="new" onchange="wiMode()"> New patient</label>
     </div>
     <div id="wi-existing" class="mb-3">
-      <input type="text" id="wi-search" class="form-control mb-1" placeholder="Search name or phone…" oninput="wiFilter()" autocomplete="off">
-      <select name="patient_id" id="wi-patient" class="form-select" size="5" onchange="wiPick()">
+      <!-- One box: click it to see the list, type to narrow it (see includes/head.php) -->
+      <select name="patient_id" id="wi-patient" class="form-select" data-search="Search name or phone…" data-search-combo onchange="wiPick()">
+        <option value="" hidden>Search name or phone…</option>
         <?php foreach ($pts as $p): ?>
           <option value="<?= (int)$p['id'] ?>" data-dentist="<?= e($p['primary_dentist'] ?? '') ?>"><?= e($p['name']) ?><?= $p['phone'] ? ' · ' . e($p['phone']) : '' ?></option>
         <?php endforeach; ?>
@@ -159,10 +160,6 @@ function wiMode() {
     document.getElementById('wi-existing').style.display = isNew ? 'none' : '';
     document.getElementById('wi-new').style.display = isNew ? '' : 'none';
     wiPick();
-}
-function wiFilter() {
-    var q = document.getElementById('wi-search').value.toLowerCase().trim();
-    [].forEach.call(document.getElementById('wi-patient').options, function (o) { o.hidden = q !== '' && o.text.toLowerCase().indexOf(q) === -1; });
 }
 function wiPick() {
     var sel = document.getElementById('wi-patient'), pid = wiIsNew() ? '' : sel.value, a = (pid && WI_HEALTH[pid]) || null;

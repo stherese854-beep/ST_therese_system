@@ -999,15 +999,15 @@ function validatePauseBooking(){
         <div class="row g-3">
           <div class="col-md-6">
             <label class="field-label">✅ Keep this record</label>
-            <select name="keep_id" id="mg-keep" class="form-select" data-search="Search a patient..." required>
-              <option value="">Choose…</option>
+            <select name="keep_id" id="mg-keep" class="form-select" data-search="Search a patient..." data-search-combo required>
+              <option value="" hidden>Search a patient...</option>
               <?php foreach ($mergeList as $m): ?><option value="<?= $m['id'] ?>"><?= e($mOpt($m)) ?></option><?php endforeach; ?>
             </select>
           </div>
           <div class="col-md-6">
             <label class="field-label">🗄 Move into it, then archive</label>
-            <select name="dup_id" id="mg-dup" class="form-select" data-search="Search a patient..." required>
-              <option value="">Choose…</option>
+            <select name="dup_id" id="mg-dup" class="form-select" data-search="Search a patient..." data-search-combo required>
+              <option value="" hidden>Search a patient...</option>
               <?php foreach ($mergeList as $m): ?><option value="<?= $m['id'] ?>"><?= e($mOpt($m)) ?></option><?php endforeach; ?>
             </select>
           </div>

@@ -330,7 +330,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                         <input type="hidden" name="type" value="<?= e($type) ?>">
                         <?php if ($filterStatus !== ''): ?><input type="hidden" name="status" value="<?= e($filterStatus) ?>"><?php endif; ?>
                         <label class="field-label">Dentist</label>
-                        <select name="dentist" class="form-select mb-1" data-search="🔍 Search dentist…" onchange="this.form.submit()">
+                        <select name="dentist" class="form-select mb-1" data-search="Search dentist…" data-search-combo onchange="this.form.submit()">
                             <option value="">All dentists</option>
                             <?php foreach ($dentistOptions as $dn): ?>
                                 <option value="<?= e($dn) ?>" <?= ($filterDentist === $dn)?'selected':'' ?>><?= e($dn) ?></option>
@@ -348,7 +348,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <input type="hidden" name="type" value="appointments">
                             <input type="hidden" name="dentist" value="<?= e($filterDentist) ?>">
                             <label class="field-label">Status</label>
-                            <select name="status" class="form-select mb-1" data-search="🔍 Search status…" onchange="this.form.submit()">
+                            <select name="status" class="form-select mb-1" data-search="Search status…" data-search-combo onchange="this.form.submit()">
                                 <option value="">All statuses</option>
                                 <?php foreach ($reportStatuses as $st): ?>
                                     <option value="<?= e($st) ?>" <?= $filterStatus === $st ? 'selected' : '' ?>><?= e(status_label($st)) ?></option>
@@ -371,7 +371,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                     No patients found for this dentist.
                                 </div>
                             <?php else: ?>
-                            <select name="patient_id" class="form-select mb-3" data-search="🔍 Search patient, e.g. Bi…" onchange="this.form.submit()">
+                            <select name="patient_id" class="form-select mb-3" data-search="Search patient, e.g. Bi…" data-search-combo onchange="this.form.submit()">
                                 <?php foreach ($patients as $p): ?>
                                     <option value="<?= $p['id'] ?>" <?= ($p['id']==$patientId)?'selected':'' ?>>
                                         <?= e($p['name']) ?> · Age <?= e($p['age']) ?> · <?= e($p['patient_type']) ?>
@@ -388,7 +388,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <input type="hidden" name="patient_id" value="<?= (int)$patientId ?>">
                             <input type="hidden" name="dentist" value="<?= e($filterDentist) ?>">
                             <label class="field-label">Dental Chart to Include</label>
-                            <select name="session" class="form-select mb-1" data-search="🔍 Search visit…" onchange="this.form.submit()">
+                            <select name="session" class="form-select mb-1" data-search="Search visit…" data-search-combo onchange="this.form.submit()">
                                 <?php $oldFirst = array_reverse($chartSessions); ?>
                                 <?php foreach ($oldFirst as $i => $s): ?>
                                     <option value="<?= $s['id'] ?>" <?= ((int)$s['id']===$chartSid)?'selected':'' ?>>

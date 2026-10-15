@@ -197,12 +197,16 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         // stays as grey hint text) and the list opens; type to narrow it; click a name,
         // or use the arrow keys + Enter. Esc / clicking away puts the name back.
         // The real <select> stays (hidden), so the form and its onchange work as before.
+        //  - <option value="" hidden>Choose…</option>  = nothing chosen yet (grey hint, not in the list)
+        //  - required on the <select> moves to the box, so the browser still asks for it
+        //  - a script that changes the <select> calls  select.comboSync()  to update the box
         function combo(sel) {
             if (sel.dataset.searchReady) return;
             sel.dataset.searchReady = '1';
             var wrap = document.createElement('div');
             wrap.className = 'select-combo';
             if (sel.style.maxWidth) wrap.style.maxWidth = sel.style.maxWidth;
+            sel.classList.forEach(function (c) { if (/^m[tbsexy]?-\d$/.test(c)) wrap.classList.add(c); });   // keep its spacing
             var inp = document.createElement('input');
             inp.type = 'text'; inp.autocomplete = 'off'; inp.spellcheck = false;
             inp.className = 'form-select select-combo-input';
@@ -213,8 +217,11 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
             sel.parentNode.insertBefore(wrap, sel);
             wrap.appendChild(inp); wrap.appendChild(list); wrap.appendChild(sel);
             sel.style.display = 'none';
+            if (sel.required) { sel.required = false; inp.required = true; }
             var items = [], hi = -1;
-            function current() { var o = sel.options[sel.selectedIndex]; return o ? o.text : ''; }
+            function txt(o) { return o ? o.text.replace(/\s+/g, ' ').trim() : ''; }
+            function chosen() { return sel.options[sel.selectedIndex] || null; }
+            function current() { var o = chosen(); return o && o.value !== '' ? txt(o) : ''; }
             function mark() {
                 items.forEach(function (d, i) { d.classList.toggle('is-hi', i === hi); });
                 if (items[hi]) items[hi].scrollIntoView({ block: 'nearest' });
@@ -222,10 +229,10 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
             function build(q) {
                 q = (q || '').toLowerCase().trim(); list.innerHTML = ''; items = []; hi = -1;
                 [].forEach.call(sel.options, function (o) {
-                    if (q && o.text.toLowerCase().indexOf(q) === -1) return;
+                    if (o.hidden || (q && txt(o).toLowerCase().indexOf(q) === -1)) return;
                     var d = document.createElement('div');
                     d.className = 'select-combo-item' + (o.selected ? ' is-current' : '');
-                    d.textContent = o.text; d.dataset.value = o.value; d.setAttribute('role', 'option');
+                    d.textContent = txt(o); d.dataset.value = o.value; d.setAttribute('role', 'option');
                     d.addEventListener('mousedown', function (e) { e.preventDefault(); pick(o.value); });
                     if (o.selected && !q) hi = items.length;
                     list.appendChild(d); items.push(d);
@@ -235,15 +242,23 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
                 mark();
             }
             var hint = inp.placeholder;
+            // Show the chosen option in the box ("" = nothing chosen: its text is the grey hint).
+            function show() {
+                var o = chosen();
+                inp.value = current();
+                inp.placeholder = (o && o.value === '' && !o.hidden && txt(o)) || hint;
+            }
             function open(q) { build(q); list.hidden = false; inp.setAttribute('aria-expanded', 'true'); }
-            function start() { inp.placeholder = current() || hint; inp.value = ''; open(''); }   // fresh search
-            function close() { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); inp.value = current(); inp.placeholder = hint; }
+            function start() { inp.placeholder = txt(chosen()) || hint; inp.value = ''; open(''); }   // fresh search
+            function close() { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); show(); }
+            sel.comboSync = show;
+            sel.addEventListener('change', function () { if (list.hidden) show(); });
             function pick(v) {
                 var changed = sel.value !== v;
                 sel.value = v; close(); inp.blur();
                 if (changed) sel.dispatchEvent(new Event('change', { bubbles: true }));
             }
-            inp.value = current();
+            show();
             inp.addEventListener('focus', start);
             inp.addEventListener('mousedown', function () { if (document.activeElement === inp && list.hidden) start(); });
             inp.addEventListener('input', function () { open(inp.value); });
