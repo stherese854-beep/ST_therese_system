@@ -135,12 +135,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ciWas->execute([$pid]); $ciWas = $ciWas->fetch() ?: [];
         $pick = fn($v, $list) => in_array($v, $list, true) ? $v : null;
         $habits = array_values(array_intersect(DENTAL_HABITS, array_map('strval', (array)($_POST['dental_habits'] ?? []))));
-        $pdo->prepare("UPDATE patients SET blood_type = ?, allergies = ?, medications = ?, medical_conditions = ?, medical_alert = ?,
+        // (The medical alert is edited in the Treatments tab — see update_alert.)
+        $pdo->prepare("UPDATE patients SET blood_type = ?, allergies = ?, medications = ?, medical_conditions = ?,
                               gum_condition = ?, oral_hygiene = ?, dental_habits = ?, dental_anxiety = ?, chart_remarks = ?,
                               clinical_updated_by = ?, clinical_updated_at = NOW() WHERE id = ?")
             ->execute([trim($_POST['blood_type'] ?? '') ?: null,
                        trim($_POST['allergies'] ?? '') ?: null, trim($_POST['medications'] ?? '') ?: null,
-                       trim($_POST['medical_conditions'] ?? '') ?: null, trim($_POST['medical_alert'] ?? '') ?: null,
+                       trim($_POST['medical_conditions'] ?? '') ?: null,
                        $pick($_POST['gum_condition'] ?? '', GUM_CONDITIONS), $pick($_POST['oral_hygiene'] ?? '', ORAL_HYGIENE),
                        $habits ? implode(', ', $habits) : null, $pick($_POST['dental_anxiety'] ?? '', DENTAL_ANXIETY),
                        trim($_POST['chart_remarks'] ?? '') ?: null, $_SESSION['name'] ?? '', $pid]);
@@ -153,6 +154,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         log_activity($pdo, 'Updated clinical information', patient_name_of($pdo, $pid) . ($ciChg ? ' — ' . $ciChg : ' — no changes'));
         set_flash('Clinical information saved.');
         header("Location: records?patient=$pid&tab=overview"); exit;
+    }
+
+    // ----- Treatments: ⚠️ the medical alert (shown in red on the chart, schedule and reports) -----
+    if ($action === 'update_alert') {
+        $was = $pdo->prepare("SELECT medical_alert FROM patients WHERE id = ?");
+        $was->execute([$pid]); $was = (string)$was->fetchColumn();
+        $new = mb_substr(trim($_POST['medical_alert'] ?? ''), 0, 255);
+        if ($new !== $was) {
+            $pdo->prepare("UPDATE patients SET medical_alert = ?, clinical_updated_by = ?, clinical_updated_at = NOW() WHERE id = ?")
+                ->execute([$new ?: null, $_SESSION['name'] ?? '', $pid]);
+            log_activity($pdo, 'Updated medical alert', patient_name_of($pdo, $pid) . ': ' . ($was ?: '–') . ' → ' . ($new ?: '–'));
+        }
+        set_flash($new === '' ? 'Medical alert cleared.' : 'Medical alert saved.');
+        header("Location: records?patient=$pid&tab=treatments"); exit;
     }
 
     // ----- Treatments -----
@@ -586,8 +601,8 @@ $active = 'records';
                             <?php endif; ?>
                             <textarea name="medical_conditions" class="form-control" rows="2" placeholder="Anything else, e.g. high blood pressure (controlled)"><?= e($patientRow['medical_conditions'] ?? '') ?></textarea></div>
 
-                        <div class="col-12"><label class="field-label">Medical alert <span class="text-muted2">(shown in red with the allergies)</span></label>
-                            <input name="medical_alert" class="form-control" value="<?= e($patientRow['medical_alert']) ?>" placeholder="e.g. Needs antibiotics before treatment"></div>
+                        <div class="col-12 text-muted2" style="font-size:.84rem;">⚠️ The <b>medical alert</b> is edited in the
+                            <a href="records?patient=<?= $pid ?>&tab=treatments">Treatments</a> tab.</div>
 
                         <div class="col-md-4"><label class="field-label">🦷 Gum condition</label>
                             <select name="gum_condition" class="form-select"><option value="">Not checked yet</option>
@@ -621,6 +636,19 @@ $active = 'records';
 
         <?php elseif ($tab === 'treatments'): ?>
             <!-- ===== TREATMENTS ===== -->
+            <!-- ⚠️ Medical alert: edited here (Generate Reports only shows it) -->
+            <div class="card-box mb-3" style="padding:12px 16px;">
+                <form method="POST" class="d-flex flex-wrap align-items-end gap-2 m-0">
+                    <input type="hidden" name="action" value="update_alert">
+                    <input type="hidden" name="patient_id" value="<?= $pid ?>">
+                    <div style="flex:1;min-width:240px;">
+                        <label class="field-label" style="color:#c0392b;">⚠️ Medical alert <span class="text-muted2">(shown in red on the chart, schedule and reports)</span></label>
+                        <input name="medical_alert" class="form-control" maxlength="255" value="<?= e($patientRow['medical_alert'] ?? '') ?>"
+                               placeholder="e.g. Needs antibiotics before treatment — leave empty if none">
+                    </div>
+                    <button class="btn btn-teal" data-keep-text>💾 Save alert</button>
+                </form>
+            </div>
             <?php // The patient is at the clinic today -> add the procedure to that visit (keeps the consent record).
                   $hereQ = $pdo->prepare("SELECT id, treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
                                            AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");

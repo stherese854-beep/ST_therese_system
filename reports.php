@@ -13,27 +13,9 @@ require_login(['admin','dentist','staff']);
 require_once 'includes/teeth.php';     // for drawing the dental chart in the report
 require_once 'includes/assign.php';    // dentist_match_sql() for the dentist filter
 
-// ---------- Save editable clinical info (medical alert, last/next visit) ----------
-// This lets the dentist add a medical alert and set visit dates right here, and
-// those values then appear in the printed report.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_clinical') {
-    $pid = (int)$_POST['patient_id'];
-    if (current_role() === 'dentist') {
-        $own = [];
-        $ownSql = "SELECT COUNT(*) FROM patients p WHERE p.id = ? AND " .
-                  dentist_patient_sql('p.id', 'p.primary_dentist', $_SESSION['name'] ?? '', $own);
-        $chk = $pdo->prepare($ownSql); $chk->execute(array_merge([$pid], $own));
-        if (!(int)$chk->fetchColumn()) deny_access("Changed clinical info of patient #$pid");
-    }
-    $pdo->prepare("UPDATE patients SET medical_alert=?, last_visit=?, next_visit=? WHERE id=?")
-        ->execute([
-            trim($_POST['medical_alert']),
-            $_POST['last_visit']  ?: null,
-            $_POST['next_visit']  ?: null,
-            $pid
-        ]);
-    header("Location: reports?type=profile&patient_id=$pid&saved=1"); exit;
-}
+// (Reports only SHOW the clinical info. The medical alert is edited in Treatment
+//  Records -> Treatments; last / next visit come from real visits and bookings.)
+require_once 'includes/clinical.php';   // next_visit_info()
 
 // ---- A patient's request for a printed dental chart is done ----
 // The account holder gets a pop-up in their portal that the copy is ready.
@@ -415,23 +397,22 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                         <?php endforeach; ?>
                         <?php endif; ?>
 
-                        <?php if ($type === 'profile' && $patient): ?>
+                        <?php if ($type === 'profile' && $patient):
+                            [$repNv, $repNvFrom] = next_visit_info($pdo, $patient); ?>
                             <hr>
-                            <label class="field-label" style="color:var(--teal-mid);font-weight:600;">✏️ Clinical Info (editable — shows in the report &amp; print)</label>
-                            <?php if (isset($_GET['saved'])): ?><div class="alert alert-success py-1 px-2 mt-1" style="font-size:.8rem;">Saved ✓</div><?php endif; ?>
-                            <form method="POST" class="mt-2">
-                                <input type="hidden" name="action" value="update_clinical">
-                                <input type="hidden" name="patient_id" value="<?= $patientId ?>">
-                                <label class="field-label">Medical Alert</label>
-                                <textarea name="medical_alert" class="form-control mb-2" rows="2" placeholder="e.g. Allergic to Penicillin"><?= e($patient['medical_alert']) ?></textarea>
-                                <div class="row">
-                                    <div class="col"><label class="field-label">Last Visit</label>
-                                        <input type="date" name="last_visit" class="form-control mb-2" value="<?= e($patient['last_visit']) ?>"></div>
-                                    <div class="col"><label class="field-label">Next Visit</label>
-                                        <input type="date" name="next_visit" class="form-control mb-2" value="<?= e($patient['next_visit']) ?>"></div>
-                                </div>
-                                <button class="btn btn-teal btn-sm w-100">💾 Save Clinical Info</button>
-                            </form>
+                            <!-- View only: the medical alert is edited in Treatment Records -> Treatments -->
+                            <label class="field-label">Clinical Info <span class="text-muted2">(view only)</span></label>
+                            <div style="font-size:.88rem;">
+                                <div class="py-1"><span class="text-muted2">Medical alert</span><br>
+                                    <?= trim((string)$patient['medical_alert']) !== '' ? '<b style="color:#c0392b;">⚠️ ' . e($patient['medical_alert']) . '</b>' : '<span class="text-muted2">None</span>' ?></div>
+                                <div class="flex-between py-1"><span class="text-muted2">Last visit</span>
+                                    <b><?= $patient['last_visit'] ? date('M j, Y', strtotime($patient['last_visit'])) : '–' ?></b></div>
+                                <div class="flex-between py-1"><span class="text-muted2">Next visit</span>
+                                    <b><?= $repNv ? date('M j, Y', strtotime($repNv)) : '–' ?></b></div>
+                            </div>
+                            <?php if (in_array(current_role(), ['admin', 'dentist'], true)): ?>
+                                <a href="records?patient=<?= (int)$patientId ?>&tab=treatments" class="btn btn-sm btn-outline-teal w-100 mt-2" data-keep-text>✏️ Edit the medical alert in Treatment Records →</a>
+                            <?php endif; ?>
                         <?php endif; ?>
                     <?php else: ?>
                         <!-- Search inside the list: only the matching rows show (and print). -->
@@ -507,7 +488,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <table class="table table-sm" style="font-size:.85rem;">
                                 <tr><td><strong>Phone</strong></td><td><?= e($patient['phone']) ?></td><td><strong>Email</strong></td><td><?= e($patient['email']) ?></td></tr>
                                 <tr><td><strong>Primary Dentist</strong></td><td><?= e($patient['primary_dentist']) ?></td><td><strong>Patient Type</strong></td><td><span class="badge-pill b-active"><?= e($patient['patient_type']) ?></span></td></tr>
-                                <tr><td><strong>Last Visit</strong></td><td><?= e($patient['last_visit']) ?></td><td><strong>Next Visit</strong></td><td><?= e($patient['next_visit']) ?></td></tr>
+                                <tr><td><strong>Last Visit</strong></td><td><?= $patient['last_visit'] ? date('M j, Y', strtotime($patient['last_visit'])) : '–' ?></td><td><strong>Next Visit</strong></td><td><?= ($nvRep = next_visit_info($pdo, $patient)[0]) ? date('M j, Y', strtotime($nvRep)) : '–' ?></td></tr>
                             </table>
                             </div><!-- /summary -->
 
