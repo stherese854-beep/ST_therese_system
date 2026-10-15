@@ -23,7 +23,7 @@ if (isset($_GET['day']) || isset($_GET['month'])) {
     $scopeSql = $isDentist ? " AND dentist = ?" : "";
     $scopePrm = $isDentist ? [$myName] : [];
     if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['day'] ?? '')) {
-        $q = $pdo->prepare("SELECT patient_name, appointment_date, appointment_time, treatment, status FROM appointments
+        $q = $pdo->prepare("SELECT id, patient_id, patient_name, appointment_date, appointment_time, treatment, status, arrived_at FROM appointments
                              WHERE appointment_date = ?$scopeSql ORDER BY " . DASH_TIME_ORDER . ", id");
         $q->execute(array_merge([$_GET['day']], $scopePrm));
         echo json_encode($q->fetchAll(PDO::FETCH_ASSOC));
@@ -70,6 +70,21 @@ $pendingRequests = $pdo->query(
 )->fetchColumn();
 
 $treatmentsDone = $pdo->query("SELECT COUNT(*) FROM treatments WHERE status='Completed'")->fetchColumn();
+
+// The dentist's button on one of today's appointments:
+//   ✓ Arrived  -> marks the patient as here and opens their dental chart
+//   🦷 Chart   -> already here: back to their chart
+function dash_visit_action($a) {
+    if ($a['appointment_date'] !== date('Y-m-d')) return '';
+    if (!empty($a['arrived_at'])) {
+        return '<a href="odontogram?patient=' . (int)$a['patient_id'] . '" class="btn btn-sm btn-outline-teal" data-keep-text style="white-space:nowrap;">🦷 Chart</a>';
+    }
+    if ($a['status'] !== 'Confirmed') return '';
+    return '<form method="POST" action="appointments" class="m-0">'
+         . '<input type="hidden" name="action" value="arrived"><input type="hidden" name="id" value="' . (int)$a['id'] . '">'
+         . '<input type="hidden" name="goto" value="chart">'
+         . '<button class="btn btn-sm" data-keep-text style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here — open their dental chart">✓ Arrived</button></form>';
+}
 
 // Today's appointment list (today only, earliest time first).
 $appts = $pdo->query(
@@ -304,11 +319,11 @@ $active = 'dashboard';
                     </div>
                     <div class="match-scroll">
                         <table class="data">
-                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th></tr></thead>
+                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th><?php if ($isDentist): ?><th></th><?php endif; ?></tr></thead>
                             <tbody id="day-rows">
                             <?php if (empty($appts)): ?>
                                 <tr>
-                                    <td colspan="5" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
+                                    <td colspan="<?= $isDentist ? 6 : 5 ?>" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
                                         <div style="font-size:2.2rem;margin-bottom:6px;">📭</div>
                                         No appointments scheduled for today.
                                     </td>
@@ -321,6 +336,7 @@ $active = 'dashboard';
                                         <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                                         <td><?= e($a['treatment']) ?></td>
                                         <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span></td>
+                                        <?php if ($isDentist): ?><td class="text-end"><?= dash_visit_action($a) ?></td><?php endif; ?>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>
@@ -453,24 +469,37 @@ $active = 'dashboard';
     // Clicking a date loads that day's appointments into the table on the left;
     // days that have appointments get a small dot.
     var DASH_TODAY = <?= json_encode(date('Y-m-d')) ?>;
+    var DASH_ACTIONS = <?= $isDentist ? 'true' : 'false' ?>, DASH_COLS = DASH_ACTIONS ? 6 : 5;
+    // The dentist's button for one of today's appointments (same as dash_visit_action() in PHP).
+    function dashAction(a) {
+        if (a.appointment_date !== DASH_TODAY) return '';
+        if (a.arrived_at) return '<a href="odontogram?patient=' + Number(a.patient_id) + '" class="btn btn-sm btn-outline-teal" data-keep-text style="white-space:nowrap;">🦷 Chart</a>';
+        if (a.status !== 'Confirmed') return '';
+        var t = document.querySelector('meta[name="csrf-token"]');
+        return '<form method="POST" action="appointments" class="m-0"><input type="hidden" name="action" value="arrived">'
+             + '<input type="hidden" name="id" value="' + Number(a.id) + '"><input type="hidden" name="goto" value="chart">'
+             + '<input type="hidden" name="csrf_token" value="' + dashEsc(t ? t.content : '') + '">'
+             + '<button class="btn btn-sm" data-keep-text style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here — open their dental chart">✓ Arrived</button></form>';
+    }
     function dashEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
     window.calendarPick = function (ds) {
         var title = document.getElementById('day-title'), rows = document.getElementById('day-rows');
         var nice = new Date(ds + 'T00:00:00').toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
         title.textContent = ds === DASH_TODAY ? "Today's Appointments" : 'Appointments · ' + nice;
-        rows.innerHTML = '<tr><td colspan="5" class="text-center text-muted2 py-4">Loading…</td></tr>';
+        rows.innerHTML = '<tr><td colspan="' + DASH_COLS + '" class="text-center text-muted2 py-4">Loading…</td></tr>';
         fetch('dashboard?day=' + ds, {credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (list) {
             if (!list.length) {
-                rows.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:34px 12px;color:#8aa0a0;">'
+                rows.innerHTML = '<tr><td colspan="' + DASH_COLS + '" style="text-align:center;padding:34px 12px;color:#8aa0a0;">'
                     + '<div style="font-size:2.2rem;margin-bottom:6px;">📭</div>No appointments on ' + dashEsc(nice) + '.</td></tr>';
                 return;
             }
             rows.innerHTML = list.map(function (a) {
                 return '<tr><td><strong>' + dashEsc(a.patient_name) + '</strong></td><td>' + dashEsc(a.appointment_date) + '</td>'
                      + '<td class="date-blue">' + dashEsc(a.appointment_time) + '</td><td>' + dashEsc(a.treatment) + '</td>'
-                     + '<td><span class="badge-pill b-' + dashEsc(String(a.status).toLowerCase()) + '">' + dashEsc(a.status === 'Confirmed' ? 'Approved' : a.status) + '</span></td></tr>';
+                     + '<td><span class="badge-pill b-' + dashEsc(String(a.status).toLowerCase()) + '">' + dashEsc(a.status === 'Confirmed' ? 'Approved' : a.status) + '</span></td>'
+                     + (DASH_ACTIONS ? '<td class="text-end">' + dashAction(a) + '</td>' : '') + '</tr>';
             }).join('');
-        }).catch(function () { rows.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">Could not load that day. Please try again.</td></tr>'; });
+        }).catch(function () { rows.innerHTML = '<tr><td colspan="' + DASH_COLS + '" class="text-center text-danger py-4">Could not load that day. Please try again.</td></tr>'; });
     };
     window.calendarMonthLoaded = function (year, month) {
         var ym = year + '-' + String(month + 1).padStart(2, '0');

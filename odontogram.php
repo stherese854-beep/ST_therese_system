@@ -115,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'save_teeth') {
         [$sid, $done] = odo_save_teeth($pdo, $pid, (int)($_POST['session_id'] ?? 0), $_POST['teeth'] ?? '');
         if ($done) set_flash(count($done) === 1 ? 'Saved: tooth ' . $done[0] . '.' : count($done) . ' teeth saved.');
+        if (($_POST['next'] ?? '') === 'records') { header("Location: records?patient=$pid&tab=treatments"); exit; }   // "Next →"
         odo_back($pid, $sid);
     }
 
@@ -213,6 +214,14 @@ foreach ($sessions as $s) if ((int)$s['id'] === $sid) $session = $s;
 $isLatestVisit = !$sessions || $sid === ($validIds[0] ?? 0);
 $canEditVisit  = $canEditChart && $isLatestVisit;
 
+// Is the patient at the clinic today (marked Arrived)? Then show what they came for.
+$hereToday = null;
+if ($pid && $canEditChart) {
+    $hq = $pdo->prepare("SELECT treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
+                          AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");
+    $hq->execute([$pid]); $hereToday = $hq->fetch() ?: null;
+}
+
 // The chart we are editing (+ each tooth's typed condition and note).
 $toothMap  = $pid ? build_tooth_map($pdo, $pid, $sid) : [];
 $toothInfo = tooth_details($pdo, $pid, $sid);
@@ -307,6 +316,10 @@ $active = 'odontogram';
                             <!-- Saves every tooth changed since "Edit Chart" in one go -->
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;white-space:nowrap;" onclick="odoDone()">✔ Done<span id="odo-done-count"></span></button>
                             <?php endif; ?>
+                            <?php if ($canEditChart && $pid): ?>
+                                <!-- Next: on to this patient's treatment records (saves any unsaved teeth first) -->
+                                <button type="button" class="btn btn-dark-navy btn-sm" onclick="odoNext()" data-keep-text style="white-space:nowrap;">Next →</button>
+                            <?php endif; ?>
                             <!-- Print this chart, or download it as a PDF file -->
                             <?= print_menu('main', pdf_name('Dental-Chart', $printPatient['name'] ?? '', isset($session['visit_date']) ? $session['visit_date'] : date('Y-m-d')), 'window.print()', 'btn-gold btn-sm') ?>
                         </div>
@@ -324,6 +337,17 @@ $active = 'odontogram';
                     <?php // ⚠️ Allergies / medical alert — check before treating
                           if ($pid) { $alq = $pdo->prepare("SELECT allergies, medical_alert FROM patients WHERE id = ?"); $alq->execute([$pid]);
                                       $alRow = $alq->fetch(); if ($alRow && ($alB = patient_alert_banner($alRow))) echo '<div class="mt-2">' . clinical_styles() . $alB . '</div>'; } ?>
+
+                    <?php if ($hereToday): ?>
+                        <div class="no-print mt-3" style="background:#eaf7ef;border-left:4px solid #1f8a54;border-radius:8px;padding:9px 14px;font-size:.9rem;color:#24543a;">
+                            🟢 <b>Here today</b> for <b><?= e($hereToday['treatment']) ?></b> (<?= e($hereToday['appointment_time']) ?>).
+                            Click a tooth to record what you find, then <b>Next →</b> for the treatment record — or just <b>Next →</b> if nothing changed.
+                            <?php if ($session && $session['visit_date'] !== date('Y-m-d')): ?>
+                                <div class="mt-1" style="font-size:.84rem;">The chart below is from <?= date('M j, Y', strtotime($session['visit_date'])) ?>.
+                                    To keep today's findings as their own visit, click <b>+ New Chart</b> first.</div>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
 
                     <!-- ===== VISIT TABS (the chart history) ===== -->
                     <label class="field-label mt-3 no-print">Visits</label>
@@ -621,6 +645,7 @@ $active = 'odontogram';
     <input type="hidden" name="patient_id" value="<?= $pid ?>">
     <input type="hidden" name="session_id" value="<?= $sid ?>">
     <input type="hidden" name="teeth" id="odo-save-teeth">
+    <input type="hidden" name="next" id="odo-save-next" value="">
 </form>
 <?php endif; ?>
 
@@ -678,7 +703,13 @@ $active = 'odontogram';
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
-<script>startClock();</script>
+<script>startClock();
+// "Next →": save the teeth changed but not saved yet (if any), then the treatment records.
+function odoNext() {
+    if (typeof window.odoSaveAndGo === 'function' && window.odoSaveAndGo('records')) return;
+    location.href = 'records?patient=<?= (int)$pid ?>&tab=treatments';
+}
+</script>
 <?php if ($canEditVisit): ?>
 <script>
 // ===== Odontogram editing: change teeth on screen, save them all with "✔ Done" =====
@@ -781,6 +812,14 @@ $active = 'odontogram';
         $('odo-save-teeth').value = JSON.stringify(pending);
         leaving = true;
         $('odo-save-form').submit();
+    };
+    window.odoSaveAndGo = function (next) {
+        if (!count()) return false;
+        $('odo-save-next').value = next;
+        $('odo-save-teeth').value = JSON.stringify(pending);
+        leaving = true;
+        $('odo-save-form').submit();
+        return true;
     };
     window.odoUndo = function () {
         if (!confirm('Undo the changes that are not saved yet?')) return;

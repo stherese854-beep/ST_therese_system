@@ -385,6 +385,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
             $pdo->prepare("UPDATE appointments SET status = 'Arrived', arrived_at = NOW(), arrived_by = ? WHERE id = ?")->execute([$_SESSION['name'] ?? '', $aid]);
             log_activity($pdo, 'Marked arrived', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
             set_flash($ap['patient_name'] . ' marked as arrived. It becomes Completed once treatment is recorded.');
+            // From the dentist's dashboard: go straight to the patient's dental chart.
+            if (($_POST['goto'] ?? '') === 'chart' && current_role() === 'dentist') {
+                set_flash($ap['patient_name'] . ' is here. Check the teeth, then click Next for the treatment record.');
+                header("Location: odontogram?patient=" . (int)$ap['patient_id']); exit;
+            }
         }
     } else {
         $pdo->prepare("UPDATE appointments SET arrived_at = NULL, arrived_by = NULL,
@@ -392,6 +397,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
         log_activity($pdo, 'Undid arrival', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
         set_flash('Arrival undone for ' . $ap['patient_name'] . '.', 'info');
     }
+    if (($_POST['goto'] ?? '') === 'chart') { header("Location: dashboard"); exit; }     // came from the dashboard
     header("Location: appointments" . (isset($_POST['filter']) ? "?filter=" . urlencode($_POST['filter']) : "")); exit;
 }
 
@@ -694,13 +700,7 @@ $active = 'appointments';
                                 ?>
                                     <?php if ($filter === 'Mine'): ?>
                                         <?php $daysAway = (int)floor((strtotime($a['appointment_date']) - strtotime('today')) / 86400); ?>
-                                        <?php if ($a['appointment_date'] === date('Y-m-d')): ?>
-                                            <form method="POST" class="d-inline m-0">
-                                                <input type="hidden" name="action" value="arrived"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
-                                                <input type="hidden" name="filter" value="Mine">
-                                                <button class="btn btn-sm icon-btn" style="background:#d7f5e3;color:#138a4e;" data-tip="Arrived — the patient is here" aria-label="Arrived">✓</button>
-                                            </form>
-                                        <?php endif; ?>
+                                        <?php /* "Arrived" is on the Dashboard (Today's Appointments): it opens the patient's chart */ ?>
                                         <?= $hfBtn() ?>
                                         <?php if ($daysAway >= DENTIST_CANCEL_DAYS): ?>
                                             <button type="button" class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;" data-tip="Cancel this appointment" aria-label="Cancel"
