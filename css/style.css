@@ -340,6 +340,17 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .t-Impacted  { fill: #ffe0a0; stroke: #d99a00; }
 .t-Fractured { fill: #ffcccc; stroke: #cc4444; }
 .t-Other     { fill: #fbd9ea; stroke: #d6589c; }
+
+/* One box: search + drop-down (select[data-search-combo], see includes/head.php) */
+.select-combo { position: relative; width: 100%; }
+.select-combo-input { cursor: text; text-overflow: ellipsis; }
+.select-combo-list { position: absolute; z-index: 1060; left: 0; right: 0; top: calc(100% + 4px); max-height: 300px; overflow-y: auto;
+                     background: #fff; border: 1px solid #d9e3e1; border-radius: 10px; box-shadow: 0 12px 30px rgba(15,40,40,.14); padding: 4px; }
+.select-combo-list[hidden] { display: none; }
+.select-combo-item { padding: 8px 12px; border-radius: 7px; cursor: pointer; font-size: .95rem; color: #24343a; }
+.select-combo-item.is-hi { background: #eef7f6; }
+.select-combo-item.is-current { font-weight: 600; color: var(--teal-mid, #0f766e); }
+.select-combo-empty { padding: 8px 12px; color: #8aa0a0; font-size: .9rem; }
 /* a tooth with a note: small dot after its number; a change not saved yet: gold glow */
 .tooth.has-note .num::after { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--teal-mid, #0f766e); margin-left: 2px; vertical-align: super; }
 .tooth.unsaved svg { filter: drop-shadow(0 0 3px #e0a92e); }

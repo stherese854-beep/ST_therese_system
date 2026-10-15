@@ -160,8 +160,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
             sel.dataset.searchReady = '1';
             var inp = document.createElement('input');
             inp.type = 'search'; inp.autocomplete = 'off';
-            // data-search-big: a full-size search box (e.g. the Odontogram's patient picker)
-            inp.className = 'form-control' + (sel.hasAttribute('data-search-big') ? '' : ' form-control-sm') + ' mb-1 select-search';
+            inp.className = 'form-control form-control-sm mb-1 select-search';
             inp.placeholder = sel.dataset.search || 'Type to search…';
             // Same width as its drop-down (not the whole card).
             if (sel.style.maxWidth) inp.style.maxWidth = sel.style.maxWidth;
@@ -193,7 +192,74 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
                 if (sel.size > 1 && e.target.tagName === 'OPTION') pick(e.target.value);
             });
         }
-        function run() { document.querySelectorAll('select[data-search]').forEach(setup); }
+        // ---- data-search-combo: ONE box — the drop-down itself is the search box ----
+        // It shows the chosen name. Click it (or tab into it): the box empties (the name
+        // stays as grey hint text) and the list opens; type to narrow it; click a name,
+        // or use the arrow keys + Enter. Esc / clicking away puts the name back.
+        // The real <select> stays (hidden), so the form and its onchange work as before.
+        function combo(sel) {
+            if (sel.dataset.searchReady) return;
+            sel.dataset.searchReady = '1';
+            var wrap = document.createElement('div');
+            wrap.className = 'select-combo';
+            if (sel.style.maxWidth) wrap.style.maxWidth = sel.style.maxWidth;
+            var inp = document.createElement('input');
+            inp.type = 'text'; inp.autocomplete = 'off'; inp.spellcheck = false;
+            inp.className = 'form-select select-combo-input';
+            inp.placeholder = sel.dataset.search || 'Type to search…';
+            inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-expanded', 'false');
+            var list = document.createElement('div');
+            list.className = 'select-combo-list'; list.hidden = true; list.setAttribute('role', 'listbox');
+            sel.parentNode.insertBefore(wrap, sel);
+            wrap.appendChild(inp); wrap.appendChild(list); wrap.appendChild(sel);
+            sel.style.display = 'none';
+            var items = [], hi = -1;
+            function current() { var o = sel.options[sel.selectedIndex]; return o ? o.text : ''; }
+            function mark() {
+                items.forEach(function (d, i) { d.classList.toggle('is-hi', i === hi); });
+                if (items[hi]) items[hi].scrollIntoView({ block: 'nearest' });
+            }
+            function build(q) {
+                q = (q || '').toLowerCase().trim(); list.innerHTML = ''; items = []; hi = -1;
+                [].forEach.call(sel.options, function (o) {
+                    if (q && o.text.toLowerCase().indexOf(q) === -1) return;
+                    var d = document.createElement('div');
+                    d.className = 'select-combo-item' + (o.selected ? ' is-current' : '');
+                    d.textContent = o.text; d.dataset.value = o.value; d.setAttribute('role', 'option');
+                    d.addEventListener('mousedown', function (e) { e.preventDefault(); pick(o.value); });
+                    if (o.selected && !q) hi = items.length;
+                    list.appendChild(d); items.push(d);
+                });
+                if (!items.length) { var n = document.createElement('div'); n.className = 'select-combo-empty'; n.textContent = 'No match'; list.appendChild(n); }
+                if (hi < 0 && items.length) hi = 0;
+                mark();
+            }
+            var hint = inp.placeholder;
+            function open(q) { build(q); list.hidden = false; inp.setAttribute('aria-expanded', 'true'); }
+            function start() { inp.placeholder = current() || hint; inp.value = ''; open(''); }   // fresh search
+            function close() { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); inp.value = current(); inp.placeholder = hint; }
+            function pick(v) {
+                var changed = sel.value !== v;
+                sel.value = v; close(); inp.blur();
+                if (changed) sel.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            inp.value = current();
+            inp.addEventListener('focus', start);
+            inp.addEventListener('mousedown', function () { if (document.activeElement === inp && list.hidden) start(); });
+            inp.addEventListener('input', function () { open(inp.value); });
+            inp.addEventListener('keydown', function (e) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) start(); else if (hi < items.length - 1) { hi++; mark(); } }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); if (hi > 0) { hi--; mark(); } }
+                else if (e.key === 'Enter') { e.preventDefault(); if (!list.hidden && items[hi]) pick(items[hi].dataset.value); }
+                else if (e.key === 'Escape') { close(); inp.blur(); }
+            });
+            inp.addEventListener('blur', function () { setTimeout(close, 150); });
+        }
+        function run() {
+            document.querySelectorAll('select[data-search]').forEach(function (s) {
+                if (s.hasAttribute('data-search-combo')) combo(s); else setup(s);
+            });
+        }
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
     })();
 

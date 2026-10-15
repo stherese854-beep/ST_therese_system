@@ -331,7 +331,7 @@ $active = 'odontogram';
                     <!-- Choose which patient -->
                     <form method="GET" class="mt-3 no-print">
                         <label class="field-label">Patient</label>
-                        <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-big>
+                        <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-combo>
                             <?php foreach ($patients as $p): ?>
                                 <option value="<?= $p['id'] ?>" <?= $p['id']==$pid?'selected':'' ?>><?= e($p['name']) ?></option>
                             <?php endforeach; ?>
