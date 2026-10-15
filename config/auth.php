@@ -77,6 +77,7 @@ if (!$__schemaOk) {
     ensure_record_archive_table($pdo);
     require_once __DIR__ . '/../includes/walkins.php';
     ensure_walkin_table($pdo);                      // walk-in visits (no appointment)
+    ensure_indexes($pdo);                           // last: indexes on the tables above, so pages stay fast as records grow
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
 
@@ -1044,6 +1045,50 @@ function restore_user($pdo, $userId) {
 //  patient DOES have a login account, that account is archived too
 //  so they can't sign in while archived.
 // ============================================================
+// ============================================================
+//  INDEXES  (keep pages fast as the records grow)
+// ============================================================
+//  Without an index MySQL reads a whole table to find one patient's rows.
+//  That is fine with a few hundred rows but gets slow with tens of thousands.
+//  Each index is added once, only if the table has no index starting with
+//  that column yet. Adding one changes no data.
+// ============================================================
+function ensure_indexes($pdo) {
+    $want = [                       // table => [index name => columns]
+        'treatments'      => ['idx_patient_date'    => ['patient_id', 'treatment_date']],
+        'odontogram'      => ['idx_patient_session' => ['patient_id', 'session_id'],
+                              'idx_session'         => ['session_id']],
+        'chart_sessions'  => ['idx_patient_visit'   => ['patient_id', 'visit_date']],
+        'xrays'           => ['idx_patient'         => ['patient_id']],
+        'clinical_notes'  => ['idx_patient'         => ['patient_id', 'created_at']],
+        'patients'        => ['idx_user'            => ['user_id'],
+                              'idx_primary_dentist' => ['primary_dentist']],
+        'appointments'    => ['idx_dentist_date'    => ['dentist', 'appointment_date']],
+        'reviews'         => ['idx_user'            => ['user_id']],
+        'chart_requests'  => ['idx_patient'         => ['patient_id']],
+        'dentist_daysoff' => ['idx_dentist_date'    => ['dentist_name', 'off_date']],
+    ];
+    try {
+        $cols = $lead = [];
+        foreach ($pdo->query("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()") as $r)
+            $cols[$r['TABLE_NAME']][$r['COLUMN_NAME']] = true;
+        foreach ($pdo->query("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.STATISTICS
+                               WHERE TABLE_SCHEMA = DATABASE() AND SEQ_IN_INDEX = 1") as $r)
+            $lead[$r['TABLE_NAME']][$r['COLUMN_NAME']] = true;          // columns an index already starts with
+    } catch (Throwable $e) { return; }
+    foreach ($want as $table => $indexes) {
+        foreach ($indexes as $name => $columns) {
+            if (!isset($cols[$table])) continue;                                         // table not there (yet)
+            if (array_diff($columns, array_keys($cols[$table]))) continue;               // a column is missing
+            if (isset($lead[$table][$columns[0]])) continue;                             // already indexed
+            try {
+                $pdo->exec("ALTER TABLE `$table` ADD INDEX `$name` (`" . implode('`, `', $columns) . "`)");
+                $lead[$table][$columns[0]] = true;
+            } catch (Throwable $e) { /* try again after the next update */ }
+        }
+    }
+}
+
 function ensure_patient_archive_schema($pdo) {
     try {
         $has = $pdo->query("SHOW COLUMNS FROM patients LIKE 'archived_at'")->rowCount();
