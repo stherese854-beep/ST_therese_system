@@ -54,6 +54,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: odontogram?patient=$pid"); exit;
     }
 
+    // Only the LATEST visit's chart can be changed. Past visits are a record of
+    // how the teeth were at that time, so they are view only.
+    $latestQ = $pdo->prepare("SELECT id FROM chart_sessions WHERE patient_id = ? AND archived_at IS NULL
+                               ORDER BY visit_date DESC, id DESC LIMIT 1");
+    $latestQ->execute([$pid]);
+    $latestSid = (int)$latestQ->fetchColumn();
+    if (in_array($action, ['save_tooth', 'save_session'], true)) {
+        $postSid = (int)($_POST['session_id'] ?? 0);
+        if ($postSid && $postSid !== $latestSid) {
+            set_flash('That is a past visit, so its chart cannot be changed. Make changes in the latest visit, or start a + New Chart.', 'error');
+            odo_back($pid, $postSid);
+        }
+    }
+
     // ---------- Save a tooth's condition (into ONE visit's chart) ----------
     if ($action === 'save_tooth') {
         $sid    = (int)$_POST['session_id'];
@@ -178,6 +192,10 @@ if (!$sid || !in_array($sid, $validIds)) $sid = $validIds[0] ?? 0;
 $session = null;
 foreach ($sessions as $s) if ((int)$s['id'] === $sid) $session = $s;
 
+// Only the latest visit (or a patient with no visit yet) can be edited.
+$isLatestVisit = !$sessions || $sid === ($validIds[0] ?? 0);
+$canEditVisit  = $canEditChart && $isLatestVisit;
+
 // The chart we are editing.
 $toothMap = $pid ? build_tooth_map($pdo, $pid, $sid) : [];
 
@@ -263,10 +281,10 @@ $active = 'odontogram';
                 <div class="card-box">
                     <div class="flex-between">
                         <h5 class="mb-0">Dental Chart
-                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= $canEditChart ? 'Click a tooth to set its condition' : 'View only — only the dentist can change this chart' ?></small>
+                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= $canEditVisit ? 'Click a tooth to set its condition' : ($canEditChart ? 'Past visit — view only' : 'View only — only the dentist can change this chart') ?></small>
                         </h5>
                         <div class="d-flex gap-2">
-                            <?php if ($canEditChart): ?>
+                            <?php if ($canEditVisit): ?>
                             <button type="button" id="odo-edit-btn" class="btn btn-outline-teal btn-sm" onclick="toggleOdoEdit(true)">✏️ Edit Chart</button>
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;" onclick="toggleOdoEdit(false)">✔ Done</button>
                             <?php endif; ?>
@@ -310,7 +328,7 @@ $active = 'odontogram';
                         <button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#newSessionModal" title="Add a chart for a new visit" data-keep-text>
                             <?= $sessions ? '+ New Chart' : '+ Start first visit' ?>
                         </button>
-                        <?php if (count($sessions) > 1 && $session): ?>
+                        <?php if (count($sessions) > 1 && $session && $isLatestVisit): ?>
                             <!-- Move the visit being viewed to the Archive (at least one visit always stays) -->
                             <form method="POST" class="d-inline m-0"
                                   onsubmit="return confirm('Move this visit (<?= e(date('M j, Y', strtotime($session['visit_date']))) ?>) to the Archive? It disappears from the chart history, but the admin can restore it from the Archive.')">
@@ -323,8 +341,14 @@ $active = 'odontogram';
                         <?php endif; ?>
                     </div>
                     <div class="text-muted2 mb-3 no-print" style="font-size:.78rem;">
-                        Each visit keeps its own chart. Older visits stay editable — nothing gets overwritten.
+                        Each visit keeps its own chart. Only the latest visit can be changed — past visits stay exactly as they were.
                     </div>
+                    <?php if ($canEditChart && !$isLatestVisit && $sessions): ?>
+                        <div class="no-print mb-3" style="background:#f7fafa;border:1px solid #cfe0dd;border-left:4px solid #8aa0a0;border-radius:10px;padding:10px 14px;font-size:.88rem;color:#3f5350;">
+                            🔒 <b>Past visit — view only.</b> This is how the teeth were on <?= date('M j, Y', strtotime($session['visit_date'])) ?>.
+                            To record changes, go to the <a href="odontogram?patient=<?= $pid ?>&session=<?= (int)$validIds[0] ?>">latest visit</a> or start a <b>+ New Chart</b>.
+                        </div>
+                    <?php endif; ?>
 
                     <!-- UPPER ARCH -->
                     <div class="text-center mb-1"><span class="odo-section-label">Upper (Maxillary)</span></div>
@@ -399,8 +423,8 @@ $active = 'odontogram';
                 <?php endif; ?>
             </div>
 
-            <!-- ===== RIGHT COLUMN (hidden until "Edit Chart" is clicked) — dentist only ===== -->
-            <?php if ($canEditChart): ?>
+            <!-- ===== RIGHT COLUMN (hidden until "Edit Chart" is clicked) — dentist, latest visit only ===== -->
+            <?php if ($canEditVisit): ?>
             <div class="col-lg-4 no-print" id="odo-right-col" style="display:none;">
                 <div class="card-box">
                     <h5>Select a Tooth</h5>
@@ -504,7 +528,7 @@ $active = 'odontogram';
     </main>
 </div>
 
-<?php if ($canEditChart): /* the admin only views the chart — no tooth editing pop-up */ ?>
+<?php if ($canEditVisit): /* the admin only views; a past visit is view only — no tooth editing pop-up */ ?>
 <!-- ============ TOOTH CONDITION MODAL ============ -->
 <!-- Opens automatically (see selectTooth() in js/app.js) whenever a tooth
      on the chart is clicked, pre-filled with its current condition. -->
