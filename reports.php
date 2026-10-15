@@ -156,6 +156,7 @@ foreach (array_reverse($chartSessions) as $i => $s) {
 }
 $chartMap = ($patientId && $chartSid) ? build_tooth_map($pdo, $patientId, $chartSid)
                                       : ($patientId ? build_tooth_map($pdo, $patientId) : []);
+$chartInfo = $patientId ? tooth_details($pdo, $patientId, $chartSid ?: latest_session_id($pdo, $patientId)) : [];
 
 // Small helper: turn a status word into the matching badge CSS class.
 // (Our CSS only has: active/confirmed/completed=green, pending=orange,
@@ -534,15 +535,15 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <?php endif; ?>
                             <div style="text-align:center;font-size:.68rem;color:#777;">Upper</div>
                             <div class="odo-arch" style="margin-bottom:4px;">
-                                <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $chartMap[$t] ?? 'Healthy'); ?>
+                                <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $chartMap[$t] ?? 'Healthy', $chartInfo[$t] ?? []); ?>
                             </div>
                             <div class="odo-arch">
-                                <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $chartMap[$t] ?? 'Healthy'); ?>
+                                <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $chartMap[$t] ?? 'Healthy', $chartInfo[$t] ?? []); ?>
                             </div>
                             <div style="text-align:center;font-size:.68rem;color:#777;">Lower</div>
 
                             <!-- Color legend: what each tooth color means -->
-                            <?php $toothLegend = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b','Crowned'=>'#a06fd6','Extracted'=>'#999999','Impacted'=>'#d99a00','Fractured'=>'#cc4444']; ?>
+                            <?php $toothLegend = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b','Crowned'=>'#a06fd6','Extracted'=>'#999999','Impacted'=>'#d99a00','Fractured'=>'#cc4444','Other'=>'#d6589c']; ?>
                             <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.72rem;margin-top:8px;border-top:1px dashed #ddd;padding-top:6px;">
                                 <?php foreach ($toothLegend as $cond => $color): ?>
                                     <span style="white-space:nowrap;"><span style="display:inline-block;width:11px;height:11px;border-radius:2px;background:<?= $color ?>;border:1px solid rgba(0,0,0,.15);vertical-align:middle;"></span> <?= $cond ?></span>

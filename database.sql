@@ -196,8 +196,9 @@ CREATE TABLE odontogram (
     patient_id   INT NOT NULL,
     session_id   INT DEFAULT NULL,          -- which visit/chart this tooth belongs to
     tooth_number VARCHAR(5) NOT NULL,
-    tooth_status ENUM('Healthy','Decayed','Filled','Missing','Crowned','Extracted','Impacted','Fractured') DEFAULT 'Healthy',
-    notes        VARCHAR(255) DEFAULT NULL
+    tooth_status ENUM('Healthy','Decayed','Filled','Missing','Crowned','Extracted','Impacted','Fractured','Other') DEFAULT 'Healthy',
+    condition_other VARCHAR(100) DEFAULT NULL,  -- the condition typed in when "Other" is chosen
+    notes        VARCHAR(255) DEFAULT NULL       -- the dentist's note on this tooth (clinic only)
 );
 
 -- ------------------------------------------------------------

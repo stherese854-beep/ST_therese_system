@@ -27,6 +27,49 @@ function touch_primary_dentist($pdo, $pid) {
     }
 }
 
+// Save the teeth the dentist changed. They are sent TOGETHER when the dentist
+// clicks "Done" (no page reload after every tooth).
+//   $json: {"16": {"status": "Decayed", "other": "", "notes": "..."}, ...}
+// Returns [visit id, ["#16 Decayed", ...]]. A first visit is made if there is none.
+function odo_save_teeth($pdo, $pid, $sid, $json) {
+    global $UPPER_TEETH, $LOWER_TEETH, $TOOTH_STATUSES;
+    $data = json_decode((string)$json, true);
+    if (!is_array($data) || !$data) return [$sid, []];
+    $valid = array_merge($UPPER_TEETH, $LOWER_TEETH);
+    $done  = [];
+    foreach ($data as $tooth => $t) {
+        $tooth = (string)$tooth;
+        if (!in_array($tooth, $valid, true) || !is_array($t) || !in_array($t['status'] ?? '', $TOOTH_STATUSES, true)) continue;
+        $status = $t['status'];
+        $other  = $status === 'Other' ? mb_substr(trim((string)($t['other'] ?? '')), 0, 100) : '';
+        $notes  = mb_substr(trim((string)($t['notes'] ?? '')), 0, 255);
+        if (!$sid) {
+            // First time this patient is charted: this is their first visit (today).
+            $pdo->prepare("INSERT INTO chart_sessions (patient_id,visit_date,title,created_by) VALUES (?,CURDATE(),'Initial Chart',?)")
+                ->execute([$pid, $_SESSION['name'] ?? '']);
+            $sid = (int)$pdo->lastInsertId();
+            log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — first visit');
+        }
+        // Does this tooth already have a row in THIS visit? Update it, else insert.
+        $check = $pdo->prepare("SELECT id FROM odontogram WHERE patient_id=? AND session_id=? AND tooth_number=?");
+        $check->execute([$pid, $sid, $tooth]);
+        if ($row = $check->fetch()) {
+            $pdo->prepare("UPDATE odontogram SET tooth_status=?, condition_other=?, notes=? WHERE id=?")
+                ->execute([$status, $other ?: null, $notes ?: null, $row['id']]);
+        } else {
+            $pdo->prepare("INSERT INTO odontogram (patient_id,session_id,tooth_number,tooth_status,condition_other,notes) VALUES (?,?,?,?,?,?)")
+                ->execute([$pid, $sid, $tooth, $status, $other ?: null, $notes ?: null]);
+        }
+        $done[] = "#$tooth " . tooth_condition_label($status, $other) . ($notes !== '' ? ' (note)' : '');
+    }
+    if ($done) {
+        touch_primary_dentist($pdo, $pid);
+        complete_arrived_visit($pdo, $pid);
+        log_activity($pdo, 'Updated dental chart', patient_name_of($pdo, $pid) . ' — ' . implode(', ', $done));
+    }
+    return [$sid, $done];
+}
+
 // Patients this user may chart: only real patients, and a DENTIST only
 // their own assigned ones. Used to reject a tampered ?patient= / patient_id.
 $odoSql = "SELECT p.id, p.name FROM patients p
@@ -60,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                ORDER BY visit_date DESC, id DESC LIMIT 1");
     $latestQ->execute([$pid]);
     $latestSid = (int)$latestQ->fetchColumn();
-    if (in_array($action, ['save_tooth', 'save_session'], true)) {
+    if (in_array($action, ['save_teeth', 'save_session'], true)) {
         $postSid = (int)($_POST['session_id'] ?? 0);
         if ($postSid && $postSid !== $latestSid) {
             set_flash('That is a past visit, so its chart cannot be changed. Make changes in the latest visit, or start a + New Chart.', 'error');
@@ -68,37 +111,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // ---------- Save a tooth's condition (into ONE visit's chart) ----------
-    if ($action === 'save_tooth') {
-        $sid    = (int)$_POST['session_id'];
-        $tooth  = $_POST['tooth'] ?? '';
-        $status = $_POST['status'];
-
-        if ($tooth === '') {
-            set_flash('Please click a tooth first.', 'error');
-            odo_back($pid, $sid);
-        }
-        if (!$sid) {
-            // First time this patient is charted: this is their first visit (today).
-            $pdo->prepare("INSERT INTO chart_sessions (patient_id,visit_date,title,created_by) VALUES (?,CURDATE(),'Initial Chart',?)")
-                ->execute([$pid, $_SESSION['name'] ?? '']);
-            $sid = (int)$pdo->lastInsertId();
-            log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — first visit');
-        }
-
-        // Does this tooth already have a row in THIS visit? Update it, else insert.
-        $check = $pdo->prepare("SELECT id FROM odontogram WHERE patient_id=? AND session_id=? AND tooth_number=?");
-        $check->execute([$pid, $sid, $tooth]);
-        if ($row = $check->fetch()) {
-            $pdo->prepare("UPDATE odontogram SET tooth_status=? WHERE id=?")->execute([$status, $row['id']]);
-        } else {
-            $pdo->prepare("INSERT INTO odontogram (patient_id,session_id,tooth_number,tooth_status) VALUES (?,?,?,?)")
-                ->execute([$pid, $sid, $tooth, $status]);
-        }
-        touch_primary_dentist($pdo, $pid);
-        complete_arrived_visit($pdo, $pid);
-        log_activity($pdo, 'Updated dental chart', patient_name_of($pdo, $pid) . " — Tooth #$tooth: $status");
-        set_flash("Tooth #$tooth set to $status.");
+    // ---------- Save the changed teeth (all at once, when "Done" is clicked) ----------
+    if ($action === 'save_teeth') {
+        [$sid, $done] = odo_save_teeth($pdo, $pid, (int)($_POST['session_id'] ?? 0), $_POST['teeth'] ?? '');
+        if ($done) set_flash(count($done) === 1 ? 'Saved: tooth ' . $done[0] . '.' : count($done) . ' teeth saved.');
         odo_back($pid, $sid);
     }
 
@@ -116,8 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // since the previous visit, instead of re-entering all 32 teeth.
         if ($copyFrom) {
             $pdo->prepare(
-                "INSERT INTO odontogram (patient_id, session_id, tooth_number, tooth_status)
-                 SELECT patient_id, ?, tooth_number, tooth_status
+                "INSERT INTO odontogram (patient_id, session_id, tooth_number, tooth_status, condition_other)
+                 SELECT patient_id, ?, tooth_number, tooth_status, condition_other
                  FROM odontogram WHERE patient_id=? AND session_id=?"
             )->execute([$newId, $pid, $copyFrom]);
         }
@@ -138,7 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ->execute([$_POST['visit_date'], trim($_POST['title']), trim($_POST['notes']), $sid, $pid]);
         touch_primary_dentist($pdo, $pid);
         log_activity($pdo, 'Edited visit chart', patient_name_of($pdo, $pid));
-        set_flash('Visit details saved.');
+        [, $done] = odo_save_teeth($pdo, $pid, $sid, $_POST['teeth'] ?? '');   // teeth changed but not saved yet
+        set_flash('Visit details saved.' . ($done ? ' ' . (count($done) === 1 ? '1 tooth' : count($done) . ' teeth') . ' saved too.' : ''));
         odo_back($pid, $sid);
     }
 
@@ -196,8 +213,9 @@ foreach ($sessions as $s) if ((int)$s['id'] === $sid) $session = $s;
 $isLatestVisit = !$sessions || $sid === ($validIds[0] ?? 0);
 $canEditVisit  = $canEditChart && $isLatestVisit;
 
-// The chart we are editing.
-$toothMap = $pid ? build_tooth_map($pdo, $pid, $sid) : [];
+// The chart we are editing (+ each tooth's typed condition and note).
+$toothMap  = $pid ? build_tooth_map($pdo, $pid, $sid) : [];
+$toothInfo = tooth_details($pdo, $pid, $sid);
 
 // The chart from the visit BEFORE this one, so we can show what changed.
 // $sessions is newest-first, so the previous visit is the NEXT item in the list.
@@ -218,14 +236,14 @@ if ($prevSession) {
 }
 
 // Count the teeth in each condition (for the summary panel).
-$counts = ['Healthy'=>0,'Decayed'=>0,'Filled'=>0,'Crowned'=>0,'Missing'=>0,'Extracted'=>0,'Impacted'=>0,'Fractured'=>0];
+$counts = ['Healthy'=>0,'Decayed'=>0,'Filled'=>0,'Crowned'=>0,'Missing'=>0,'Extracted'=>0,'Impacted'=>0,'Fractured'=>0,'Other'=>0];
 foreach (array_merge($UPPER_TEETH, $LOWER_TEETH) as $t) {
     $st = $toothMap[$t] ?? 'Healthy';
     $counts[$st] = ($counts[$st] ?? 0) + 1;
 }
 
 $legendColors = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b',
-                 'Crowned'=>'#a06fd6','Extracted'=>'#999','Impacted'=>'#d99a00','Fractured'=>'#cc4444'];
+                 'Crowned'=>'#a06fd6','Extracted'=>'#999','Impacted'=>'#d99a00','Fractured'=>'#cc4444','Other'=>'#d6589c'];
 
 // "Improved" = a bad tooth became good (e.g. Decayed -> Filled). Nice to show.
 $improved = 0; $worsened = 0;
@@ -281,12 +299,13 @@ $active = 'odontogram';
                 <div class="card-box">
                     <div class="flex-between">
                         <h5 class="mb-0">Dental Chart
-                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= $canEditVisit ? 'Click a tooth to set its condition' : ($canEditChart ? 'Past visit — view only' : 'View only — only the dentist can change this chart') ?></small>
+                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= $canEditVisit ? 'Click a tooth to set its condition and note — then ✔ Done saves them all' : ($canEditChart ? 'Past visit — view only' : 'View only — only the dentist can change this chart') ?></small>
                         </h5>
                         <div class="d-flex gap-2">
                             <?php if ($canEditVisit): ?>
                             <button type="button" id="odo-edit-btn" class="btn btn-outline-teal btn-sm" onclick="toggleOdoEdit(true)">✏️ Edit Chart</button>
-                            <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;" onclick="toggleOdoEdit(false)">✔ Done</button>
+                            <!-- Saves every tooth changed since "Edit Chart" in one go -->
+                            <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;white-space:nowrap;" onclick="odoDone()">✔ Done<span id="odo-done-count"></span></button>
                             <?php endif; ?>
                             <!-- Print this chart, or download it as a PDF file -->
                             <?= print_menu('main', pdf_name('Dental-Chart', $printPatient['name'] ?? '', isset($session['visit_date']) ? $session['visit_date'] : date('Y-m-d')), 'window.print()', 'btn-gold btn-sm') ?>
@@ -350,17 +369,24 @@ $active = 'odontogram';
                         </div>
                     <?php endif; ?>
 
+                    <?php if ($canEditVisit): ?>
+                        <div id="odo-pending" class="no-print mb-2" hidden
+                             style="background:#fff8e8;border-left:4px solid var(--gold);border-radius:8px;padding:8px 12px;font-size:.88rem;">
+                            <span id="odo-pending-text"></span>
+                            <button type="button" class="btn btn-sm btn-light ms-2" onclick="odoUndo()" data-keep-text>Undo changes</button>
+                        </div>
+                    <?php endif; ?>
                     <!-- UPPER ARCH -->
                     <div class="text-center mb-1"><span class="odo-section-label">Upper (Maxillary)</span></div>
                     <div class="odo-arch">
-                        <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                        <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy', $toothInfo[$t] ?? []); ?>
                     </div>
 
                     <div class="odo-midline">— MIDLINE —</div>
 
                     <!-- LOWER ARCH -->
                     <div class="odo-arch">
-                        <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                        <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy', $toothInfo[$t] ?? []); ?>
                     </div>
                     <div class="text-center mt-1"><span class="odo-section-label">Lower (Mandibular)</span></div>
 
@@ -371,12 +397,27 @@ $active = 'odontogram';
                         <?php endforeach; ?>
                     </div>
 
+                    <?php $notedTeeth = array_filter(array_merge($UPPER_TEETH, $LOWER_TEETH), fn($t) => trim($toothInfo[$t]['notes'] ?? '') !== ''); ?>
+                    <?php if ($notedTeeth): ?>
+                        <!-- The dentist's note on each tooth (clinic only — not shown in the patient portal) -->
+                        <div class="mt-3" style="border-top:1px dashed #d9e3e1;padding-top:10px;">
+                            <div class="field-label mb-1">📝 Tooth notes</div>
+                            <?php foreach ($notedTeeth as $t): $ti = $toothInfo[$t]; ?>
+                                <div class="d-flex flex-wrap align-items-center gap-2 py-1" style="font-size:.9rem;">
+                                    <b>#<?= e($t) ?></b>
+                                    <span class="pill-sm" style="background:<?= $legendColors[$ti['status']] ?? '#999' ?>;color:#fff;"><?= e(tooth_condition_label($ti['status'], $ti['other'])) ?></span>
+                                    <span><?= e($ti['notes']) ?></span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+
                     <!-- Only on paper / PDF: the teeth that need attention, and the visit notes -->
                     <div class="print-only odo-print-findings">
                         <b>Findings on this visit:</b>
                         <?php if ($printFindings): ?>
                             <?php foreach ($printFindings as $tn => $st): ?>
-                                <span class="pill-sm" style="background:<?= $legendColors[$st] ?? '#999' ?>;color:#fff;">#<?= e($tn) ?> <?= e($st) ?></span>
+                                <span class="pill-sm" style="background:<?= $legendColors[$st] ?? '#999' ?>;color:#fff;">#<?= e($tn) ?> <?= e(tooth_condition_label($st, $toothInfo[$tn]['other'] ?? '')) ?></span>
                             <?php endforeach; ?>
                         <?php else: ?>
                             All teeth healthy.
@@ -428,9 +469,9 @@ $active = 'odontogram';
             <div class="col-lg-4 no-print" id="odo-right-col" style="display:none;">
                 <div class="card-box">
                     <h5>Select a Tooth</h5>
-                    <div id="tooth-panel"><p class="text-muted2">Click a tooth on the chart to view or change its condition.</p></div>
+                    <div id="tooth-panel"><p class="text-muted2">Click a tooth on the chart to view or change its condition and note.</p></div>
                     <div class="text-muted2 mt-2" style="font-size:.76rem;">
-                        Changes save into the <strong><?= $session ? date('M j, Y', strtotime($session['visit_date'])) :  '–' ?></strong> chart.
+                        Click <strong>✔ Done</strong> to save your changes into the <strong><?= $session ? date('M j, Y', strtotime($session['visit_date'])) : 'first visit' ?></strong> chart.
                     </div>
                 </div>
 
@@ -460,8 +501,9 @@ $active = 'odontogram';
 
                     <!-- Edit form — hidden until "Edit Visit Details" is clicked. -->
                     <div id="visit-edit" style="display:none;">
-                        <form method="POST">
+                        <form method="POST" onsubmit="odoBeforeSubmit(this)">
                             <input type="hidden" name="action" value="save_session">
+                            <input type="hidden" name="teeth" value=""><!-- teeth changed but not saved yet -->
                             <input type="hidden" name="patient_id" value="<?= $pid ?>">
                             <input type="hidden" name="session_id" value="<?= $sid ?>">
 
@@ -517,7 +559,7 @@ $active = 'odontogram';
                     <?php foreach (['Healthy','Decayed','Filled','Crowned','Missing'] as $st): ?>
                         <div class="flex-between py-1">
                             <span><i class="legend-dot" style="background:<?= $legendColors[$st] ?>"></i> <?= $st ?></span>
-                            <strong><?= $counts[$st] ?></strong>
+                            <strong data-sum="<?= $st ?>"><?= $counts[$st] ?></strong>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -530,39 +572,48 @@ $active = 'odontogram';
 
 <?php if ($canEditVisit): /* the admin only views; a past visit is view only — no tooth editing pop-up */ ?>
 <!-- ============ TOOTH CONDITION MODAL ============ -->
-<!-- Opens automatically (see selectTooth() in js/app.js) whenever a tooth
-     on the chart is clicked, pre-filled with its current condition. -->
+<!-- Opens when a tooth is clicked. OK only changes the tooth ON SCREEN (it glows
+     gold = not saved yet); "✔ Done" saves every changed tooth at once. -->
 <div class="modal fade" id="toothModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <form method="POST">
-        <input type="hidden" name="action" value="save_tooth">
-        <input type="hidden" name="patient_id" value="<?= $pid ?>">
-        <input type="hidden" name="session_id" value="<?= $sid ?>">
-        <input type="hidden" name="tooth" id="modal-tooth-num">
         <div class="modal-header">
             <h5 class="modal-title">Tooth #<span id="modal-tooth-label">--</span></h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
             <label class="field-label">Condition</label>
-            <select name="status" id="modal-status" class="form-select">
+            <select id="modal-status" class="form-select" onchange="odoOtherToggle()">
                 <?php foreach ($TOOTH_STATUSES as $st): ?>
-                    <option value="<?= $st ?>"><?= $st ?></option>
+                    <option value="<?= $st ?>"><?= $st === 'Other' ? 'Other (type it)' : $st ?></option>
                 <?php endforeach; ?>
             </select>
+            <input type="text" id="modal-other" class="form-control mt-2" maxlength="100" style="display:none;"
+                   placeholder="Type the condition, e.g. Sensitive, Root stump, Discolored">
+            <label class="field-label mt-3">Note <span class="text-muted2">(optional)</span></label>
+            <textarea id="modal-notes" class="form-control" rows="2" maxlength="255"
+                      placeholder="e.g. Small crack on the side — check again next visit"></textarea>
+            <div id="modal-warn" class="text-danger mt-2" style="display:none;font-size:.85rem;"></div>
             <div class="text-muted2 mt-2" style="font-size:.78rem;">
-                Saves into the <strong><?= $session ? date('M j, Y', strtotime($session['visit_date'])) :  '–' ?></strong> chart.
+                Not saved yet — when you finish, click <b>✔ Done</b> above the chart to save all your changes at once.
+                Tooth notes are for the clinic; patients don't see them in their portal.
             </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-            <button type="submit" class="btn btn-teal">OK</button>
+            <button type="button" class="btn btn-teal" onclick="odoApply()">OK</button>
         </div>
-      </form>
     </div>
   </div>
 </div>
+
+<!-- Sent by "✔ Done": every changed tooth, as JSON -->
+<form method="POST" id="odo-save-form" class="d-none">
+    <input type="hidden" name="action" value="save_teeth">
+    <input type="hidden" name="patient_id" value="<?= $pid ?>">
+    <input type="hidden" name="session_id" value="<?= $sid ?>">
+    <input type="hidden" name="teeth" id="odo-save-teeth">
+</form>
 <?php endif; ?>
 
 <!-- ============ NEW CHART MODAL ============ -->
@@ -620,5 +671,113 @@ $active = 'odontogram';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>startClock();</script>
+<?php if ($canEditVisit): ?>
+<script>
+// ===== Odontogram editing: change teeth on screen, save them all with "✔ Done" =====
+(function () {
+    var saved   = <?= json_encode((object)$toothInfo, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP) ?>;  // tooth -> {status, other, notes}
+    var pending = {};          // teeth changed but not saved yet
+    var leaving = false, openNum = null;
+    var HEALTHY = { status: 'Healthy', other: '', notes: '' };
+    function cur(n)  { return pending[n] || saved[n] || HEALTHY; }
+    function same(a, b) { return a.status === b.status && (a.other || '') === (b.other || '') && (a.notes || '') === (b.notes || ''); }
+    function label(c) { return c.status === 'Other' && c.other ? 'Other: ' + c.other : c.status; }
+    function count() { return Object.keys(pending).length; }
+    var $ = function (id) { return document.getElementById(id); };
+
+    function showPanel(n) {
+        var c = cur(n), panel = $('tooth-panel');
+        if (!panel) return;
+        panel.innerHTML = '<h5 class="mb-1">Tooth #' + escHtml(n) + '</h5><p class="text-muted2 mb-2">Condition</p>'
+            + '<span class="badge-pill b-' + (c.status === 'Healthy' ? 'active' : 'pending') + '">' + escHtml(label(c)) + '</span>'
+            + (c.notes ? '<div class="mt-2" style="font-size:.88rem;"><b>Note:</b> ' + escHtml(c.notes) + '</div>' : '')
+            + (pending[n] ? '<div class="mt-2" style="font-size:.8rem;color:#b7791f;">Not saved yet — click ✔ Done.</div>' : '');
+    }
+    function drawTooth(n) {
+        var el = document.querySelector('.tooth[data-tooth="' + n + '"]'); if (!el) return;
+        var c = cur(n), shape = el.querySelector('.tooth-shape'), x = el.querySelector('.tooth-x');
+        shape.setAttribute('class', 'tooth-shape t-' + c.status);
+        var needX = c.status === 'Missing' || c.status === 'Extracted';
+        if (needX && !x) {
+            x = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            x.setAttribute('class', 'tooth-x'); x.setAttribute('d', 'M10 8 L30 30 M30 8 L10 30');
+            x.setAttribute('stroke', '#e05b5b'); x.setAttribute('stroke-width', '2'); x.setAttribute('fill', 'none');
+            shape.parentNode.appendChild(x);
+        } else if (!needX && x) x.remove();
+        el.classList.toggle('unsaved', !!pending[n]);
+        el.classList.toggle('has-note', !!c.notes);
+        el.title = 'Tooth ' + n + ' — ' + label(c) + (c.notes ? ' · Note: ' + c.notes : '') + (pending[n] ? ' (not saved yet)' : '');
+    }
+    function refresh() {
+        var n = count();
+        $('odo-done-count').textContent = n ? ' — save ' + n : '';
+        $('odo-pending').hidden = !n;
+        $('odo-pending-text').innerHTML = '<b>' + n + '</b> ' + (n === 1 ? 'tooth' : 'teeth') + ' changed but <b>not saved yet</b> — click <b>✔ Done</b> to save.';
+        var sums = {};
+        document.querySelectorAll('.tooth[data-tooth]').forEach(function (el) { var st = cur(el.dataset.tooth).status; sums[st] = (sums[st] || 0) + 1; });
+        document.querySelectorAll('[data-sum]').forEach(function (el) { el.textContent = sums[el.dataset.sum] || 0; });
+    }
+
+    // A tooth was clicked: open the pop-up with its condition and note.
+    window.odoSelect = function (n) {
+        toggleOdoEdit(true);
+        openNum = String(n);
+        var c = cur(openNum);
+        $('modal-tooth-label').textContent = openNum;
+        $('modal-status').value = c.status;
+        $('modal-other').value  = c.other || '';
+        $('modal-notes').value  = c.notes || '';
+        $('modal-warn').style.display = 'none';
+        odoOtherToggle();
+        showPanel(openNum);
+        bootstrap.Modal.getOrCreateInstance($('toothModal')).show();
+    };
+    window.odoOtherToggle = function () {
+        var on = $('modal-status').value === 'Other';
+        $('modal-other').style.display = on ? '' : 'none';
+        if (on) setTimeout(function () { $('modal-other').focus(); }, 50);
+    };
+    // OK: change the tooth on screen only.
+    window.odoApply = function () {
+        var st = $('modal-status').value, other = st === 'Other' ? $('modal-other').value.trim() : '';
+        if (st === 'Other' && !other) {
+            $('modal-warn').textContent = 'Please type the condition.'; $('modal-warn').style.display = 'block';
+            $('modal-other').focus(); return;
+        }
+        var next = { status: st, other: other, notes: $('modal-notes').value.trim() };
+        if (same(next, saved[openNum] || HEALTHY)) delete pending[openNum]; else pending[openNum] = next;
+        drawTooth(openNum); refresh(); showPanel(openNum);
+        hideModal();
+    };
+    // OK pressed while the pop-up is still opening: close it as soon as it is open.
+    var modalOpen = false, closeWhenOpen = false;
+    $('toothModal').addEventListener('show.bs.modal', function () { modalOpen = false; closeWhenOpen = false; });
+    $('toothModal').addEventListener('shown.bs.modal', function () { modalOpen = true; if (closeWhenOpen) hideModal(); });
+    function hideModal() {
+        if (!modalOpen) { closeWhenOpen = true; return; }
+        closeWhenOpen = false;
+        bootstrap.Modal.getOrCreateInstance($('toothModal')).hide();
+    }
+    $('modal-other').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); odoApply(); } });
+    // ✔ Done: save every changed tooth at once (or just close the editing panel).
+    window.odoDone = function () {
+        if (!count()) { toggleOdoEdit(false); return; }
+        $('odo-save-teeth').value = JSON.stringify(pending);
+        leaving = true;
+        $('odo-save-form').submit();
+    };
+    window.odoUndo = function () {
+        if (!confirm('Undo the changes that are not saved yet?')) return;
+        var ks = Object.keys(pending); pending = {};
+        ks.forEach(drawTooth); refresh();
+        if (openNum) showPanel(openNum);
+    };
+    // "Save Visit Details" also saves the teeth that were changed.
+    window.odoBeforeSubmit = function (f) { f.querySelector('[name="teeth"]').value = count() ? JSON.stringify(pending) : ''; leaving = true; };
+    // Leaving the page (another visit, another patient) with unsaved teeth: ask first.
+    window.addEventListener('beforeunload', function (e) { if (!leaving && count()) { e.preventDefault(); e.returnValue = ''; } });
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>

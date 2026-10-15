@@ -71,39 +71,19 @@ function buildCalendar(year, month) {
 }
 
 /* ---- Odontogram: when a tooth is clicked, show its info ---- */
-/* Used on odontogram.php and the patient's My Dental Chart.    */
-function selectTooth(num, status) {
+/* Used on the patient's My Dental Chart (and other read-only charts). The   */
+/* dentist's editable Odontogram sets window.odoSelect (see odontogram.php). */
+function escHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function selectTooth(num, status, label) {
+    if (typeof window.odoSelect === 'function') return window.odoSelect(num);
     const panel = document.getElementById('tooth-panel');
     if (panel) {
         panel.innerHTML =
-            `<h5 class="mb-1">Tooth #${num}</h5>
+            `<h5 class="mb-1">Tooth #${escHtml(num)}</h5>
              <p class="text-muted2 mb-2">Current condition</p>
-             <span class="badge-pill b-${status === 'Healthy' ? 'active' : 'pending'}">${status}</span>`;
-    }
-
-    // If there is an editable status dropdown still on the page, sync it.
-    const sel = document.getElementById('edit-status');
-    const hid = document.getElementById('edit-tooth');
-    if (sel && hid) { sel.value = status; hid.value = num; }
-
-    // On the editable Odontogram page, clicking a tooth counts as "starting
-    // to edit" — expand the chart layout so the side panel is visible too.
-    if (typeof toggleOdoEdit === 'function' && document.getElementById('odo-right-col')) {
-        toggleOdoEdit(true);
-    }
-
-    // On the editable Odontogram page, a tooth click opens a small popup
-    // with a dropdown + OK button, instead of making the dentist scroll to
-    // the side panel to change the condition.
-    const modalEl = document.getElementById('toothModal');
-    if (modalEl && window.bootstrap) {
-        const modalNum   = document.getElementById('modal-tooth-num');
-        const modalLabel = document.getElementById('modal-tooth-label');
-        const modalSel   = document.getElementById('modal-status');
-        if (modalNum)   modalNum.value = num;
-        if (modalLabel) modalLabel.textContent = num;
-        if (modalSel)   modalSel.value = status;
-        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+             <span class="badge-pill b-${status === 'Healthy' ? 'active' : 'pending'}">${escHtml(label || status)}</span>`;
     }
 }
 

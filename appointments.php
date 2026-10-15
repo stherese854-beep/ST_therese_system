@@ -1217,8 +1217,6 @@ function validateCancelAppt(){
         <label class="field-label">Additional procedure(s)</label>
         <?= treatment_picker([], 'ap') ?>
         <div class="row g-2 mt-1">
-          <div class="col-md-4"><label class="field-label">Tooth # <span class="text-muted2">(optional)</span></label>
-            <input name="tooth" class="form-control" placeholder="e.g. 16"></div>
           <div class="col-md-4"><label class="field-label">Status</label>
             <select name="status" class="form-select"><option>Completed</option><option>In Progress</option></select></div>
         </div>

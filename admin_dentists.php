@@ -189,7 +189,7 @@ $active = 'dentists';
         // dental chart data
         $toothMap = build_tooth_map($pdo, $pid);
         $legendColors = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b',
-                         'Crowned'=>'#a06fd6','Extracted'=>'#999','Impacted'=>'#d99a00','Fractured'=>'#cc4444'];
+                         'Crowned'=>'#a06fd6','Extracted'=>'#999','Impacted'=>'#d99a00','Fractured'=>'#cc4444','Other'=>'#d6589c'];
         // count each condition
         $counts = [];
         foreach (array_merge($UPPER_TEETH,$LOWER_TEETH) as $t) { $s=$toothMap[$t]??'Healthy'; $counts[$s]=($counts[$s]??0)+1; }

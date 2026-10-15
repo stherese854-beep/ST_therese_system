@@ -69,13 +69,14 @@ if (!$__schemaOk) {
     ensure_followup_table($pdo);                    // follow-ups / treatment plans (braces, root canal sessions)
     require_once __DIR__ . '/../includes/teeth.php';
     cleanup_auto_chart_sessions($pdo);              // one time: blank visits the old Odontogram page made by itself
+    ensure_tooth_other_schema($pdo);                // tooth condition "Other" (typed) + its column
     migrate_text_scales_v2($pdo);                   // one time: text sizes one step bigger
     require_once __DIR__ . '/../includes/clinical.php';
     ensure_clinical_columns($pdo);                  // allergies, medications, dental notes, emergency contact
     require_once __DIR__ . '/../includes/record_archive.php';
     ensure_record_archive_table($pdo);
     require_once __DIR__ . '/../includes/walkins.php';
-    ensure_walkin_table($pdo);                      // walk-in visits (no appointment)              // deleted treatments / X-rays / notes / appointments wait in the Archive
+    ensure_walkin_table($pdo);                      // walk-in visits (no appointment)
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
 

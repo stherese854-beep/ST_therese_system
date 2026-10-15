@@ -43,6 +43,7 @@ const TOOTH_PLAIN = [
     'Crowned'   => 'has a crown (cap)',
     'Missing'   => 'is missing',
     'Extracted' => 'was removed',
+    'Other'     => 'has a condition noted by the dentist',
 ];
 
 /** [latest visit row or null, groups ['attention'=>[], 'treated'=>[], 'missing'=>[]] of [tooth, status]] */

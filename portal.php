@@ -611,6 +611,8 @@ $mySession = null;
 foreach ($mySessions as $s) if ((int)$s['id'] === $mySid) $mySession = $s;
 
 $toothMap = ($chartPid && $mySid) ? build_tooth_map($pdo, $chartPid, $mySid) : [];
+// Typed conditions ("Other: …") — the dentist's tooth notes stay in the clinic.
+$toothOther = array_map(fn($i) => ['other' => $i['other']], ($chartPid && $mySid) ? tooth_details($pdo, $chartPid, $mySid) : []);
 
 // The visit before this one, so we can show what changed.
 $myPrev = null;
@@ -640,7 +642,7 @@ foreach (array_merge($UPPER_TEETH, $LOWER_TEETH) as $tt) {
     if (isset($counts[$s])) $counts[$s]++;
 }
 $legendColors = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b',
-                 'Crowned'=>'#a06fd6','Extracted'=>'#999','Impacted'=>'#d99a00','Fractured'=>'#cc4444'];
+                 'Crowned'=>'#a06fd6','Extracted'=>'#999','Impacted'=>'#d99a00','Fractured'=>'#cc4444','Other'=>'#d6589c'];
 
 $page_title = "Patient Portal";
 include 'includes/head.php';
@@ -770,9 +772,9 @@ include 'includes/head.php';
                         <?php endif; ?>
 
                         <div class="text-center mb-1 mt-3"><span class="odo-section-label">Upper (Maxillary)</span></div>
-                        <div class="odo-arch"><?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?></div>
+                        <div class="odo-arch"><?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy', $toothOther[$t] ?? []); ?></div>
                         <div class="odo-midline">— MIDLINE —</div>
-                        <div class="odo-arch"><?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?></div>
+                        <div class="odo-arch"><?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy', $toothOther[$t] ?? []); ?></div>
                         <div class="text-center mt-1"><span class="odo-section-label">Lower (Mandibular)</span></div>
                         <div class="odo-legend">
                             <?php foreach ($TOOTH_STATUSES as $st): ?>

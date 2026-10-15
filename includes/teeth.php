@@ -11,24 +11,66 @@ $UPPER_TEETH = ['18','17','16','15','14','13','12','11','21','22','23','24','25'
 $LOWER_TEETH = ['48','47','46','45','44','43','42','41','31','32','33','34','35','36','37','38'];
 
 // All possible conditions (used for the legend and the dropdown).
-$TOOTH_STATUSES = ['Healthy','Decayed','Filled','Missing','Crowned','Extracted','Impacted','Fractured'];
+// "Other" = the dentist types the condition (saved in odontogram.condition_other).
+$TOOTH_STATUSES = ['Healthy','Decayed','Filled','Missing','Crowned','Extracted','Impacted','Fractured','Other'];
+
+// "Other: Sensitive" for a typed condition, otherwise just the condition.
+function tooth_condition_label($status, $other = '') {
+    $other = trim((string)$other);
+    return ($status === 'Other' && $other !== '') ? 'Other: ' . $other : (string)$status;
+}
 
 // Draws ONE tooth as a small SVG. $status sets its color via CSS class.
-function render_tooth($num, $status) {
-    $cls = 't-' . $status;
+// $info (optional): ['other' => typed condition, 'notes' => the dentist's note on
+// this tooth] — shown when you point at the tooth; a tooth with a note gets a dot.
+function render_tooth($num, $status, array $info = []) {
+    $cls   = 't-' . $status;
+    $label = tooth_condition_label($status, $info['other'] ?? '');
+    $note  = trim((string)($info['notes'] ?? ''));
+    $tip   = htmlspecialchars("Tooth $num — $label" . ($note !== '' ? " · Note: $note" : ''), ENT_QUOTES);
+    $args  = htmlspecialchars(json_encode([(string)$num, (string)$status, $label]), ENT_QUOTES);
     // For "Missing" we draw an X over the tooth.
     $extra = '';
     if ($status === 'Missing' || $status === 'Extracted') {
-        $extra = '<path d="M10 8 L30 30 M30 8 L10 30" stroke="#e05b5b" stroke-width="2" fill="none"/>';
+        $extra = '<path class="tooth-x" d="M10 8 L30 30 M30 8 L10 30" stroke="#e05b5b" stroke-width="2" fill="none"/>';
     }
     return "
-    <div class='tooth' onclick=\"selectTooth('$num','$status')\">
+    <div class='tooth" . ($note !== '' ? ' has-note' : '') . "' data-tooth='$num' title='$tip' onclick=\"selectTooth.apply(null, $args)\">
         <svg width='40' height='42' viewBox='0 0 40 42'>
-            <path class='$cls' d='M8 6 Q20 0 32 6 Q36 18 30 30 Q26 40 20 40 Q14 40 10 30 Q4 18 8 6 Z' stroke-width='1.6'/>
+            <path class='tooth-shape $cls' d='M8 6 Q20 0 32 6 Q36 18 30 30 Q26 40 20 40 Q14 40 10 30 Q4 18 8 6 Z' stroke-width='1.6'/>
             $extra
         </svg>
         <div class='num'>$num</div>
     </div>";
+}
+
+/** tooth => ['status', 'other', 'notes'] for ONE visit's chart (teeth that have a row). */
+function tooth_details($pdo, $patient_id, $session_id) {
+    if (!$patient_id || !$session_id) return [];
+    try {
+        $st = $pdo->prepare("SELECT tooth_number, tooth_status, condition_other, notes FROM odontogram
+                              WHERE patient_id = ? AND session_id = ?");
+        $st->execute([$patient_id, $session_id]);
+    } catch (Throwable $e) { return []; }
+    $out = [];
+    foreach ($st->fetchAll() as $r) {
+        $out[(string)$r['tooth_number']] = ['status' => $r['tooth_status'], 'other' => (string)$r['condition_other'], 'notes' => (string)$r['notes']];
+    }
+    return $out;
+}
+
+// Self-healing: the "Other" condition and the typed condition column.
+function ensure_tooth_other_schema($pdo) {
+    try {
+        $col = $pdo->query("SHOW COLUMNS FROM odontogram LIKE 'tooth_status'")->fetch();
+        if ($col && stripos($col['Type'], "'Other'") === false) {
+            $pdo->exec("ALTER TABLE odontogram MODIFY tooth_status
+                        ENUM('Healthy','Decayed','Filled','Missing','Crowned','Extracted','Impacted','Fractured','Other') DEFAULT 'Healthy'");
+        }
+        if (!$pdo->query("SHOW COLUMNS FROM odontogram LIKE 'condition_other'")->fetch()) {
+            $pdo->exec("ALTER TABLE odontogram ADD COLUMN condition_other VARCHAR(100) DEFAULT NULL AFTER tooth_status");
+        }
+    } catch (Throwable $e) { /* try again after the next update */ }
 }
 
 // Builds a "patient_id => 'Status'" lookup from the odontogram rows.

@@ -339,6 +339,11 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .t-Extracted { fill: #f0f0f0; stroke: #999; }
 .t-Impacted  { fill: #ffe0a0; stroke: #d99a00; }
 .t-Fractured { fill: #ffcccc; stroke: #cc4444; }
+.t-Other     { fill: #fbd9ea; stroke: #d6589c; }
+/* a tooth with a note: small dot after its number; a change not saved yet: gold glow */
+.tooth.has-note .num::after { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--teal-mid, #0f766e); margin-left: 2px; vertical-align: super; }
+.tooth.unsaved svg { filter: drop-shadow(0 0 3px #e0a92e); }
+.tooth.unsaved .num { color: #b7791f; font-weight: 700; }
 
 /* ===================== BOOKING WIZARD (patient) ================== */
 .booking-hero { background: linear-gradient(135deg, var(--teal-dark), var(--teal)); color: #fff; padding: 40px 20px 90px; text-align: center; }

@@ -296,6 +296,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $treatments = $xrays = $notes = $walkins = [];
 $patientRow = null;
 $toothMap   = [];
+$toothInfo  = [];
 if ($pid) {
     sync_visit_info($pdo, $pid);                     // New / Returning + last visit come from real visits
     $pr = $pdo->prepare("SELECT * FROM patients WHERE id=?");
@@ -310,6 +311,7 @@ if ($pid) {
     $recSession = null;
     foreach ($recSessions as $s) if ((int)$s['id'] === $recSid) $recSession = $s;
     $toothMap = ($pid && $recSid) ? build_tooth_map($pdo, $pid, $recSid) : build_tooth_map($pdo, $pid);
+    $toothInfo = $pid ? tooth_details($pdo, $pid, $recSid ?: latest_session_id($pdo, $pid)) : [];
 
     $t = $pdo->prepare("SELECT * FROM treatments WHERE patient_id=? ORDER BY treatment_date DESC, id DESC");
     $t->execute([$pid]); $treatments = $t->fetchAll();
@@ -435,14 +437,14 @@ $active = 'records';
 
                 <div class="text-center" style="font-size:.68rem;color:#777;">Upper</div>
                 <div class="odo-arch" style="margin-bottom:4px;">
-                    <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                    <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy', $toothInfo[$t] ?? []); ?>
                 </div>
                 <div class="odo-arch">
-                    <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                    <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy', $toothInfo[$t] ?? []); ?>
                 </div>
                 <div class="text-center" style="font-size:.68rem;color:#777;">Lower</div>
 
-                <?php $toothLegend = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b','Crowned'=>'#a06fd6','Extracted'=>'#999999','Impacted'=>'#d99a00','Fractured'=>'#cc4444']; ?>
+                <?php $toothLegend = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b','Crowned'=>'#a06fd6','Extracted'=>'#999999','Impacted'=>'#d99a00','Fractured'=>'#cc4444','Other'=>'#d6589c']; ?>
                 <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.72rem;margin-top:8px;border-top:1px dashed #ddd;padding-top:6px;">
                     <?php foreach ($toothLegend as $cond => $color): ?>
                         <span style="white-space:nowrap;"><span style="display:inline-block;width:11px;height:11px;border-radius:2px;background:<?= $color ?>;border:1px solid rgba(0,0,0,.15);vertical-align:middle;"></span> <?= $cond ?></span>
@@ -665,10 +667,9 @@ $active = 'records';
                     <input type="hidden" name="patient_id" value="<?= $pid ?>">
                     <input type="hidden" name="patient_name" value="<?= e($patientName) ?>">
                     <div class="row g-2">
-                        <div class="col-md-4"><label class="field-label">Treatment</label>
+                        <!-- (No Tooth # here: a tooth's condition and note are recorded on the Odontogram.) -->
+                        <div class="col-md-6"><label class="field-label">Treatment</label>
                             <input name="treatment_name" class="form-control" placeholder="e.g. Cleaning, Filling" required></div>
-                        <div class="col-md-2"><label class="field-label">Tooth #</label>
-                            <input name="tooth" class="form-control" placeholder="e.g. 16"></div>
                         <div class="col-md-3"><label class="field-label">Date</label>
                             <input type="date" name="treatment_date" class="form-control" value="<?= date('Y-m-d') ?>" required></div>
                         <div class="col-md-3"><label class="field-label">Status</label>
