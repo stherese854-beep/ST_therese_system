@@ -82,8 +82,30 @@ function walkin_patients($pdo) {
 function walkin_form($pdo, $assets = true) {
     require_once __DIR__ . '/health_form.php';
     require_once __DIR__ . '/treatments.php';
+    require_once __DIR__ . '/followups.php';
     $isDentist = current_role() === 'dentist';
     $pts = walkin_patients($pdo);
+    // Active follow-up plans of these patients (braces adjustments, root canal sessions…):
+    // a walk-in for the same kind of treatment counts as the plan's next session.
+    $wiPlans = [];
+    $today = date('Y-m-d');
+    if ($pts) {
+        try {
+            $ids = array_map(fn($p) => (int)$p['id'], $pts);
+            $pq = $pdo->prepare("SELECT * FROM treatment_plans WHERE status = 'Active' AND patient_id IN (" . in_placeholders($ids) . ") ORDER BY next_due");
+            $pq->execute($ids);
+            foreach ($pq->fetchAll() as $pl) {
+                $wiPlans[(int)$pl['patient_id']][] = [
+                    'id' => (int)$pl['id'], 'name' => $pl['treatment_name'], 'fam' => treatment_family($pl['treatment_name']),
+                    'next' => (int)$pl['sessions_done'] + 1, 'total' => $pl['total_sessions'] ? (int)$pl['total_sessions'] : null,
+                    'due' => $pl['next_due'] ? ($pl['next_due'] < $today ? 'was due ' : 'due ') . date('M j', strtotime($pl['next_due'])) : '',
+                    'today' => (string)$pl['last_session_date'] === $today,
+                ];
+            }
+        } catch (Throwable $e) {}
+    }
+    $svcFam = [];
+    foreach (array_keys(clinic_treatments()) as $sv) $svcFam[$sv] = treatment_family($sv);
     $health = [];
     foreach ($pts as $p) { [$a] = patient_health($pdo, $p['id']); if ($a) $health[(int)$p['id']] = $a; }
     $dentists = $pdo->query("SELECT name FROM users WHERE role = 'dentist' AND status = 'active' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
@@ -127,6 +149,8 @@ function walkin_form($pdo, $assets = true) {
 
     <div class="field-label">3. Today's visit</div>
     <div class="mb-2"><?= treatment_picker([], 'wi') ?></div>
+    <!-- 🔁 The patient has a follow-up plan: count this visit as its next session -->
+    <div id="wi-plans" class="mb-2" style="display:none;background:#eef7f6;border-radius:8px;padding:8px 12px;"></div>
     <?php if ($isDentist): ?>
       <input type="hidden" name="dentist" value="<?= e($_SESSION['name'] ?? '') ?>">
       <div class="text-muted2 mb-2" style="font-size:.85rem;">Dentist: <b><?= e($_SESSION['name'] ?? '') ?></b> (you)</div>
@@ -151,6 +175,32 @@ function walkin_form($pdo, $assets = true) {
 </style>
 <script>
 var WI_HEALTH = <?= json_encode((object)$health, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+var WI_PLANS = <?= json_encode((object)$wiPlans, JSON_HEX_TAG | JSON_HEX_APOS) ?>, WI_SVC_FAM = <?= json_encode($svcFam, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+var wiPlanSet = {}, wiPlanFor = '';
+function wiEsc(s) { return String(s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+// Ticked when the service chosen is the same kind as the plan (e.g. Braces / Orthodontics);
+// the person entering it can tick or untick it.
+function wiPlans() {
+    var box = document.getElementById('wi-plans'), pid = wiIsNew() ? '' : document.getElementById('wi-patient').value;
+    if (pid !== wiPlanFor) { wiPlanSet = {}; wiPlanFor = pid; }
+    var plans = (pid && WI_PLANS[pid]) || [];
+    if (!plans.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    var fams = {};
+    [].forEach.call(document.querySelectorAll('#wi-modal input[name="treatments[]"]:checked'), function (c) { fams[WI_SVC_FAM[c.value] || c.value.toLowerCase()] = 1; });
+    box.innerHTML = '<div class="field-label mb-1">🔁 Follow-up plan</div>' + plans.map(function (p) {
+        var on = !p.today && (p.id in wiPlanSet ? wiPlanSet[p.id] : !!fams[p.fam]);
+        return '<label class="d-flex align-items-start gap-2 py-1" style="cursor:pointer;font-size:.88rem;">'
+             + '<input type="checkbox" class="form-check-input mt-1" name="plan_sessions[]" value="' + p.id + '"' + (on ? ' checked' : '') + (p.today ? ' disabled' : '')
+             + ' onchange="wiPlanSet[' + p.id + '] = this.checked">'
+             + '<span>Count this visit as <b>session ' + p.next + (p.total ? ' of ' + p.total : '') + '</b> of <b>' + wiEsc(p.name) + '</b>'
+             + (p.today ? ' <span class="text-muted2">(already counted today)</span>' : (p.due ? ' <span class="text-muted2">(' + wiEsc(p.due) + ')</span>' : ''))
+             + '</span></label>';
+    }).join('');
+    box.style.display = '';
+}
+document.addEventListener('change', function (e) {
+    if (e.target && e.target.name === 'treatments[]' && e.target.closest && e.target.closest('#wi-modal')) wiPlans();
+});
 function wiOpen() { document.getElementById('wi-back').value = location.pathname.replace(/^.*\//, '') + location.search;
                     document.getElementById('wi-modal').hidden = false; document.body.style.overflow = 'hidden'; wiMode(); }
 function wiClose() { document.getElementById('wi-modal').hidden = true; document.body.style.overflow = ''; }
@@ -168,6 +218,7 @@ function wiPick() {
         : (a ? 'Their last answers are filled in — review them with the patient.' : (pid ? 'No questionnaire on file yet — fill it in with the patient.' : 'Choose the patient first.'));
     var d = document.getElementById('wi-dentist'), o = sel.selectedOptions[0];
     if (d && o && o.dataset.dentist && !wiIsNew()) d.value = o.dataset.dentist;
+    wiPlans();
 }
 function wiCheck() {
     var f = document.querySelector('#wi-modal form'), w = document.getElementById('wi-warn'), msg = '';

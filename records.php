@@ -190,13 +190,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         complete_arrived_visit($pdo, $pid, $_POST['treatment_date'] ?? null);   // arrived today -> Completed
         log_activity($pdo, 'Added treatment', patient_name_of($pdo, $pid) . ' — ' . trim($_POST['treatment_name']));
         // Follow-up: a session of an existing plan, or a new plan ("Needs follow-up" ticked).
+        // (plan_id: the plan chosen under "Counts as the next session of"; absent = found by name / kind)
+        $planChoice = isset($_POST['plan_id']) ? (int)$_POST['plan_id'] : null;
         $fuMsg = ($_POST['status'] ?? '') === 'Planned' ? '' : followup_after_treatment($pdo, $pid, $_POST['treatment_name'], $_POST['tooth'] ?? '',
-                     $_POST['treatment_date'] ?: date('Y-m-d'), $_POST, $_SESSION['name'] ?? '');
+                     $_POST['treatment_date'] ?: date('Y-m-d'), $_POST, $_SESSION['name'] ?? '', $planChoice);
         // "📅 Also book the next session now"
         if (!empty($_POST['book_next'])) {
-            $pq = $pdo->prepare("SELECT * FROM treatment_plans WHERE patient_id = ? AND status = 'Active' AND LOWER(treatment_name) = LOWER(?) LIMIT 1");
-            $pq->execute([$pid, trim($_POST['treatment_name'])]);
-            if ($plan = $pq->fetch()) {
+            $plan = $planChoice > 0 ? active_plan_by_id($pdo, $pid, $planChoice) : find_active_plan($pdo, $pid, trim($_POST['treatment_name']));
+            if ($plan) {
                 [$okB, $msgB] = book_followup_appointment($pdo, $plan, $_POST['book_date'] ?? '', $_POST['book_time'] ?? '', $_SESSION['name'] ?? 'Clinic');
                 $fuMsg .= ' ' . ($okB ? $msgB : 'The next session was NOT booked: ' . $msgB);
             } else {
@@ -703,16 +704,28 @@ $active = 'records';
                     <a href="appointments?filter=All&addproc=<?= (int)$here['id'] ?>" class="btn btn-teal btn-sm" data-keep-text>➕ Add procedure to today's visit</a>
                 </div>
             <?php endif; ?>
+            <?php $activePlans = active_plans($pdo, $pid); $todayYmd = date('Y-m-d'); ?>
             <div class="card-box mb-3">
                 <h6 class="mb-3">➕ Add Treatment Record</h6>
                 <form method="POST">
                     <input type="hidden" name="action" value="add_treatment">
                     <input type="hidden" name="patient_id" value="<?= $pid ?>">
                     <input type="hidden" name="patient_name" value="<?= e($patientName) ?>">
+                    <?php if ($activePlans): ?>
+                        <!-- 🔁 One click: the exact plan name, counted as its next session -->
+                        <div class="d-flex flex-wrap gap-2 align-items-center mb-2" style="font-size:.85rem;">
+                            <span class="text-muted2">🔁 Record the next session of:</span>
+                            <?php foreach ($activePlans as $apl): $aplToday = (string)$apl['last_session_date'] === $todayYmd; ?>
+                                <button type="button" class="btn btn-sm btn-outline-teal" data-keep-text onclick="trUsePlan(<?= (int)$apl['id'] ?>)"
+                                        <?= $aplToday ? 'disabled title="Already counted today"' : '' ?>>
+                                    <?= e($apl['treatment_name']) ?> · session <?= (int)$apl['sessions_done'] + 1 ?><?= $apl['total_sessions'] ? ' of ' . (int)$apl['total_sessions'] : '' ?><?= $aplToday ? ' (counted today)' : '' ?></button>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
                     <div class="row g-2">
                         <!-- (No Tooth # here: a tooth's condition and note are recorded on the Odontogram.) -->
                         <div class="col-md-6"><label class="field-label">Treatment</label>
-                            <input name="treatment_name" class="form-control" placeholder="e.g. Cleaning, Filling" required></div>
+                            <input name="treatment_name" id="tr-name" class="form-control" placeholder="e.g. Cleaning, Filling" required oninput="trGuess()"></div>
                         <div class="col-md-3"><label class="field-label">Date</label>
                             <input type="date" name="treatment_date" class="form-control" value="<?= date('Y-m-d') ?>" required></div>
                         <div class="col-md-3"><label class="field-label">Status</label>
@@ -721,6 +734,50 @@ $active = 'records';
                                 <option value="Planned">Planned (to do at a next visit)</option>
                             </select></div>
                     </div>
+                    <?php if ($activePlans): ?>
+                        <!-- Which plan this record is a session of (guessed from the name; "Braces adjustment" = "Braces / Orthodontics") -->
+                        <div class="row g-2 mt-1"><div class="col-md-6">
+                            <label class="field-label">🔁 Counts as the next session of</label>
+                            <select name="plan_id" id="tr-plan" class="form-select" onchange="trTouched = true; trNote()">
+                                <option value="0">— No, not a follow-up session —</option>
+                                <?php foreach ($activePlans as $apl): ?>
+                                    <option value="<?= (int)$apl['id'] ?>"><?= e($apl['treatment_name']) ?> (session <?= (int)$apl['sessions_done'] + 1 ?><?= $apl['total_sessions'] ? ' of ' . (int)$apl['total_sessions'] : '' ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                            <div id="tr-plan-note" class="text-muted2" style="font-size:.78rem;"></div>
+                        </div></div>
+                        <script>
+                        // The record's plan: picked by the buttons above, or guessed from the typed name.
+                        var TR_PLANS = <?= json_encode(array_map(fn($p) => ['id' => (int)$p['id'], 'name' => $p['treatment_name'],
+                                            'fam' => treatment_family($p['treatment_name']), 'today' => (string)$p['last_session_date'] === $todayYmd], $activePlans),
+                                            JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+                        var TR_FAMILIES = <?= json_encode(array_map(null, array_keys(TREATMENT_FAMILIES), array_values(TREATMENT_FAMILIES))) ?>, trTouched = false;
+                        function trFamily(n) {
+                            n = (n || '').toLowerCase().trim();
+                            for (var i = 0; i < TR_FAMILIES.length; i++) if (n.indexOf(TR_FAMILIES[i][0]) !== -1) return TR_FAMILIES[i][1];
+                            return n;
+                        }
+                        function trPlanById(id) { return TR_PLANS.filter(function (p) { return p.id === +id; })[0] || null; }
+                        function trNote() {
+                            var p = trPlanById(document.getElementById('tr-plan').value), note = document.getElementById('tr-plan-note');
+                            note.textContent = !p ? '' : (p.today ? 'Already counted today (e.g. the walk-in) — it will not be counted twice.'
+                                                                  : 'Saving this moves the plan to its next session and sets the next due date.');
+                        }
+                        function trGuess() {
+                            if (trTouched) return;
+                            var typed = document.getElementById('tr-name').value, f = trFamily(typed), pick = '0';
+                            if (typed.trim() !== '') TR_PLANS.forEach(function (p) {
+                                if (pick === '0' && !p.today && (p.name.toLowerCase() === typed.trim().toLowerCase() || p.fam === f)) pick = String(p.id);
+                            });
+                            document.getElementById('tr-plan').value = pick; trNote();
+                        }
+                        function trUsePlan(id) {
+                            var p = trPlanById(id); if (!p) return;
+                            document.getElementById('tr-name').value = p.name;
+                            document.getElementById('tr-plan').value = String(id); trTouched = true; trNote();
+                        }
+                        </script>
+                    <?php endif; ?>
                     <label class="field-label mt-2">💬 Note for the patient <span class="text-muted2">(they see this in their portal)</span></label>
                     <textarea name="notes" class="form-control mb-1" rows="2"
                               placeholder="e.g. Avoid chewing on the right side for 24 hours. Come back in 2 weeks to check the filling."></textarea>

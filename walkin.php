@@ -81,7 +81,17 @@ require_once 'includes/clinical.php';
 sync_visit_info($pdo, $pid);                                    // last visit + New / Returning
 log_activity($pdo, 'Walk-in visit', $patient['name'] . ' — ' . $services . ' with ' . $dentist);
 
-$msg = 'Walk-in visit saved for ' . $patient['name'] . ' (' . $services . ').' . ($note ?? '');
+// 🔁 Follow-up plans: this visit is the next session of each plan ticked in the form.
+require_once 'includes/followups.php';
+$planMsg = '';
+foreach (array_unique(array_map('intval', (array)($_POST['plan_sessions'] ?? []))) as $planId) {
+    if ($pl = active_plan_by_id($pdo, $pid, $planId)) {
+        $planMsg .= record_plan_session($pdo, $pl, date('Y-m-d'));
+        log_activity($pdo, 'Follow-up session recorded', $patient['name'] . ' — ' . $pl['treatment_name'] . ' (walk-in)');
+    }
+}
+
+$msg = 'Walk-in visit saved for ' . $patient['name'] . ' (' . $services . ').' . ($note ?? '') . $planMsg;
 // A DENTIST goes to the patient's dental chart first (then "Next →" for the
 // treatment record) — the same steps as an appointment marked Arrived.
 // (They may open this patient now: they are seeing them today.)

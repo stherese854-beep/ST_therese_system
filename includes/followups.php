@@ -7,8 +7,15 @@
 //
 //  * The DENTIST ticks "Needs follow-up" when recording a treatment
 //    (Records → Treatments): how often, and how many sessions (optional).
-//  * Recording the same treatment again counts as the next session and
-//    moves the due date forward; after the last session the plan is Completed.
+//  * The next visit counts as the next session and moves the due date forward
+//    (after the last session the plan is Completed) — whether the patient
+//    BOOKED or just WALKED IN:
+//      - a walk-in for the same kind of treatment ticks "Count this visit as
+//        session N" in the walk-in form;
+//      - a treatment record picks the plan under "Counts as the next session
+//        of" (guessed from the name: "Braces adjustment" = "Braces / Orthodontics").
+//    A plan counts at most one session a day, so the walk-in and its
+//    treatment record are not counted twice.
 //  * STAFF see "Follow-ups due" (Dashboard + bell): due within 7 days or
 //    overdue, with no appointment booked yet — and a one-click Book button.
 //  * The PATIENT sees "Braces adjustment — session 6 of 24 — next due Oct 15"
@@ -93,12 +100,82 @@ function followup_session_text($p) {
     return 'session ' . (int)$p['sessions_done'] . ($p['total_sessions'] ? ' of ' . (int)$p['total_sessions'] : '') . ' done';
 }
 
+// ---- Which plan does a treatment belong to? ----
+// Names are typed freely ("Braces adjustment") or picked from the clinic's list
+// ("Braces / Orthodontics"), so they are compared by KIND of treatment.
+const TREATMENT_FAMILIES = [
+    'brace' => 'braces', 'orthod' => 'braces', 'retainer' => 'braces', 'aligner' => 'braces',
+    'root' => 'root canal', 'endo' => 'root canal',
+    'implant' => 'implant',
+    'clean' => 'cleaning', 'prophy' => 'cleaning', 'scaling' => 'cleaning',
+    'check' => 'check-up', 'consult' => 'check-up',
+    'fill' => 'filling', 'resto' => 'filling',
+    'crown' => 'crown', 'bridge' => 'crown',
+    'extract' => 'extraction',
+    'whiten' => 'whitening', 'bleach' => 'whitening',
+    'denture' => 'denture',
+];
+function treatment_family($name) {
+    $t = strtolower(trim((string)$name));
+    foreach (TREATMENT_FAMILIES as $k => $f) if (strpos($t, $k) !== false) return $f;
+    return $t;
+}
+
+/** The patient's active plan for this treatment: the same name, else the same kind. */
+function find_active_plan($pdo, $patientId, $name) {
+    $plans = active_plans($pdo, $patientId);
+    foreach ($plans as $p) if (strcasecmp(trim($p['treatment_name']), trim((string)$name)) === 0) return $p;
+    $fam = treatment_family($name);
+    foreach ($plans as $p) if (treatment_family($p['treatment_name']) === $fam) return $p;
+    return null;
+}
+
+/** One of the patient's ACTIVE plans by id, or null. */
+function active_plan_by_id($pdo, $patientId, $planId) {
+    try {
+        $q = $pdo->prepare("SELECT * FROM treatment_plans WHERE id = ? AND patient_id = ? AND status = 'Active'");
+        $q->execute([(int)$planId, (int)$patientId]);
+        return $q->fetch() ?: null;
+    } catch (Throwable $e) { return null; }
+}
+
 /**
- * Called after a treatment is recorded (records.php). Returns a short message for the flash, or ''.
- *  - same treatment already has an Active plan -> one more session; due date moves forward
- *  - "Needs follow-up" ticked                  -> a new plan
+ * One more session of a plan, done on $date: the next due date moves forward from that
+ * day (or to $custom); after the last session the plan is Completed. A plan counts at
+ * most ONE session a day (a walk-in and its treatment record are the same visit).
+ * Returns a short message for the flash.
  */
-function followup_after_treatment($pdo, $patientId, $name, $tooth, $date, array $post, $dentist) {
+function record_plan_session($pdo, array $plan, $date, $every = 0, $custom = '', $total = null) {
+    $name = $plan['treatment_name'];
+    $patientId = (int)$plan['patient_id'];
+    if ((string)($plan['last_session_date'] ?? '') === (string)$date) {
+        return " ($name: this visit was already counted as a session.)";
+    }
+    $done  = (int)$plan['sessions_done'] + 1;
+    $int   = $every ?: (int)$plan['interval_days'];
+    $total = $total ?: ($plan['total_sessions'] ? (int)$plan['total_sessions'] : null);
+    if ($total && $done >= $total) {
+        $pdo->prepare("UPDATE treatment_plans SET sessions_done = ?, total_sessions = ?, last_session_date = ?, next_due = NULL,
+                              status = 'Completed', completed_at = NOW() WHERE id = ?")
+            ->execute([$done, $total, $date, (int)$plan['id']]);
+        sync_next_visit($pdo, $patientId);
+        return " Follow-up plan finished: all $total sessions of $name are done.";
+    }
+    $next = $custom ?: ($int ? date('Y-m-d', strtotime($date . " +$int days")) : null);
+    $pdo->prepare("UPDATE treatment_plans SET sessions_done = ?, total_sessions = ?, interval_days = ?, last_session_date = ?,
+                          next_due = ?, last_reminder_for = NULL WHERE id = ?")
+        ->execute([$done, $total, $int ?: null, $date, $next, (int)$plan['id']]);
+    sync_next_visit($pdo, $patientId);
+    return " Session $done" . ($total ? " of $total" : '') . " of $name recorded" . ($next ? '; next due ' . date('M j, Y', strtotime($next)) : '') . '.';
+}
+
+/**
+ * Called after a treatment is recorded (Records, Appointments). Returns a short message for the flash, or ''.
+ *  - it belongs to an Active plan -> one more session; due date moves forward
+ *      $planId: null = find it by name / kind, 0 = "not a follow-up session", >0 = that plan
+ *  - "Needs follow-up" ticked     -> a new plan
+ */
+function followup_after_treatment($pdo, $patientId, $name, $tooth, $date, array $post, $dentist, $planId = null) {
     ensure_followup_table($pdo);
     $name = trim($name);
     if ($name === '') return '';
@@ -108,28 +185,9 @@ function followup_after_treatment($pdo, $patientId, $name, $tooth, $date, array 
     $total  = (int)($post['followup_sessions'] ?? 0) ?: null;
     $dueFrom = function ($days) use ($date) { return date('Y-m-d', strtotime($date . " +$days days")); };
 
-    $q = $pdo->prepare("SELECT * FROM treatment_plans WHERE patient_id = ? AND status = 'Active' AND LOWER(treatment_name) = LOWER(?) LIMIT 1");
-    $q->execute([(int)$patientId, $name]);
-    $plan = $q->fetch();
-
-    if ($plan) {
-        $done  = (int)$plan['sessions_done'] + 1;
-        $int   = $every ?: (int)$plan['interval_days'];
-        $total = $total ?: ($plan['total_sessions'] ? (int)$plan['total_sessions'] : null);
-        if ($total && $done >= $total) {
-            $pdo->prepare("UPDATE treatment_plans SET sessions_done = ?, total_sessions = ?, last_session_date = ?, next_due = NULL,
-                                  status = 'Completed', completed_at = NOW() WHERE id = ?")
-                ->execute([$done, $total, $date, (int)$plan['id']]);
-            sync_next_visit($pdo, $patientId);
-            return " Follow-up plan finished: all $total sessions of $name are done.";
-        }
-        $next = $custom ?: ($int ? $dueFrom($int) : null);
-        $pdo->prepare("UPDATE treatment_plans SET sessions_done = ?, total_sessions = ?, interval_days = ?, last_session_date = ?,
-                              next_due = ?, last_reminder_for = NULL WHERE id = ?")
-            ->execute([$done, $total, $int ?: null, $date, $next, (int)$plan['id']]);
-        sync_next_visit($pdo, $patientId);
-        return " Session $done" . ($total ? " of $total" : '') . " of $name recorded" . ($next ? '; next due ' . date('M j, Y', strtotime($next)) : '') . '.';
-    }
+    $plan = $planId === null ? find_active_plan($pdo, $patientId, $name)
+          : ($planId > 0 ? active_plan_by_id($pdo, $patientId, $planId) : null);
+    if ($plan) return record_plan_session($pdo, $plan, $date, $every, $custom, $total);
 
     if (!$want) return '';
     $next = $custom ?: ($every ? $dueFrom($every) : null);
