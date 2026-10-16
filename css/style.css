@@ -655,3 +655,30 @@ html.no-vt .main, html.no-vt .auth-card { animation: page-in .35s cubic-bezier(.
 @keyframes vt-fade-out { to   { opacity: 0; } }
 @keyframes vt-fade-in  { from { opacity: 0; } }
 @media print { html.no-vt .main { animation: none; } }
+
+/* ============================================================
+   POP-UPS, MENUS AND BUTTONS: a short animation when they open
+   ============================================================
+   Every pop-up "pops" in (fades in while growing a little), every
+   drop-down menu (Print / PDF, the bell, the account menu…) slides
+   down into place, and buttons press in slightly when clicked.
+   These run even with Windows "Show animations" turned off — they
+   are small and quick. (The confirm pop-up has its own, the same.) */
+@keyframes ui-fade { from { opacity: 0; } }
+@keyframes ui-pop  { from { opacity: 0; transform: translateY(12px) scale(.95); } }
+@keyframes ui-drop { from { opacity: 0; translate: 0 -8px; } }
+/* Bootstrap pop-ups: Welcome back, Book Appointment, Add / Edit patient, … */
+.modal.fade .modal-dialog { transition: none; transform: none; }          /* our pop instead of the slide-down */
+.modal.show .modal-dialog { animation: ui-pop .28s cubic-bezier(.2, .8, .3, 1.12) both; }
+.modal-backdrop.show      { animation: ui-fade .2s ease-out both; }
+/* the clinic's own pop-ups: Walk-in, "Still there?", keep or archive the family */
+.wi-modal:not([hidden]), .idle-warn:not([hidden]), .fam-ask:not([hidden]) { animation: ui-fade .2s ease-out both; }
+.wi-modal:not([hidden]) .wi-box, .idle-warn:not([hidden]) .idle-box, .fam-ask:not([hidden]) .fam-box {
+    animation: ui-pop .28s cubic-bezier(.2, .8, .3, 1.12) both; }
+/* drop-down menus ("translate", not "transform": Bootstrap places the menu with transform) */
+.dropdown-menu.show { animation: ui-drop .2s cubic-bezier(.2, .8, .3, 1) both; }
+/* buttons press in a little */
+.btn { transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out,
+                   box-shadow .15s ease-in-out, transform .1s ease; }
+.btn:active:not(:disabled) { transform: scale(.96); }
+@media print { .modal.show .modal-dialog, .dropdown-menu.show { animation: none; } }

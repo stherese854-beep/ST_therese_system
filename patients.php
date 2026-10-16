@@ -1130,5 +1130,14 @@ function checkMerge() {
     return confirm('Merge records?\n\nKEEP: ' + kt + '\nMOVE + ARCHIVE: ' + dt + '\n\nEverything from the second record moves onto the first. Continue?');
 }
 </script>
+<?php if (isset($_GET['add']) && !$isDentist): ?>
+<script>
+// Opened from the Dashboard's "+ New Patient": the Add Patient form pops up straight away.
+document.addEventListener('DOMContentLoaded', function () {
+    openAdd();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('patientModal')).show();
+});
+</script>
+<?php endif; ?>
 </body>
 </html>
