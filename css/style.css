@@ -621,7 +621,8 @@ table.table thead th { background: var(--card, #fff); }
    into the new one (the content slides up a little); the sidebar, the
    top-right user bar and the login page's left panel stay put.
    Other browsers (html.no-vt, set in includes/head.php): the new
-   page's content fades in. Nothing moves for "reduce motion". */
+   page's content fades in. "Reduce motion" (e.g. Windows "Show
+   animations" turned off): a plain fade, nothing slides. */
 @view-transition { navigation: auto; }
 .sidebar        { view-transition-name: sidebar; }
 #topbarWidgets  { view-transition-name: topbar; }
@@ -633,7 +634,10 @@ table.table thead th { background: var(--card, #fff); }
 html.no-vt .main, html.no-vt .auth-card { animation: page-in .35s cubic-bezier(.2, .7, .3, 1) both; }
 @keyframes page-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-    ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
-    html.no-vt .main, html.no-vt .auth-card { animation: none; }
+    ::view-transition-old(root) { animation: vt-fade-out .18s ease-in both; }
+    ::view-transition-new(root) { animation: vt-fade-in .25s ease both; }
+    html.no-vt .main, html.no-vt .auth-card { animation: vt-fade-in .3s ease both; }
 }
+@keyframes vt-fade-out { to   { opacity: 0; } }
+@keyframes vt-fade-in  { from { opacity: 0; } }
 @media print { html.no-vt .main { animation: none; } }

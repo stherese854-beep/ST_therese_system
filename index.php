@@ -385,8 +385,10 @@ section{scroll-margin-top:88px}
 .hmo-ticks li{display:flex;gap:11px;align-items:flex-start;margin-bottom:11px;font-weight:500;color:var(--ink)}
 .hmo-ticks li svg{width:18px;height:18px;color:var(--teal-600);flex:none;margin-top:3px}
 
+/* "Reduce motion" (e.g. Windows "Show animations" turned off): no moving effects,
+   but clicking Home / Features / Services… still scrolls smoothly to the section */
 @media(prefers-reduced-motion:reduce){
-  *{animation:none!important;scroll-behavior:auto!important}
+  *{animation:none!important}
   .reveal{opacity:1;transform:none;transition:none}
 }
 
@@ -445,9 +447,13 @@ section{scroll-margin-top:88px}
     ::view-transition-new(root) { animation: vt-in .32s cubic-bezier(.2, .7, .3, 1) both; }
     @keyframes vt-out { to   { opacity: 0; transform: translateY(-6px); } }
     @keyframes vt-in  { from { opacity: 0; transform: translateY(10px); } }
+    /* "Reduce motion": a plain fade, nothing slides */
     @media (prefers-reduced-motion: reduce) {
-        ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+        ::view-transition-old(root) { animation: vt-fade-out .18s ease-in both !important; }
+        ::view-transition-new(root) { animation: vt-fade-in .25s ease both !important; }
     }
+    @keyframes vt-fade-out { to { opacity: 0; } }
+    @keyframes vt-fade-in  { from { opacity: 0; } }
     </style>
 </head>
 <body>
@@ -1042,6 +1048,42 @@ document.addEventListener('keydown', function(e){ if(e.key === 'Escape') closeLa
 // sticky nav shadow
 var nav=document.getElementById('nav');
 addEventListener('scroll',function(){ nav.classList.toggle('scrolled',scrollY>10); });
+
+// Smooth scroll to a section (Home, Features, Services, About, Contact, footer links).
+// Done here and not only with CSS, because on some computers (Windows with "Show
+// animations" turned off) the browser jumps straight there instead of scrolling.
+(function () {
+  var stop = false;
+  ['wheel', 'touchstart', 'keydown'].forEach(function (ev) { addEventListener(ev, function () { stop = true; }, { passive: true }); });
+  function glideTo(el) {
+    var root = document.documentElement, start = scrollY;
+    var target = Math.max(0, Math.min(el.getBoundingClientRect().top + start - (parseFloat(getComputedStyle(el).scrollMarginTop) || 0),
+                                      root.scrollHeight - innerHeight));
+    var dist = target - start, dur = Math.min(900, Math.max(400, Math.abs(dist) * 0.4)), t0 = null, done = false;
+    if (Math.abs(dist) < 2) return;
+    stop = false; root.style.scrollBehavior = 'auto';          // our own animation, not the browser's
+    function finish(jump) { if (done) return; done = true; if (jump) scrollTo(0, target); root.style.scrollBehavior = ''; }
+    function step(ts) {
+      if (done) return;
+      if (stop) return finish(false);                          // the visitor scrolled: let them
+      if (t0 === null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / dur), ease = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      scrollTo(0, start + dist * ease);
+      if (p < 1) requestAnimationFrame(step); else finish(false);
+    }
+    requestAnimationFrame(step);
+    setTimeout(function () { finish(!stop); }, dur + 400);     // safety: never stop half way
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (!a || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    var id = a.getAttribute('href').slice(1), el = id && document.getElementById(id);
+    if (!el) return;                                           // href="#" (social / policy links) — left alone
+    e.preventDefault();
+    glideTo(el);
+    if (history.pushState) history.pushState(null, '', '#' + id);
+  });
+})();
 
 // mobile menu
 document.getElementById('ham').addEventListener('click',function(){ nav.classList.toggle('open'); });
