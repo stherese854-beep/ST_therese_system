@@ -374,14 +374,15 @@ include 'includes/head.php';
                 <strong style="color:var(--teal)">St. Therese Dental Clinic</strong>
             </div>
 
-            <!-- Tabs to switch between Login and Create Account -->
-            <div class="auth-tabs">
-                <button class="<?= $mode==='signin'?'active':'' ?>" onclick="location.href='login?mode=signin'">Login</button>
-                <button class="<?= $mode==='register'?'active':'' ?>" onclick="location.href='login?mode=register'">Create Account</button>
+            <!-- Tabs to switch between Login and Create Account — on the same page, no reload
+                 (the dark pill slides across; see authSwitch() below) -->
+            <div class="auth-tabs"<?= in_array($mode, ['signin', 'register'], true) ? ' data-active="' . $mode . '"' : '' ?>>
+                <button type="button" data-mode="signin" class="<?= $mode==='signin'?'active':'' ?>" onclick="authSwitch('signin')">Login</button>
+                <button type="button" data-mode="register" class="<?= $mode==='register'?'active':'' ?>" onclick="authSwitch('register')">Create Account</button>
             </div>
 
             <?php if ($error): ?>
-                <div class="alert alert-danger py-2"><?= e($error) ?></div>
+                <div class="alert alert-danger py-2" id="auth-error"><?= e($error) ?></div>
             <?php endif; ?>
 
             <?php if ($mode === 'google' && $gp): ?>
@@ -412,7 +413,32 @@ include 'includes/head.php';
                 </form>
                 <p class="text-center mt-3 muted"><a href="login?mode=cancel_google" style="color:var(--teal);">← Cancel</a></p>
 
-            <?php elseif ($mode === 'signin'): ?>
+            <?php elseif ($mode === 'verify'): ?>
+                <!-- ============ VERIFY EMAIL ============ -->
+                <h2>Verify your email</h2>
+                <p class="muted">Enter the 6-digit code we sent to <strong><?= e($_SESSION['pending']['email'] ?? 'your email') ?></strong>.</p>
+                <?php if (!empty($_SESSION['pending']['sent'])): ?>
+                    <div class="alert alert-success py-2" style="font-size:.85rem;">
+                        📧 Code emailed. Check your inbox (and the spam folder).
+                    </div>
+                <?php else: ?>
+                    <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.83rem;">
+                        🧪 <strong>Demo mode:</strong> your code is <strong style="font-size:1.1rem;letter-spacing:2px;"><?= e($_SESSION['pending']['code'] ?? '------') ?></strong>.
+                        Email is not set up yet, so it is shown here. An admin can turn on real email in
+                        <em>Messaging Config</em>.
+                    </div>
+                <?php endif; ?>
+                <form method="POST">
+                    <input type="hidden" name="action" value="verify">
+                    <label class="field-label">Verification Code</label>
+                    <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" data-digits autofocus required
+                           style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
+                    <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Create Account →</button>
+                </form>
+                <p class="text-center mt-3 muted"><a href="login?mode=register" style="color:var(--teal);">← Back to register</a></p>
+
+            <?php else: /* LOGIN and CREATE ACCOUNT are both here: the tabs switch between them without leaving the page */ ?>
+              <div class="auth-pane" id="pane-signin"<?= $mode === 'signin' ? '' : ' hidden' ?>>
                 <!-- ============ LOGIN FORM ============ -->
                 <h2>Welcome back</h2>
                 <p class="muted">Enter your credentials to continue.</p>
@@ -456,37 +482,13 @@ include 'includes/head.php';
                     </a>
                 <?php endif; ?>
                 <p class="text-center mt-3 muted">Don't have an account?
-                    <a href="login?mode=register" style="color:var(--teal);font-weight:600;">Create one now →</a>
+                    <a href="login?mode=register" data-auth="register" style="color:var(--teal);font-weight:600;">Create one now →</a>
                 </p>
                 <div class="alert alert-light border mt-2 py-2 text-center" style="font-size:.85rem;">
                     🔒 An account is required to book an appointment.
                 </div>
-
-            <?php elseif ($mode === 'verify'): ?>
-                <!-- ============ VERIFY EMAIL ============ -->
-                <h2>Verify your email</h2>
-                <p class="muted">Enter the 6-digit code we sent to <strong><?= e($_SESSION['pending']['email'] ?? 'your email') ?></strong>.</p>
-                <?php if (!empty($_SESSION['pending']['sent'])): ?>
-                    <div class="alert alert-success py-2" style="font-size:.85rem;">
-                        📧 Code emailed. Check your inbox (and the spam folder).
-                    </div>
-                <?php else: ?>
-                    <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.83rem;">
-                        🧪 <strong>Demo mode:</strong> your code is <strong style="font-size:1.1rem;letter-spacing:2px;"><?= e($_SESSION['pending']['code'] ?? '------') ?></strong>.
-                        Email is not set up yet, so it is shown here. An admin can turn on real email in
-                        <em>Messaging Config</em>.
-                    </div>
-                <?php endif; ?>
-                <form method="POST">
-                    <input type="hidden" name="action" value="verify">
-                    <label class="field-label">Verification Code</label>
-                    <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" data-digits autofocus required
-                           style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
-                    <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Create Account →</button>
-                </form>
-                <p class="text-center mt-3 muted"><a href="login?mode=register" style="color:var(--teal);">← Back to register</a></p>
-
-            <?php else: ?>
+              </div><!-- /pane-signin -->
+              <div class="auth-pane" id="pane-register"<?= $mode === 'signin' ? ' hidden' : '' ?>>
                 <!-- ============ REGISTER FORM ============ -->
                 <h2>Create account</h2>
                 <p class="muted">Register as a patient to book appointments.</p>
@@ -504,7 +506,7 @@ include 'includes/head.php';
                     </div>
 
                     <label class="field-label">Email Address</label>
-                    <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com" value="<?= $emailTaken ? '' : e($_POST['email'] ?? '') ?>" <?= $emailTaken ? 'autofocus' : '' ?> required>
+                    <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com" value="<?= ($emailTaken || ($_POST['action'] ?? '') !== 'register') ? '' : e($_POST['email'] ?? '') ?>" <?= $emailTaken ? 'autofocus' : '' ?> required>
 
                     <label class="field-label">Phone Number</label>
                     <input name="contact" id="reg-phone" class="form-control mb-1" placeholder="09XX XXX XXXX" value="<?= e($_POST['contact'] ?? '') ?>"
@@ -569,6 +571,10 @@ include 'includes/head.php';
                         Continue with Google
                     </a>
                 <?php endif; ?>
+                <p class="text-center mt-3 muted">Already have an account?
+                    <a href="login?mode=signin" data-auth="signin" style="color:var(--teal);font-weight:600;">Log in →</a>
+                </p>
+              </div><!-- /pane-register -->
             <?php endif; ?>
         </div>
     </div>
@@ -605,6 +611,43 @@ document.addEventListener('DOMContentLoaded', function () {
 <?php endif; ?>
 
 <script>
+// ---- Login <-> Create Account on the same page ----
+// The card keeps its place: the dark pill slides to the other tab, the form
+// slides out and the other one slides in while the card grows / shrinks to fit.
+var authBusy = false;
+function authSwitch(to) {
+    var next = document.getElementById('pane-' + to), cur = document.querySelector('.auth-pane:not([hidden])');
+    if (!next) { location.href = 'login?mode=' + to; return; }      // verify / Google steps: a normal page
+    if (next === cur || authBusy) return;
+    authBusy = true;
+    var card = document.querySelector('.auth-card'), tabs = document.querySelector('.auth-tabs');
+    var dir = to === 'register' ? 1 : -1;
+    tabs.dataset.active = to;
+    [].forEach.call(tabs.querySelectorAll('button'), function (b) { b.classList.toggle('active', b.dataset.mode === to); });
+    var err = document.getElementById('auth-error'); if (err) err.hidden = true;   // that message was for the other form
+    try { history.replaceState(null, '', 'login?mode=' + to); } catch (e) {}
+    var h0 = card.offsetHeight;
+    card.style.height = h0 + 'px'; card.style.overflow = 'hidden';
+    cur.style.setProperty('--dir', dir); cur.classList.add('auth-out');
+    setTimeout(function () {
+        cur.hidden = true; cur.classList.remove('auth-out');
+        next.hidden = false; next.style.setProperty('--dir', dir); next.classList.add('auth-in');
+        card.style.height = 'auto'; var h1 = card.offsetHeight;
+        card.style.height = h0 + 'px'; void card.offsetHeight;      // start from the old height ...
+        card.style.transition = 'height .38s cubic-bezier(.2, .7, .3, 1)';
+        card.style.height = h1 + 'px';                             // ... and grow / shrink to the new one
+        setTimeout(function () {
+            card.style.height = ''; card.style.overflow = ''; card.style.transition = '';
+            next.classList.remove('auth-in'); authBusy = false;
+        }, 400);
+    }, 150);
+}
+document.addEventListener('click', function (e) {                   // "Create one now →" / "Log in →"
+    var a = e.target.closest && e.target.closest('a[data-auth]');
+    if (!a || !document.getElementById('pane-' + a.dataset.auth)) return;
+    e.preventDefault(); authSwitch(a.dataset.auth);
+});
+
 // Check the two password boxes match before the register form submits.
 // Live password strength meter on the register form. This mirrors
 // password_strength() in config/auth.php exactly — only Strong

@@ -235,9 +235,23 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
 .auth-left p { color: #bcd6d2; margin-top: 18px; max-width: 360px; }
 .auth-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px; }
 .auth-card { background: var(--card, #fff); border-radius: 18px; padding: 28px; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
-.auth-tabs { display: flex; background: #f1ede6; border-radius: 12px; padding: 5px; margin-bottom: 22px; }
-.auth-tabs button { flex: 1; border: none; background: transparent; padding: 10px; border-radius: 9px; font-weight: 600; color: #97917f; cursor: pointer; }
+.auth-tabs { display: flex; background: #f1ede6; border-radius: 12px; padding: 5px; margin-bottom: 22px; position: relative; }
+.auth-tabs button { flex: 1; border: none; background: transparent; padding: 10px; border-radius: 9px; font-weight: 600; color: #97917f; cursor: pointer;
+                    position: relative; z-index: 1; transition: color .25s; }
 .auth-tabs button.active { background: var(--teal); color: #fff; }
+/* Login <-> Create Account (login.php): a dark pill slides under the active tab */
+.auth-tabs[data-active]::before { content: ''; position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc(50% - 5px);
+                                  background: var(--teal); border-radius: 9px; transition: transform .32s cubic-bezier(.2, .7, .3, 1); }
+.auth-tabs[data-active="register"]::before { transform: translateX(100%); }
+.auth-tabs[data-active] button.active { background: transparent; }
+.auth-pane { --dist: 22px; }
+.auth-pane.auth-out { animation: auth-out .15s ease-in both; }
+.auth-pane.auth-in  { animation: auth-in .34s cubic-bezier(.2, .7, .3, 1) both; }
+@keyframes auth-out { to   { opacity: 0; transform: translateX(calc(var(--dir, 1) * var(--dist) * -1)); } }
+@keyframes auth-in  { from { opacity: 0; transform: translateX(calc(var(--dir, 1) * var(--dist))); } }
+@media (prefers-reduced-motion: reduce) { .auth-pane { --dist: 0px; } }   /* "reduce motion": a plain fade */
+/* the brand panel stays in the middle of the screen while the form beside it grows */
+@media (min-width: 801px) { .auth-left { position: sticky; top: 0; height: 100vh; align-self: flex-start; } }
 .auth-card h2 { font-weight: 700; margin: 0 0 4px; }
 .auth-card .muted { color: var(--muted); font-size: .9rem; margin-bottom: 18px; }
 .field-label { font-size: .72rem; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 5px; display: block; }
