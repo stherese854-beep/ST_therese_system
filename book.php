@@ -125,9 +125,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     }
     $bookDentist     = pick_dentist_for_slot($pdo, $_POST['date'] ?? '', $_POST['time'] ?? '', $ownDentist);
     $noDentistFree   = ($bookDentist === null);
-    $reassignedFrom  = (!$noDentistFree && $ownDentist !== ''
-                        && !in_array($bookDentist, dentist_name_variants($ownDentist), true)
-                        && $bookDentist !== $ownDentist) ? $ownDentist : '';
 
     // Is the clinic even open on that weekday?
     $dayName = date('D', strtotime($_POST['date']));   // Mon, Tue, ...
@@ -335,7 +332,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $confirm = $_POST;   // keep details to show on the success screen
         $confirm['patient_name'] = $patientName;
         $confirm['dentist']      = $bookDentist;
-        $confirm['reassigned_from'] = $reassignedFrom;
         $confirm['booked_by']    = $bookedBy;
         $confirm['relationship'] = $relationship;
     }
@@ -452,12 +448,6 @@ include 'includes/head.php';
             <?php endif; ?>
             <div class="flex-between py-1"><span>When</span><b><?= date('M j, Y', strtotime($confirm['date'])) ?> · <?= e($confirm['time']) ?></b></div>
             <div class="flex-between py-1"><span>Dentist</span><b><?= e($confirm['dentist'] ?? '') ?></b></div>
-            <?php if (!empty($confirm['reassigned_from'])): ?>
-                <div class="text-muted2 pb-1" style="font-size:.8rem;">
-                    ℹ️ <?= e($confirm['reassigned_from']) ?> is not available at that time, so
-                    <?= e($confirm['dentist']) ?> will see you instead.
-                </div>
-            <?php endif; ?>
         </div>
 
         <p class="text-muted2 bk-done-note">
