@@ -438,6 +438,17 @@ section{scroll-margin-top:88px}
     <!-- Icons: Bootstrap Icons + js/icons.js, which swaps the pages' emojis for these icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <script src="js/icons.js?v=<?= @filemtime(__DIR__ . '/js/icons.js') ?: time() ?>"></script>
+    <!-- Page transitions: the same smooth change of page as inside the system (css/style.css) -->
+    <style>
+    @view-transition { navigation: auto; }
+    ::view-transition-old(root) { animation: vt-out .18s ease-in both; }
+    ::view-transition-new(root) { animation: vt-in .32s cubic-bezier(.2, .7, .3, 1) both; }
+    @keyframes vt-out { to   { opacity: 0; transform: translateY(-6px); } }
+    @keyframes vt-in  { from { opacity: 0; transform: translateY(10px); } }
+    @media (prefers-reduced-motion: reduce) {
+        ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+    }
+    </style>
 </head>
 <body>
 <?php include __DIR__ . '/includes/inapp_banner.php';   // "open in your browser" notice inside Messenger/Facebook/etc. ?>

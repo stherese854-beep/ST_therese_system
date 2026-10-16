@@ -613,3 +613,27 @@ table.table thead th { background: var(--card, #fff); }
 /* Closed "View as table" sections stay closed in a PDF (the PDF tool would show their insides). */
 .pdf-mode details:not([open]) { display: none !important; }
 .pdf-mode details > summary { display: none !important; }
+
+/* ============================================================
+   PAGE TRANSITIONS — moving from one page to the next
+   ============================================================
+   Chrome / Edge / Safari 18.2+: the browser cross-fades the old page
+   into the new one (the content slides up a little); the sidebar, the
+   top-right user bar and the login page's left panel stay put.
+   Other browsers (html.no-vt, set in includes/head.php): the new
+   page's content fades in. Nothing moves for "reduce motion". */
+@view-transition { navigation: auto; }
+.sidebar        { view-transition-name: sidebar; }
+#topbarWidgets  { view-transition-name: topbar; }
+.auth-left      { view-transition-name: auth-brand; }
+::view-transition-old(root) { animation: vt-out .18s ease-in both; }
+::view-transition-new(root) { animation: vt-in .32s cubic-bezier(.2, .7, .3, 1) both; }
+@keyframes vt-out { to   { opacity: 0; transform: translateY(-6px); } }
+@keyframes vt-in  { from { opacity: 0; transform: translateY(10px); } }
+html.no-vt .main, html.no-vt .auth-card { animation: page-in .35s cubic-bezier(.2, .7, .3, 1) both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+    html.no-vt .main, html.no-vt .auth-card { animation: none; }
+}
+@media print { html.no-vt .main { animation: none; } }

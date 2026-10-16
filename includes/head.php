@@ -19,6 +19,9 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>"><!-- sent with JS POST requests -->
     <title><?= e($page_title) ?> — St. Therese Dental Clinic</title>
 
+    <!-- Page transitions (css/style.css): browsers without cross-page view
+         transitions get a simple fade-in of the page content instead. -->
+    <script>if (!('onpagereveal' in window)) document.documentElement.classList.add('no-vt');</script>
     <!-- Bootstrap 5 CSS (CDN) -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Icons: Bootstrap Icons + js/icons.js, which swaps the pages' emojis for these icons -->
