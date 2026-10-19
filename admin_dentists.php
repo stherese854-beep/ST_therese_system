@@ -83,6 +83,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // ---- Forgot their approval PIN: the admin clears it; the dentist creates a new one ----
+    if ($action === 'reset_pin') {
+        $rid = (int)($_POST['id'] ?? 0);
+        $rn = $pdo->prepare("SELECT name FROM users WHERE id = ? AND role = 'dentist'");
+        $rn->execute([$rid]);
+        if ($rname = $rn->fetchColumn()) {
+            $pdo->prepare("UPDATE users SET approval_pin = NULL, pin_fail_count = 0, pin_locked_until = NULL WHERE id = ?")->execute([$rid]);
+            log_activity($pdo, 'Reset approval PIN', $rname);
+            set_flash("$rname's approval PIN was reset. They can create a new one in Profile & Settings.", 'info');
+        }
+        header("Location: admin_dentists"); exit;
+    }
+
     // ---- Upload a photo for a dentist (shown on the landing page) ----
     if ($action === 'upload_photo') {
         $did = (int)$_POST['id'];
@@ -403,7 +416,17 @@ $active = 'dentists';
                         </div>
                         <div class="text-muted2 mb-1" style="font-size:.85rem;">🦷 <?= e($doc['specialty'] ?: 'General Dentistry') ?></div>
                         <div class="text-muted2 mb-1" style="font-size:.85rem;">📧 <?= e($doc['email']) ?></div>
-                        <div class="text-muted2 mb-3" style="font-size:.85rem;">📞 <?= e($doc['contact'] ?: '–') ?></div>
+                        <div class="text-muted2 mb-1" style="font-size:.85rem;">📞 <?= e($doc['contact'] ?: '–') ?></div>
+                        <!-- Approval PIN: staff open a patient's chart with it -->
+                        <div class="text-muted2 mb-3 d-flex align-items-center gap-2" style="font-size:.85rem;">
+                            🔐 <?= !empty($doc['approval_pin']) ? 'Approval PIN set up' : 'No approval PIN yet' ?>
+                            <?php if (!empty($doc['approval_pin'])): ?>
+                                <form method="POST" class="m-0" onsubmit="return confirm('Reset <?= e(addslashes($doc['name'])) ?>\'s approval PIN? They will need to create a new one in Profile & Settings.')">
+                                    <input type="hidden" name="action" value="reset_pin"><input type="hidden" name="id" value="<?= (int)$doc['id'] ?>">
+                                    <button class="btn btn-sm btn-light py-0" data-keep-text style="font-size:.78rem;">Reset PIN</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
 
                         <form method="POST" enctype="multipart/form-data" class="mb-3">
                             <input type="hidden" name="action" value="upload_photo">

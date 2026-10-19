@@ -6,13 +6,15 @@
 //  folder is locked (see its .htaccess) and images are only ever
 //  delivered through this page, which checks who is asking:
 //   - admin              -> any patient's X-ray
-//   - dentist            -> only X-rays of their own assigned patients
-//     (same rule as the Records page)
+//   - dentist            -> X-rays of the patients they may open
+//     (their own + anyone they are seeing — the same rule as the Records page)
+//   - staff              -> only the patient a dentist unlocked for them with
+//     their approval PIN (includes/chart_access.php)
 //   - patient            -> only their own X-rays
 //  Everyone else gets "Access denied", and the attempt is logged.
 // ============================================================
 require_once 'config/auth.php';
-require_login(['admin','dentist','patient']);
+require_login(['admin','dentist','staff','patient']);
 
 $id = (int)($_GET['id'] ?? 0);
 
@@ -28,7 +30,12 @@ if ($xr) {
     if ($role === 'admin') {
         $allowed = true;
     } elseif ($role === 'dentist') {
-        $allowed = ($xr['primary_dentist'] === ($_SESSION['name'] ?? ''));
+        $prm = [];
+        $q = $pdo->prepare("SELECT COUNT(*) FROM patients p WHERE p.id = ? AND " . dentist_patient_sql('p.id', 'p.primary_dentist', $_SESSION['name'] ?? '', $prm));
+        $q->execute(array_merge([(int)$xr['patient_id']], $prm));
+        $allowed = (bool)$q->fetchColumn();
+    } elseif ($role === 'staff') {
+        $allowed = (bool)staff_chart_access((int)$xr['patient_id'], false);
     } elseif ($role === 'patient') {
         $allowed = ((int)$xr['user_id'] === (int)$_SESSION['user_id']);
     }

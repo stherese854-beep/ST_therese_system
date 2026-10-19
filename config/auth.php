@@ -42,6 +42,7 @@ if (php_sapi_name() !== 'cli') {
 session_start();               // turn on PHP sessions (remembers who is logged in)
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
 require_once __DIR__ . '/../includes/relationships.php';   // "Raquel is your Child" — the words, age checks
+require_once __DIR__ . '/../includes/chart_access.php';    // staff open a chart with a dentist's approval PIN
 
 // ---- Self-healing database (new tables / columns) ----
 // These checks only need to run once after each update of the system, not on
@@ -79,6 +80,7 @@ if (!$__schemaOk) {
     ensure_record_archive_table($pdo);
     require_once __DIR__ . '/../includes/walkins.php';
     ensure_walkin_table($pdo);                      // walk-in visits (no appointment)
+    ensure_chart_access_schema($pdo);               // dentists' approval PINs + "entered by" (staff charting)
     ensure_indexes($pdo);                           // last: indexes on the tables above, so pages stay fast as records grow
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
@@ -537,7 +539,7 @@ const ACTIVITY_CATEGORIES = [
 ];
 function activity_category($action) {
     $a = strtolower((string)$action);
-    if (preg_match('/failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported/', $a)) return 'security';
+    if (preg_match('/failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported|approval pin|chart access/', $a)) return 'security';
     if (preg_match('/logged in|logged out|created account/', $a)) return 'signin';
     if (preg_match('/appointment|arriv|no-show|attended|booked|day off|cancell|reschedul|booking/', $a)) return 'appts';
     if (preg_match('/patient|treatment|x-ray|note|chart|health|clinical|follow-up|dentist|merged|booked-for|printed|pdf|report/', $a)) return 'records';
@@ -546,7 +548,7 @@ function activity_category($action) {
 // SQL that picks the same groups (so filters and counts run in the database).
 function activity_category_sql($cat) {
     $re = [
-        'security' => "failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported",
+        'security' => "failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported|approval pin|chart access",
         'signin'   => "logged in|logged out|created account",
         'appts'    => "appointment|arriv|no-show|attended|booked|day off|cancell|reschedul|booking",
         'records'  => "patient|treatment|x-ray|note|chart|health|clinical|follow-up|dentist|merged|booked-for|printed|pdf|report",

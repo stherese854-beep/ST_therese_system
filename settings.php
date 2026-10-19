@@ -152,6 +152,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header("Location: settings?view=profile"); exit;
     }
 
+    // ---- A dentist's approval PIN (staff open a chart with it — includes/chart_access.php) ----
+    if ($action === 'set_pin' && current_role() === 'dentist') {
+        $pin = trim($_POST['pin'] ?? ''); $pin2 = trim($_POST['pin2'] ?? '');
+        $me  = $pdo->prepare("SELECT password, approval_pin FROM users WHERE id = ?");
+        $me->execute([$_SESSION['user_id']]); $me = $me->fetch();
+        $err = '';
+        if (!$me || !password_verify($_POST['current_password'] ?? '', (string)$me['password'])) $err = 'Your account password is not correct.';
+        elseif (($err = pin_problem($pin)) !== '') { /* $err set */ }
+        elseif ($pin !== $pin2) $err = 'The two PINs do not match. Please type the same PIN twice.';
+        if ($err !== '') { set_flash($err, 'error'); header("Location: settings?view=profile#pin-card"); exit; }
+        $pdo->prepare("UPDATE users SET approval_pin = ?, pin_fail_count = 0, pin_locked_until = NULL WHERE id = ?")
+            ->execute([password_hash($pin, PASSWORD_DEFAULT), $_SESSION['user_id']]);
+        log_activity($pdo, empty($me['approval_pin']) ? 'Created approval PIN' : 'Changed approval PIN', 'Own account');
+        set_flash('Your approval PIN is saved. Staff can now open a patient\'s chart when you type it for them.');
+        header("Location: settings?view=profile#pin-card"); exit;
+    }
+
     // Step 1: check the passwords, then send a code (see pw_change_start()).
     if ($action === 'change_password') {
         $pwError = pw_change_start($pdo, $_POST['current_password'] ?? '', $_POST['new_password'] ?? '', $_POST['confirm_password'] ?? '');
@@ -502,6 +519,42 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
             </form>
             <?php endif; ?>
         </div>
+
+        <?php if (current_role() === 'dentist'):
+            $pinRow = $pdo->prepare("SELECT approval_pin, pin_locked_until FROM users WHERE id = ?");
+            $pinRow->execute([$_SESSION['user_id']]); $pinRow = $pinRow->fetch() ?: []; ?>
+        <!-- ===== Approval PIN (dentists): staff open a patient's chart / records with it ===== -->
+        <div class="card-box mt-3" id="pin-card">
+            <h5 class="mb-1">🔐 Approval PIN</h5>
+            <div class="text-muted2 mb-3" style="font-size:.85rem;">
+                Front-desk staff can open a patient's Odontogram and Treatment Records only when you type this PIN for them.
+                What they record goes under your name (with theirs as the one who entered it). Nobody else can see your PIN.
+            </div>
+            <div class="mb-3">
+                <?php if (!empty($pinRow['approval_pin'])): ?>
+                    <span class="badge-pill b-active">✓ PIN set up</span>
+                    <?php if (!empty($pinRow['pin_locked_until']) && strtotime($pinRow['pin_locked_until']) > time()): ?>
+                        <span class="badge-pill b-cancelled">Locked until <?= date('g:i A', strtotime($pinRow['pin_locked_until'])) ?> (too many wrong tries)</span>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <span class="badge-pill b-pending">No PIN yet — staff cannot ask you to open a chart</span>
+                <?php endif; ?>
+            </div>
+            <form method="POST" style="max-width:420px;" autocomplete="off">
+                <input type="hidden" name="action" value="set_pin">
+                <div class="row g-2">
+                    <div class="col-6"><label class="field-label"><?= !empty($pinRow['approval_pin']) ? 'New PIN' : 'PIN' ?> (4–6 digits)</label>
+                        <input type="password" name="pin" class="form-control mb-2" inputmode="numeric" maxlength="6" pattern="\d{4,6}" data-digits autocomplete="new-password" required></div>
+                    <div class="col-6"><label class="field-label">Type it again</label>
+                        <input type="password" name="pin2" class="form-control mb-2" inputmode="numeric" maxlength="6" pattern="\d{4,6}" data-digits autocomplete="new-password" required></div>
+                </div>
+                <label class="field-label">Your account password</label>
+                <input type="password" name="current_password" class="form-control mb-1" autocomplete="current-password" required>
+                <div class="text-muted2 mb-3" style="font-size:.78rem;">So only you can set it. Easy PINs like 1234 or 0000 are not allowed.</div>
+                <button class="btn btn-teal"><?= !empty($pinRow['approval_pin']) ? '🔐 Change PIN' : '🔐 Create PIN' ?></button>
+            </form>
+        </div>
+        <?php endif; ?>
         <?php endif; /* $profileView */ ?>
     </main>
 </div>

@@ -8,7 +8,7 @@
 //  progress over time.
 // ============================================================
 require_once 'config/auth.php';
-require_login(['admin','dentist']);   // clinical charting - not front-desk staff
+require_login(['admin','dentist','staff']);   // staff: only with a dentist's approval PIN (includes/chart_access.php)
 require_once 'includes/teeth.php';
 require_once 'includes/clinical.php';   // allergy / medical alert banner
 
@@ -18,12 +18,18 @@ function odo_back($pid, $sid) {
     exit;
 }
 
+// Whose chart work it is: the dentist's — for a staff member, the dentist who
+// approved with their PIN; the staff member is kept as "entered by".
+function odo_dentist()    { return current_role() === 'staff' ? ($_SESSION['chart_access']['dentist_name'] ?? '') : ($_SESSION['name'] ?? ''); }
+function odo_entered_by() { return current_role() === 'staff' ? ($_SESSION['name'] ?? '') : null; }
+function odo_staff_note() { return current_role() === 'staff' ? ' (for ' . odo_dentist() . ', approved by PIN)' : ''; }
+
 // If a DENTIST charts a patient who has no primary dentist yet, they become it.
 // (A dentist covering for a colleague does NOT take the patient over.)
 function touch_primary_dentist($pdo, $pid) {
-    if (current_role() === 'dentist') {
+    if (in_array(current_role(), ['dentist', 'staff'], true) && odo_dentist() !== '') {
         $pdo->prepare("UPDATE patients SET primary_dentist=? WHERE id=? AND (primary_dentist IS NULL OR primary_dentist = '')")
-            ->execute([$_SESSION['name'] ?? '', $pid]);
+            ->execute([odo_dentist(), $pid]);
     }
 }
 
@@ -45,27 +51,27 @@ function odo_save_teeth($pdo, $pid, $sid, $json) {
         $notes  = mb_substr(trim((string)($t['notes'] ?? '')), 0, 255);
         if (!$sid) {
             // First time this patient is charted: this is their first visit (today).
-            $pdo->prepare("INSERT INTO chart_sessions (patient_id,visit_date,title,created_by) VALUES (?,CURDATE(),'Initial Chart',?)")
-                ->execute([$pid, $_SESSION['name'] ?? '']);
+            $pdo->prepare("INSERT INTO chart_sessions (patient_id,visit_date,title,created_by,entered_by) VALUES (?,CURDATE(),'Initial Chart',?,?)")
+                ->execute([$pid, odo_dentist(), odo_entered_by()]);
             $sid = (int)$pdo->lastInsertId();
-            log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — first visit');
+            log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — first visit' . odo_staff_note());
         }
         // Does this tooth already have a row in THIS visit? Update it, else insert.
         $check = $pdo->prepare("SELECT id FROM odontogram WHERE patient_id=? AND session_id=? AND tooth_number=?");
         $check->execute([$pid, $sid, $tooth]);
         if ($row = $check->fetch()) {
-            $pdo->prepare("UPDATE odontogram SET tooth_status=?, condition_other=?, notes=? WHERE id=?")
-                ->execute([$status, $other ?: null, $notes ?: null, $row['id']]);
+            $pdo->prepare("UPDATE odontogram SET tooth_status=?, condition_other=?, notes=?, entered_by=? WHERE id=?")
+                ->execute([$status, $other ?: null, $notes ?: null, odo_entered_by(), $row['id']]);
         } else {
-            $pdo->prepare("INSERT INTO odontogram (patient_id,session_id,tooth_number,tooth_status,condition_other,notes) VALUES (?,?,?,?,?,?)")
-                ->execute([$pid, $sid, $tooth, $status, $other ?: null, $notes ?: null]);
+            $pdo->prepare("INSERT INTO odontogram (patient_id,session_id,tooth_number,tooth_status,condition_other,notes,entered_by) VALUES (?,?,?,?,?,?,?)")
+                ->execute([$pid, $sid, $tooth, $status, $other ?: null, $notes ?: null, odo_entered_by()]);
         }
         $done[] = "#$tooth " . tooth_condition_label($status, $other) . ($notes !== '' ? ' (note)' : '');
     }
     if ($done) {
         touch_primary_dentist($pdo, $pid);
         complete_arrived_visit($pdo, $pid);
-        log_activity($pdo, 'Updated dental chart', patient_name_of($pdo, $pid) . ' — ' . implode(', ', $done));
+        log_activity($pdo, 'Updated dental chart', patient_name_of($pdo, $pid) . ' — ' . implode(', ', $done) . odo_staff_note());
     }
     return [$sid, $done];
 }
@@ -91,8 +97,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($pid, $allowedPids, true)) {
         deny_access("Changed dental chart of patient #$pid");
     }
+    // STAFF: only with a dentist's approval for THIS patient (includes/chart_access.php),
+    // and only charting: teeth, today's chart, the latest visit's details.
+    if (current_role() === 'staff') {
+        if ($r = chart_access_post($pdo, $pid)) { set_flash($r[1], $r[0]); header("Location: odontogram?patient=$pid"); exit; }
+        if (!staff_chart_access($pid)) {
+            set_flash('This patient\'s chart needs a dentist\'s approval first.', 'error');
+            header("Location: odontogram?patient=$pid"); exit;
+        }
+        if (!in_array($action, ['save_teeth', 'new_session', 'save_session'], true)) {
+            set_flash('Only the dentist can do that.', 'error');
+            header("Location: odontogram?patient=$pid"); exit;
+        }
     // Only the DENTIST changes a dental chart. The admin can look, not edit.
-    if (current_role() !== 'dentist') {
+    } elseif (current_role() !== 'dentist') {
         set_flash('Only the dentist can change a dental chart. The admin can view it.', 'error');
         header("Location: odontogram?patient=$pid"); exit;
     }
@@ -125,8 +143,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $title     = trim($_POST['title'] ?? '') ?: 'Follow-up Visit';
         $copyFrom  = (int)($_POST['copy_from'] ?? 0);   // 0 = start blank
 
-        $pdo->prepare("INSERT INTO chart_sessions (patient_id,visit_date,title,created_by) VALUES (?,?,?,?)")
-            ->execute([$pid, $visitDate, $title, $_SESSION['name'] ?? '']);
+        $pdo->prepare("INSERT INTO chart_sessions (patient_id,visit_date,title,created_by,entered_by) VALUES (?,?,?,?,?)")
+            ->execute([$pid, $visitDate, $title, odo_dentist(), odo_entered_by()]);
         $newId = (int)$pdo->lastInsertId();
 
         // Copying the last chart means the dentist only has to mark what CHANGED
@@ -141,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         touch_primary_dentist($pdo, $pid);
         complete_arrived_visit($pdo, $pid, $visitDate);
-        log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — ' . $visitDate . ($title ? ' · ' . $title : ''));
+        log_activity($pdo, 'Added visit chart', patient_name_of($pdo, $pid) . ' — ' . $visitDate . ($title ? ' · ' . $title : '') . odo_staff_note());
         set_flash($copyFrom
             ? 'New chart added, carried over from the previous visit. Mark only what changed.'
             : 'New blank chart added for this visit.');
@@ -154,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE chart_sessions SET visit_date=?, title=?, notes=? WHERE id=? AND patient_id=?")
             ->execute([$_POST['visit_date'], trim($_POST['title']), trim($_POST['notes']), $sid, $pid]);
         touch_primary_dentist($pdo, $pid);
-        log_activity($pdo, 'Edited visit chart', patient_name_of($pdo, $pid));
+        log_activity($pdo, 'Edited visit chart', patient_name_of($pdo, $pid) . odo_staff_note());
         [, $done] = odo_save_teeth($pdo, $pid, $sid, $_POST['teeth'] ?? '');   // teeth changed but not saved yet
         set_flash('Visit details saved.' . ($done ? ' ' . (count($done) === 1 ? '1 tooth' : count($done) . ' teeth') . ' saved too.' : ''));
         odo_back($pid, $sid);
@@ -206,7 +224,12 @@ if ($pid) $_SESSION['last_patient_id'] = $pid;
 
 // All of this patient's visits (newest first).
 $sessions = $pid ? get_chart_sessions($pdo, $pid) : [];
-$canEditChart = (current_role() === 'dentist');   // the admin can view, only the dentist edits
+// The admin can view; the dentist edits — and a staff member, for the ONE patient a
+// dentist unlocked with their approval PIN (includes/chart_access.php).
+$staffMode    = current_role() === 'staff';
+$staffAccess  = ($staffMode && $pid) ? staff_chart_access($pid) : null;
+$staffLocked  = $staffMode && $pid && !$staffAccess;
+$canEditChart = current_role() === 'dentist' || (bool)$staffAccess;
 
 // Which visit are we looking at? Default = the newest one.
 $sid = (int)($_GET['session'] ?? 0);
@@ -321,7 +344,7 @@ $active = 'odontogram';
                 <div class="card-box">
                     <div class="flex-between">
                         <h5 class="mb-0">Dental Chart
-                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= !$pid ? 'Search for a patient to open their chart' : ($canEditVisit ? 'Click a tooth to set its condition and note — then ✔ Done saves them all' : ($canEditChart ? 'Past visit — view only' : 'View only — only the dentist can change this chart')) ?></small>
+                            <small class="text-muted2 d-block no-print" style="font-size:.75rem;"><?= !$pid ? 'Search for a patient to open their chart' : ($staffLocked ? 'Needs a dentist\'s approval' : ($canEditVisit ? 'Click a tooth to set its condition and note — then ✔ Done saves them all' : ($canEditChart ? 'Past visit — view only' : 'View only — only the dentist can change this chart'))) ?></small>
                         </h5>
                         <div class="d-flex gap-2">
                             <?php if ($canEditVisit): ?>
@@ -330,7 +353,7 @@ $active = 'odontogram';
                             <button type="button" id="odo-done-btn" class="btn btn-teal btn-sm" style="display:none;white-space:nowrap;" onclick="odoDone()">✔ Done<span id="odo-done-count"></span></button>
                             <?php endif; ?>
                             <!-- Print this chart, or download it as a PDF file -->
-                            <?php if ($pid): ?>
+                            <?php if ($pid && !$staffLocked): ?>
                             <?= print_menu('main', pdf_name('Dental-Chart', $printPatient['name'] ?? '', isset($session['visit_date']) ? $session['visit_date'] : date('Y-m-d')), 'window.print()', 'btn-gold btn-sm') ?>
                             <?php endif; ?>
                         </div>
@@ -350,16 +373,20 @@ $active = 'odontogram';
                         <?php endif; ?>
                     </form>
                     <?php // ⚠️ Allergies / medical alert — check before treating
-                          if ($pid) { $alq = $pdo->prepare("SELECT allergies, medical_alert FROM patients WHERE id = ?"); $alq->execute([$pid]);
+                          if ($pid && !$staffLocked) { $alq = $pdo->prepare("SELECT allergies, medical_alert FROM patients WHERE id = ?"); $alq->execute([$pid]);
                                       $alRow = $alq->fetch(); if ($alRow && ($alB = patient_alert_banner($alRow))) echo '<div class="mt-2">' . clinical_styles() . $alB . '</div>'; } ?>
 
-                    <?php if (!$pid): ?>
+                    <?php if ($staffLocked): ?>
+                        <!-- STAFF: locked until a dentist approves with their PIN -->
+                        <div class="mt-3"><?= chart_access_card($pdo, $pid, $printPatient['name'] ?? 'This patient') ?></div>
+                    <?php elseif (!$pid): ?>
                         <!-- Nothing opened yet -->
                         <div class="text-center text-muted2 py-5" style="font-size:.95rem;">
                             <div style="font-size:2rem;margin-bottom:6px;">🦷</div>
                             <?= $patients ? 'Search for a patient above to open their dental chart.' : 'No patients yet.' ?>
                         </div>
                     <?php else: ?>
+                    <?php if ($staffAccess): ?><div class="mt-3"><?= chart_access_bar($staffAccess) ?></div><?php endif; ?>
                     <?php if ($hereToday): ?>
                         <div class="no-print mt-3" style="background:#eaf7ef;border-left:4px solid #1f8a54;border-radius:8px;padding:9px 14px;font-size:.9rem;color:#24543a;">
                             🟢 <b>Here today</b><?= !empty($hereToday['walkin']) ? ' (walk-in)' : '' ?> for <b><?= e($hereToday['treatment']) ?></b> (<?= e($hereToday['appointment_time']) ?>).
@@ -393,7 +420,7 @@ $active = 'odontogram';
                         <button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#newSessionModal" title="Add a chart for a new visit" data-keep-text>
                             <?= $sessions ? '+ New Chart' : '+ Start first visit' ?>
                         </button>
-                        <?php if (count($sessions) > 1 && $session && $isLatestVisit): ?>
+                        <?php if (count($sessions) > 1 && $session && $isLatestVisit && !$staffMode): ?>
                             <!-- Move the visit being viewed to the Archive (at least one visit always stays) -->
                             <form method="POST" class="d-inline m-0"
                                   onsubmit="return confirm('Move this visit (<?= e(date('M j, Y', strtotime($session['visit_date']))) ?>) to the Archive? It disappears from the chart history, but the admin can restore it from the Archive.')">
@@ -484,7 +511,7 @@ $active = 'odontogram';
                 </div>
 
                 <!-- ===== PROGRESS: what changed since the previous visit ===== -->
-                <?php if ($prevSession): ?>
+                <?php if ($prevSession && !$staffLocked): ?>
                 <div class="card-box">
                     <h5 class="mb-1">📈 Progress since the previous visit</h5>
                     <div class="text-muted2 mb-3" style="font-size:.83rem;">
@@ -578,7 +605,7 @@ $active = 'odontogram';
                             </div>
                         </form>
 
-                        <?php if (count($sessions) > 1): ?>
+                        <?php if (count($sessions) > 1 && !$staffMode): ?>
                             <form method="POST" onsubmit="return confirm('Move this visit chart to the Archive? It disappears from the chart history, but the admin can restore it from the Archive.')">
                                 <input type="hidden" name="action" value="delete_session">
                                 <input type="hidden" name="patient_id" value="<?= $pid ?>">

@@ -15,7 +15,7 @@
 //  file name is stored in the `xrays` table.
 // ============================================================
 require_once 'config/auth.php';
-require_login(['admin','dentist']);   // clinical records - not front-desk staff
+require_login(['admin','dentist','staff']);   // staff: only with a dentist's approval PIN (includes/chart_access.php)
 require_once 'includes/teeth.php';     // for the read-only dental chart in Overview
 require_once 'includes/followups.php'; // follow-up plans (braces, root canal sessions, check-ups)
 require_once 'includes/clinical.php';  // allergies, medications, dental notes, alert banner
@@ -51,6 +51,10 @@ $fromLast = false;
 if (!$pickedPatient) [$pid, $fromLast] = default_open_patient($allowedPids);
 if ($pid && $_SERVER['REQUEST_METHOD'] !== 'POST') $_SESSION['last_patient_id'] = $pid;
 
+// STAFF: a dentist's approval PIN opens ONE patient's records (includes/chart_access.php).
+$staffMode   = current_role() === 'staff';
+$staffAccess = ($staffMode && $pid && $_SERVER['REQUEST_METHOD'] !== 'POST') ? staff_chart_access($pid) : null;
+
 // Name of the selected patient (saved into the treatments table).
 $patientName = '';
 foreach ($patients as $p) { if ($p['id'] == $pid) $patientName = $p['name']; }
@@ -67,6 +71,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($pid, $allowedPids, true)) {      // same check for form posts
         deny_access("Changed records of patient #$pid");
     }
+    // STAFF: only with a dentist's approval for THIS patient, and only "Add Treatment Record".
+    if (current_role() === 'staff') {
+        $tabBack = preg_replace('/[^a-z]/', '', $_GET['tab'] ?? 'treatments') ?: 'treatments';
+        if ($r = chart_access_post($pdo, $pid)) { set_flash($r[1], $r[0]); header("Location: records?patient=$pid&tab=$tabBack"); exit; }
+        if (!staff_chart_access($pid)) {
+            set_flash('This patient\'s records need a dentist\'s approval first.', 'error');
+            header("Location: records?patient=$pid&tab=$tabBack"); exit;
+        }
+        if ($action !== 'add_treatment') {
+            set_flash('Only the dentist can do that.', 'error');
+            header("Location: records?patient=$pid&tab=$tabBack"); exit;
+        }
+    }
+    // Whose record it is: the dentist's (a staff member enters it for the dentist who approved).
+    $actDentist = current_role() === 'staff' ? ($_SESSION['chart_access']['dentist_name'] ?? '') : ($_SESSION['name'] ?? '');
+    $enteredBy  = current_role() === 'staff' ? ($_SESSION['name'] ?? '') : null;
 
     // ----- Overview: edit the health questionnaire -----
     if ($action === 'update_health') {
@@ -179,21 +199,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ----- Treatments -----
     if ($action === 'add_treatment') {
         $pdo->prepare(
-            "INSERT INTO treatments (patient_id,patient_name,treatment_name,tooth,dentist,treatment_date,status,notes,clinic_notes)
-             VALUES (?,?,?,?,?,?,?,?,?)"
+            "INSERT INTO treatments (patient_id,patient_name,treatment_name,tooth,dentist,treatment_date,status,notes,clinic_notes,entered_by)
+             VALUES (?,?,?,?,?,?,?,?,?,?)"
         )->execute([
             $pid, $_POST['patient_name'], trim($_POST['treatment_name']), trim($_POST['tooth'] ?? ''),
-            $_SESSION['name'] ?? '', $_POST['treatment_date'],
+            $actDentist, $_POST['treatment_date'],
             in_array($_POST['status'] ?? '', ['Completed','In Progress','Planned'], true) ? $_POST['status'] : 'Completed',
-            trim($_POST['notes'] ?? ''), trim($_POST['clinic_notes'] ?? '') ?: null
+            trim($_POST['notes'] ?? ''), trim($_POST['clinic_notes'] ?? '') ?: null, $enteredBy
         ]);
         complete_arrived_visit($pdo, $pid, $_POST['treatment_date'] ?? null);   // arrived today -> Completed
-        log_activity($pdo, 'Added treatment', patient_name_of($pdo, $pid) . ' — ' . trim($_POST['treatment_name']));
+        log_activity($pdo, 'Added treatment', patient_name_of($pdo, $pid) . ' — ' . trim($_POST['treatment_name'])
+                     . ($enteredBy ? ' (for ' . $actDentist . ', approved by PIN)' : ''));
         // Follow-up: a session of an existing plan, or a new plan ("Needs follow-up" ticked).
         // (plan_id: the plan chosen under "Counts as the next session of"; absent = found by name / kind)
         $planChoice = isset($_POST['plan_id']) ? (int)$_POST['plan_id'] : null;
         $fuMsg = ($_POST['status'] ?? '') === 'Planned' ? '' : followup_after_treatment($pdo, $pid, $_POST['treatment_name'], $_POST['tooth'] ?? '',
-                     $_POST['treatment_date'] ?: date('Y-m-d'), $_POST, $_SESSION['name'] ?? '', $planChoice);
+                     $_POST['treatment_date'] ?: date('Y-m-d'), $_POST, $actDentist, $planChoice);
         // "📅 Also book the next session now"
         if (!empty($_POST['book_next'])) {
             $plan = $planChoice > 0 ? active_plan_by_id($pdo, $pid, $planChoice) : find_active_plan($pdo, $pid, trim($_POST['treatment_name']));
@@ -387,6 +408,11 @@ $active = 'records';
             <?php endif; ?>
         </div>
 
+        <?php if ($pid && $staffMode && !$staffAccess): ?>
+            <!-- STAFF: locked until a dentist approves with their PIN -->
+            <?= chart_access_card($pdo, $pid, $patientName) ?>
+        <?php else: /* everyone else, or staff with a dentist's approval */ ?>
+        <?php if ($staffAccess) echo chart_access_bar($staffAccess); ?>
         <!-- Tabs (once a patient is open) -->
         <?php if ($pid): ?>
         <div class="mb-3 d-flex gap-2 flex-wrap" data-keep-text>
@@ -652,7 +678,8 @@ $active = 'records';
 
         <?php elseif ($tab === 'treatments'): ?>
             <!-- ===== TREATMENTS ===== -->
-            <!-- ⚠️ Medical alert: edited here (Generate Reports only shows it) -->
+            <!-- ⚠️ Medical alert: edited here (Generate Reports only shows it) — not by staff -->
+            <?php if (!$staffMode): ?>
             <div class="card-box mb-3" style="padding:12px 16px;">
                 <form method="POST" class="d-flex flex-wrap align-items-end gap-2 m-0">
                     <input type="hidden" name="action" value="update_alert">
@@ -665,6 +692,7 @@ $active = 'records';
                     <button class="btn btn-teal" data-keep-text>💾 Save alert</button>
                 </form>
             </div>
+            <?php endif; ?>
             <?php // The patient is at the clinic today -> add the procedure to that visit (keeps the consent record).
                   $hereQ = $pdo->prepare("SELECT id, treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
                                            AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");
@@ -882,7 +910,7 @@ $active = 'records';
                             <div style="width:44px;height:44px;border-radius:10px;background:#e6f7f5;display:flex;align-items:center;justify-content:center;">🦷</div>
                             <div>
                                 <strong><?= e($t['treatment_name']) ?><?= $t['tooth'] ? ' (Tooth #'.e($t['tooth']).')' : '' ?></strong><br>
-                                <small class="text-muted2"><?= e($t['treatment_date']) ?> • <?= e($t['dentist']) ?></small>
+                                <small class="text-muted2"><?= e($t['treatment_date']) ?> • <?= e($t['dentist']) ?><?= !empty($t['entered_by']) ? ' · entered by ' . e($t['entered_by']) : '' ?></small>
                                 <?php if ($t['notes']): ?><br><small>💬 <span class="text-muted2">To patient:</span> <?= e($t['notes']) ?></small><?php endif; ?>
                                 <?php if (!empty($t['clinic_notes'])): ?><br><small>🔒 <span class="text-muted2">Clinic only:</span> <?= e($t['clinic_notes']) ?></small><?php endif; ?>
                             </div>
@@ -983,6 +1011,7 @@ $active = 'records';
                 <?php if (!$notes): ?><p class="text-muted2 text-center py-4">No notes yet for this patient.</p><?php endif; ?>
             </div>
         <?php endif; ?>
+        <?php endif; /* staff lock */ ?>
     </main>
 </div>
 
@@ -1012,5 +1041,20 @@ function ovEdit(id, on) {
 })();
 </script>
 <style>.fu-box { background: #f7fafa; border: 1px dashed #cfe0dd; border-radius: 10px; padding: 10px 12px; }</style>
+<?php if (!empty($staffAccess)): ?>
+<script>
+// Staff working with a dentist's approval: only "Add Treatment Record". Editing,
+// deleting, archiving, X-rays, notes and plans stay with the dentist (refused on the server too).
+(function () {
+    var ok = ['add_treatment', 'close_chart', 'unlock_chart'];
+    [].forEach.call(document.querySelectorAll('form'), function (f) {
+        var a = f.querySelector('input[name="action"]');
+        if ((f.getAttribute('method') || '').toUpperCase() === 'POST' && a && ok.indexOf(a.value) === -1) f.remove();
+    });
+    [].forEach.call(document.querySelectorAll('.bulk-pick, .ov-edit-btn, button[onclick*="hf-edit"], a[href*="addproc="]'),
+                    function (el) { el.remove(); });
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>
