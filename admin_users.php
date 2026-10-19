@@ -10,6 +10,8 @@ require_login(['admin']);   // <-- only admins can open this page
 // ---------- Add / Edit / Delete users ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
+    // back to the same list (e.g. ?role=staff from the menu's "Staff")
+    $usersBack = 'admin_users' . (in_array($_GET['role'] ?? '', ['staff', 'dentist', 'admin', 'patient'], true) ? '?role=' . $_GET['role'] : '');
 
     if ($action === 'save') {
         $id    = $_POST['id'] ?? '';
@@ -18,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         [$contact, $phoneError] = validate_phone($_POST['contact'] ?? '', false);   // optional, but must be real
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
-            header("Location: admin_users"); exit;
+            header("Location: $usersBack"); exit;
         }
         $status  = $_POST['status'];
         $email = strtolower(trim($_POST['email']));
@@ -32,14 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($first === '' || $last === '') {
             set_flash('Please enter both a first name and a last name.', 'error');
-            header("Location: admin_users"); exit;
+            header("Location: $usersBack"); exit;
         }
 
         // Make sure the email is real and not already taken.
         $emailError = validate_account_email($pdo, $email, $id ?: null);
         if ($emailError !== '') {
             set_flash($emailError, 'error');
-            header("Location: admin_users"); exit;
+            header("Location: $usersBack"); exit;
         }
 
         if ($id) {
@@ -76,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_activity($pdo, 'Created user', "$name ($role)");
             set_flash("$name added. Temporary password: $tempPass — please give it to them; they should change it after signing in." . $note);
         }
-        header("Location: admin_users"); exit;
+        header("Location: $usersBack"); exit;
     }
 
     if ($action === 'delete') {
@@ -102,17 +104,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = count($moved) === 1 ? $moved[0] . ' moved to Archive.' : (count($moved) . ' users moved to Archive.');
         if ($skippedSelf) $msg = (count($moved) ? $msg . ' ' : '') . 'You cannot delete the account you are signed in with.';
         set_flash($msg, $skippedSelf && !$moved ? 'error' : 'info');
-        header("Location: admin_users"); exit;
+        header("Location: $usersBack"); exit;
     }
 }
 
 // ---------- Stats ----------
 $totalUsers = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
 $doctors    = $pdo->query("SELECT COUNT(*) FROM users WHERE role='dentist' AND status <> 'archived'")->fetchColumn();
-$staff      = $pdo->query("SELECT COUNT(*) FROM users WHERE role='admin'")->fetchColumn();
+$staff      = $pdo->query("SELECT COUNT(*) FROM users WHERE role='staff' AND status <> 'archived'")->fetchColumn();
 $patientsU  = $pdo->query("SELECT COUNT(*) FROM users WHERE role='patient'")->fetchColumn();
 
-$users = $pdo->query("SELECT * FROM users WHERE status <> 'archived' ORDER BY role, name")->fetchAll();
+// ?role=staff (the menu's "Staff"), dentist, admin, patient — or everyone
+$roleNames  = ['staff' => 'Staff', 'dentist' => 'Dentists', 'admin' => 'Admins', 'patient' => 'Patients'];
+$roleFilter = isset($roleNames[$_GET['role'] ?? '']) ? $_GET['role'] : '';
+$uq = $pdo->prepare("SELECT * FROM users WHERE status <> 'archived'" . ($roleFilter ? " AND role = ?" : '') . " ORDER BY role, name");
+$uq->execute($roleFilter ? [$roleFilter] : []);
+$users = $uq->fetchAll();
 // Who books for family members? (asked about when their account is archived)
 $famByUser = [];
 foreach ($pdo->query("SELECT h.user_id, d.name, d.relationship FROM patients h JOIN patients d ON d.guardian_patient_id = h.id
@@ -121,9 +128,9 @@ foreach ($pdo->query("SELECT h.user_id, d.name, d.relationship FROM patients h J
 }
 $archivedCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE status = 'archived'")->fetchColumn();
 
-$page_title = "User Management";
+$page_title = $roleFilter === 'staff' ? "Staff" : "User Management";
 include 'includes/head.php';
-$active = 'users';
+$active = $roleFilter === 'staff' ? 'staff' : 'users';
 ?>
 <div class="app-wrap">
     <?php include 'includes/sidebar.php'; ?>
@@ -156,7 +163,7 @@ $active = 'users';
 
         <div class="card-box">
             <div class="flex-between mb-3">
-                <h5 class="mb-0">System Users <small class="text-muted2 d-block" style="font-size:.75rem;">Showing <?= count($users) ?> users</small></h5>
+                <h5 class="mb-0"><?= $roleFilter ? e($roleNames[$roleFilter]) : 'System Users' ?> <small class="text-muted2 d-block" style="font-size:.75rem;">Showing <?= count($users) ?> <?= $roleFilter ? e(strtolower($roleNames[$roleFilter])) : 'users' ?></small></h5>
                 <div class="d-flex gap-2 no-print">
                     <a href="admin_archive" class="btn btn-sm btn-outline-secondary position-relative" title="Archive" data-keep-text>
                         🗄 Archive
@@ -164,8 +171,17 @@ $active = 'users';
                             <span class="badge-pill b-inactive" style="margin-left:4px;"><?= $archivedCount ?></span>
                         <?php endif; ?>
                     </a>
-                    <button class="btn btn-teal" data-bs-toggle="modal" data-bs-target="#userModal" onclick="openAddUser()">+ Add User</button>
+                    <?php $addRole = in_array($roleFilter, ['staff', 'dentist', 'admin'], true) ? $roleFilter : ''; ?>
+                    <button class="btn btn-teal" data-bs-toggle="modal" data-bs-target="#userModal" data-keep-text
+                            onclick="openAddUser(<?= e(json_encode($addRole)) ?>)">+ Add <?= ['staff' => 'Staff', 'dentist' => 'Dentist', 'admin' => 'Admin'][$addRole] ?? 'User' ?></button>
                 </div>
+            </div>
+            <!-- Show only one kind of user -->
+            <div class="d-flex flex-wrap gap-2 mb-3 no-print" data-keep-text>
+                <a href="admin_users" class="btn btn-sm <?= $roleFilter === '' ? 'btn-dark-navy' : 'btn-light' ?>">All</a>
+                <?php foreach ($roleNames as $rk => $rl): ?>
+                    <a href="admin_users?role=<?= $rk ?>" class="btn btn-sm <?= $roleFilter === $rk ? 'btn-dark-navy' : 'btn-light' ?>"><?= $rl ?></a>
+                <?php endforeach; ?>
             </div>
             <?= bulk_bar('bulk-users', 'delete', 'users to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive. Family members they book for are kept as the clinic patients.', 'Move') ?>
             <div class="table-responsive">
@@ -188,7 +204,8 @@ $active = 'users';
                             <td style="white-space:nowrap;"><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : '–' ?></small></td>
                             <td class="no-print">
                                 <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
-                                <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode($u) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
+                                <?php // only what the form needs (never the password hash or tokens) ?>
+                                <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode(array_intersect_key($u, array_flip(['id', 'name', 'email', 'role', 'specialty', 'position', 'contact', 'status'])), JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
                                 <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')"
                                       <?php if (!empty($famByUser[(int)$u['id']])): ?>data-family='<?= e(json_encode($famByUser[(int)$u['id']])) ?>' data-who="<?= e($u['name']) ?>"<?php endif; ?>>
                                     <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $u['id'] ?>">
@@ -252,11 +269,13 @@ $active = 'users';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
-function openAddUser(){
-    u_title.textContent='Add User'; document.getElementById('u-id').value='';
+// role: start the form on this role (e.g. 'staff' from "+ Add Staff"), else Dentist
+function openAddUser(role){
+    var label = {staff: 'Staff', dentist: 'Dentist', admin: 'Admin'}[role] || 'User';
+    document.getElementById('u-title').textContent = 'Add ' + label; document.getElementById('u-id').value = '';
     ['u-first','u-last','u-email','u-spec','u-contact'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('u-title-sel').value='';
-    document.getElementById('u-role').value='dentist'; document.getElementById('u-status').value='active';
+    document.getElementById('u-role').value = role || 'dentist'; document.getElementById('u-status').value = 'active';
 }
 
 // The name is stored as one string, so when editing we split it back into
@@ -273,7 +292,7 @@ function splitName(full){
 }
 
 function openEditUser(u){
-    u_title.textContent='Edit User';
+    document.getElementById('u-title').textContent = 'Edit User';   // the form opens filled in: change only what you need
     document.getElementById('u-id').value=u.id;
     var n = splitName(u.name);
     document.getElementById('u-title-sel').value = n.title;

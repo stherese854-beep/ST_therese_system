@@ -41,6 +41,7 @@ function nav_active($page) {
     <?php if ($role === 'admin'): ?>
         <!-- Admin: full clinic management -->
         <a class="nav-item <?= nav_active('dentists') ?>"     href="admin_dentists">Dentists</a>
+        <a class="nav-item <?= nav_active('staff') ?>"        href="admin_users?role=staff">Staff</a>
         <a class="nav-item <?= nav_active('patients') ?>"     href="patients">Patients</a>
         <a class="nav-item <?= nav_active('appointments') ?>" href="appointments">Appointments</a>
         <a class="nav-item <?= nav_active('odontogram') ?>"   href="odontogram">Odontogram</a>
