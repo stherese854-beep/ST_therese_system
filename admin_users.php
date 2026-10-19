@@ -128,9 +128,9 @@ foreach ($pdo->query("SELECT h.user_id, d.name, d.relationship FROM patients h J
 }
 $archivedCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE status = 'archived'")->fetchColumn();
 
-$page_title = $roleFilter === 'staff' ? "Staff" : "User Management";
+$page_title = "User Management";
 include 'includes/head.php';
-$active = $roleFilter === 'staff' ? 'staff' : 'users';
+$active = 'users';
 ?>
 <div class="app-wrap">
     <?php include 'includes/sidebar.php'; ?>
