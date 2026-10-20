@@ -74,16 +74,30 @@ $treatmentsDone = $pdo->query("SELECT COUNT(*) FROM treatments WHERE status='Com
 // The dentist's button on one of today's appointments:
 //   ✓ Arrived  -> marks the patient as here and opens their dental chart
 //   🦷 Chart   -> already here: back to their chart
+// STAFF / ADMIN (front desk):
+//   ✓ Arrived                  -> marks the patient as here and stays on the Dashboard
+//   🟢 Arrived 10:32 AM + Undo  -> already marked (Undo while not yet Completed)
 function dash_visit_action($a) {
     if ($a['appointment_date'] !== date('Y-m-d')) return '';
+    $front = current_role() !== 'dentist';
+    $form = function ($action, $goto, $button) use ($a) {
+        return '<form method="POST" action="appointments" class="m-0 d-inline">'
+             . '<input type="hidden" name="action" value="' . $action . '"><input type="hidden" name="id" value="' . (int)$a['id'] . '">'
+             . '<input type="hidden" name="goto" value="' . $goto . '">' . $button . '</form>';
+    };
     if (!empty($a['arrived_at'])) {
-        return '<a href="odontogram?patient=' . (int)$a['patient_id'] . '" class="btn btn-sm btn-outline-teal" data-keep-text style="white-space:nowrap;">🦷 Chart</a>';
+        if (!$front) {
+            return '<a href="odontogram?patient=' . (int)$a['patient_id'] . '" class="btn btn-sm btn-outline-teal" data-keep-text style="white-space:nowrap;">🦷 Chart</a>';
+        }
+        return '<span class="d-inline-flex align-items-center gap-2" style="white-space:nowrap;">'
+             . '<small style="color:#138a4e;font-weight:600;">🟢 Arrived ' . date('g:i A', strtotime($a['arrived_at'])) . '</small>'
+             . ($a['status'] === 'Arrived' ? $form('undo_arrived', 'dashboard', '<button class="btn btn-sm btn-light" data-keep-text style="font-size:.72rem;" title="Undo the arrival mark">Undo</button>') : '')
+             . '</span>';
     }
     if ($a['status'] !== 'Confirmed') return '';
-    return '<form method="POST" action="appointments" class="m-0">'
-         . '<input type="hidden" name="action" value="arrived"><input type="hidden" name="id" value="' . (int)$a['id'] . '">'
-         . '<input type="hidden" name="goto" value="chart">'
-         . '<button class="btn btn-sm" data-keep-text style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here — open their dental chart">✓ Arrived</button></form>';
+    return $form('arrived', $front ? 'dashboard' : 'chart',
+                 '<button class="btn btn-sm" data-keep-text style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="'
+                 . ($front ? 'The patient is here' : 'The patient is here — open their dental chart') . '">✓ Arrived</button>');
 }
 
 // Today's appointment list (today only, earliest time first).
@@ -319,11 +333,11 @@ $active = 'dashboard';
                     </div>
                     <div class="match-scroll">
                         <table class="data">
-                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th><?php if ($isDentist): ?><th></th><?php endif; ?></tr></thead>
+                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th><th></th></tr></thead>
                             <tbody id="day-rows">
                             <?php if (empty($appts)): ?>
                                 <tr>
-                                    <td colspan="<?= $isDentist ? 6 : 5 ?>" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
+                                    <td colspan="6" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
                                         <div style="font-size:2.2rem;margin-bottom:6px;">📭</div>
                                         No appointments scheduled for today.
                                     </td>
@@ -336,7 +350,7 @@ $active = 'dashboard';
                                         <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                                         <td><?= e($a['treatment']) ?></td>
                                         <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span></td>
-                                        <?php if ($isDentist): ?><td class="text-end"><?= dash_visit_action($a) ?></td><?php endif; ?>
+                                        <td class="text-end"><?= dash_visit_action($a) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>
@@ -469,17 +483,27 @@ $active = 'dashboard';
     // Clicking a date loads that day's appointments into the table on the left;
     // days that have appointments get a small dot.
     var DASH_TODAY = <?= json_encode(date('Y-m-d')) ?>;
-    var DASH_ACTIONS = <?= $isDentist ? 'true' : 'false' ?>, DASH_COLS = DASH_ACTIONS ? 6 : 5;
-    // The dentist's button for one of today's appointments (same as dash_visit_action() in PHP).
+    var DASH_ACTIONS = true, DASH_COLS = 6, DASH_FRONT = <?= $isDentist ? 'false' : 'true' ?>;
+    // The button for one of today's appointments (same as dash_visit_action() in PHP).
+    function dashForm(action, id, go, button) {
+        var t = document.querySelector('meta[name="csrf-token"]');
+        return '<form method="POST" action="appointments" class="m-0 d-inline"><input type="hidden" name="action" value="' + action + '">'
+             + '<input type="hidden" name="id" value="' + Number(id) + '"><input type="hidden" name="goto" value="' + go + '">'
+             + '<input type="hidden" name="csrf_token" value="' + dashEsc(t ? t.content : '') + '">' + button + '</form>';
+    }
     function dashAction(a) {
         if (a.appointment_date !== DASH_TODAY) return '';
-        if (a.arrived_at) return '<a href="odontogram?patient=' + Number(a.patient_id) + '" class="btn btn-sm btn-outline-teal" data-keep-text style="white-space:nowrap;">🦷 Chart</a>';
+        if (a.arrived_at) {
+            if (!DASH_FRONT) return '<a href="odontogram?patient=' + Number(a.patient_id) + '" class="btn btn-sm btn-outline-teal" data-keep-text style="white-space:nowrap;">🦷 Chart</a>';
+            var d = new Date(String(a.arrived_at).replace(' ', 'T')), h = d.getHours(), m = ('0' + d.getMinutes()).slice(-2);
+            var at = (h % 12 || 12) + ':' + m + ' ' + (h < 12 ? 'AM' : 'PM');
+            return '<span class="d-inline-flex align-items-center gap-2" style="white-space:nowrap;"><small style="color:#138a4e;font-weight:600;">🟢 Arrived ' + at + '</small>'
+                 + (a.status === 'Arrived' ? dashForm('undo_arrived', a.id, 'dashboard', '<button class="btn btn-sm btn-light" data-keep-text style="font-size:.72rem;" title="Undo the arrival mark">Undo</button>') : '') + '</span>';
+        }
         if (a.status !== 'Confirmed') return '';
-        var t = document.querySelector('meta[name="csrf-token"]');
-        return '<form method="POST" action="appointments" class="m-0"><input type="hidden" name="action" value="arrived">'
-             + '<input type="hidden" name="id" value="' + Number(a.id) + '"><input type="hidden" name="goto" value="chart">'
-             + '<input type="hidden" name="csrf_token" value="' + dashEsc(t ? t.content : '') + '">'
-             + '<button class="btn btn-sm" data-keep-text style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here — open their dental chart">✓ Arrived</button></form>';
+        return dashForm('arrived', a.id, DASH_FRONT ? 'dashboard' : 'chart',
+                        '<button class="btn btn-sm" data-keep-text style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="'
+                        + (DASH_FRONT ? 'The patient is here' : 'The patient is here — open their dental chart') + '">✓ Arrived</button>');
     }
     function dashEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
     window.calendarPick = function (ds) {

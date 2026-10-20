@@ -397,7 +397,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
         log_activity($pdo, 'Undid arrival', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
         set_flash('Arrival undone for ' . $ap['patient_name'] . '.', 'info');
     }
-    if (($_POST['goto'] ?? '') === 'chart') { header("Location: dashboard"); exit; }     // came from the dashboard
+    if (in_array($_POST['goto'] ?? '', ['chart', 'dashboard'], true)) { header("Location: dashboard"); exit; }     // came from the dashboard
     header("Location: appointments" . (isset($_POST['filter']) ? "?filter=" . urlencode($_POST['filter']) : "")); exit;
 }
 
