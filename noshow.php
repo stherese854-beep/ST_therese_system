@@ -277,6 +277,21 @@ foreach ($accCancels as $pid => $n) {
     $cancelReview[] = $cp;
 }
 
+// The lists, for "What do you want to print?" (the same ones as the tabs).
+$nsLists = [
+    'review'    => ['Needs Review',     $countReview],
+    'all'       => ['All Missed',       count($missed)],
+    'noshow'    => ['No-Shows',         $countNoshow],
+    'cancelled' => ['Cancelled',        $countCancelled],
+    'repeat'    => ['Repeat Offenders', count($repeatIds)],
+    'expired'   => ['Expired',          $countExpired],
+    'cancels'   => ['Frequent Cancels', count($cancelReview)],
+];
+$nsKeep = '&' . $periodQS;                       // period + filters stay the same on the printed list
+foreach (['dentist','status','q'] as $kp) if (!empty($_GET[$kp])) $nsKeep .= '&' . $kp . '=' . urlencode($_GET[$kp]);
+$nsListName  = $nsLists[$tab][0] ?? 'No-Show Report';
+$nsPrintRows = $tab === 'cancels' ? count($cancelReview) : count($rows);
+
 // helper for the filter tab links
 function tabLink($key, $label, $count, $current, $tip = '') {
     $cls = ($current === $key) ? 'on' : '';
@@ -308,7 +323,8 @@ function tabLink($key, $label, $count, $current, $tip = '') {
                 <div class="sub"><?= $role === 'dentist' ? 'Your patients who missed their scheduled appointments' : 'Patients who missed their scheduled appointments (all dentists)' ?></div>
             </div>
             <div class="d-flex align-items-center gap-2">
-                <?= print_menu('main', pdf_name('No-Show-Report', date('Y-m-d'))) ?>
+                <!-- Print / PDF: first choose WHICH list — only its table goes on paper -->
+                <button type="button" class="btn btn-teal no-print" data-bs-toggle="modal" data-bs-target="#nsPrintModal" data-keep-text>🖨 Print / PDF</button>
             </div>
         </div>
 
@@ -323,7 +339,7 @@ function tabLink($key, $label, $count, $current, $tip = '') {
         <?php endif; ?>
 
         <!-- ===== Report period ===== -->
-        <div class="card-box mb-2 ns-compact" style="background:#f7f4ee;">
+        <div class="card-box mb-2 ns-compact ns-period" style="background:#f7f4ee;">
             <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
                 <div style="font-size:.85rem;">
                     <strong>Report period:</strong> <?= e($periodLabel) ?> ·
@@ -457,6 +473,18 @@ function tabLink($key, $label, $count, $current, $tip = '') {
         <div class="row g-3">
             <!-- ===== Table + tabs ===== -->
             <div class="col-lg-9" id="ns-left">
+                <!-- Only on paper / PDF: which list, which period, which filters -->
+                <div class="print-only ns-print-head">
+                    <div style="font-size:16px;font-weight:700;color:#0d3b3b;"><?= e($clinicNameForPrint) ?> — No-Show Report: <?= e($nsListName) ?></div>
+                    <div style="font-size:11px;color:#444;margin:2px 0 10px;">
+                        Period: <?= e($periodLabel) ?>
+                        · <?= $filterDentist !== '' ? 'Dentist: ' . e($filterDentist) : 'All dentists' ?>
+                        <?= $filterStatus !== '' ? ' · Status: ' . e($filterStatus) : '' ?>
+                        <?= $searchName !== '' ? ' · Search: "' . e($searchName) . '"' : '' ?>
+                        · <?= $nsPrintRows ?> record<?= $nsPrintRows === 1 ? '' : 's' ?>
+                        · Printed <?= date('M j, Y g:i A') ?> by <?= e($_SESSION['name'] ?? '') ?>
+                    </div>
+                </div>
                 <?php if ($tab === 'cancels'): ?>
                 <!-- ===== Frequent cancellations: one row per patient ===== -->
                 <div class="card-box">
@@ -565,7 +593,7 @@ function tabLink($key, $label, $count, $current, $tip = '') {
             </div>
 
             <!-- ===== Status breakdown ===== -->
-            <div class="col-lg-3">
+            <div class="col-lg-3" id="ns-breakdown-col">
                 <div class="card-box" id="ns-breakdown" style="overflow:auto;">
                     <h6 class="mb-3">Status Breakdown</h6>
                     <div class="flex-between py-2 border-bottom"><span>🔴 No-show</span><strong><?= $countNoshow ?></strong></div>
@@ -578,9 +606,62 @@ function tabLink($key, $label, $count, $current, $tip = '') {
     </main>
 </div>
 
+<!-- ===== Print / PDF: which list? ===== -->
+<div class="modal fade" id="nsPrintModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">What do you want to print?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <div class="text-muted2 mb-2" style="font-size:.85rem;">Only the table is printed, with the period (<?= e($periodLabel) ?>) and filters above it.</div>
+        <?php foreach ($nsLists as $lk => [$ll, $lc]): ?>
+            <label class="ns-pick">
+                <input type="radio" name="ns-print-list" value="<?= e($lk) ?>" <?= $lk === $tab ? 'checked' : '' ?>>
+                <span><?= e($ll) ?></span><span class="ns-count"><?= (int)$lc ?></span>
+            </label>
+        <?php endforeach; ?>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-light" onclick="nsPrint('pdf')" data-keep-text>📄 Download PDF</button>
+        <button type="button" class="btn btn-teal" onclick="nsPrint('print')" data-keep-text>🖨 Print</button>
+    </div>
+</div></div></div>
+<style>
+.ns-pick { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid #e3e9ee; border-radius: 10px; margin-bottom: 6px; cursor: pointer; font-weight: 600; }
+.ns-pick:has(input:checked) { border-color: var(--teal-mid); background: #eef7f6; }
+.ns-pick .ns-count { margin-left: auto; }
+/* On paper: only the chosen list's table (with its heading) */
+@media print {
+    .page-head, .ns-period, .ns-summary, .ns-tabs, #ns-breakdown-col, main > .alert, .modal, .modal-backdrop { display: none !important; }
+    #ns-left { flex: 0 0 100% !important; max-width: 100% !important; width: 100% !important; }
+}
+</style>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
+// ---- Print / PDF: the chosen list only ----
+var NS_TAB = <?= json_encode($tab) ?>, NS_KEEP = <?= json_encode($nsKeep) ?>;
+var NS_FILE = <?= json_encode(pdf_name('No-Show-Report', $nsListName, date('Y-m-d'))) ?>;
+function nsDo(kind) {
+    // Printing / saving a PDF goes into the Activity Log, like the other Print / PDF menus.
+    var fd = new FormData(), t = document.querySelector('meta[name="csrf-token"]');
+    fd.append('kind', kind); fd.append('page', 'No-Show Report'); fd.append('file', NS_FILE);
+    try { fetch('log_event', { method: 'POST', body: fd, credentials: 'same-origin', keepalive: true, headers: t ? { 'X-CSRF-Token': t.content } : {} }); } catch (e) {}
+    if (kind === 'pdf') downloadPdf('#ns-left', NS_FILE); else window.print();
+}
+function nsPrint(kind) {
+    var pick = document.querySelector('input[name="ns-print-list"]:checked'), key = pick ? pick.value : NS_TAB;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('nsPrintModal')).hide();
+    if (key === NS_TAB) { setTimeout(function () { nsDo(kind); }, 350); return; }     // once the pop-up has closed
+    location.href = 'noshow?tab=' + encodeURIComponent(key) + NS_KEEP + '&doprint=' + kind;   // open that list, then print it
+}
+// Opened with ?doprint=print|pdf: print straight away (and take it out of the address).
+(function () {
+    var m = location.search.match(/[?&]doprint=(print|pdf)/);
+    if (!m) return;
+    var q = location.search.replace(/([?&])doprint=(print|pdf)&?/, '$1').replace(/[?&]$/, '');
+    history.replaceState(null, '', location.pathname + q + location.hash);
+    window.addEventListener('load', function () { setTimeout(function () { nsDo(m[1]); }, 400); });
+})();
+
 // Status Breakdown lines up with the table card beside it: same top, same height.
 (function () {
     function align() {
