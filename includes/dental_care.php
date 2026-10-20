@@ -2,16 +2,12 @@
 // ============================================================
 //  MY DENTAL CARE  (includes/dental_care.php)  — patient portal, My Records
 // ============================================================
-//  Replaces "Dental Summary + Treatment History", which told the patient
-//  the same thing twice. Two parts:
-//
-//   1. WHAT YOU NEED TO DO — a short note of things to act on:
-//        teeth that need attention (latest chart), treatments the dentist
-//        PLANNED, and the recommended next visit (plain notes, no buttons).
-//   2. MY VISITS — one card per visit day, everything from that day once:
-//        what was done (treatment + tooth in plain words + status),
-//        what changed on the chart, the dentist's note for the patient,
-//        and aftercare tips for completed treatments.
+//  MY VISITS — one card per visit day, everything from that day once:
+//    what was done (treatment + tooth in plain words + status + time, and
+//    which follow-up session it was, e.g. "Braces — session 2 of 10"),
+//    what changed on the chart, the dentist's note for the patient, and
+//    aftercare tips for completed treatments.
+//  (The "What you need to do" card was removed: it repeated My Visits.)
 //
 //  Clinic-only notes (treatments.clinic_notes) are never shown here.
 // ============================================================
@@ -79,45 +75,10 @@ function my_dental_care_html($pdo, $patient, array $treatments, $forMember = fal
     $pid = (int)$patient['id'];
     $first = trim(strtok((string)($patient['name'] ?? ''), ' ')) ?: 'This person';
     $whose = $forMember ? $first . '’s' : 'your';                                  // "Juan’s" / "your"
-    $memberQs = $forMember ? '&member=' . $pid : '';
     $chartOn  = patient_chart_visible($pdo);
     $sessions = $chartOn ? [] : get_chart_sessions($pdo, $pid);   // tooth details only when the chart is hidden
-    $hasChart = $chartOn ? (bool)latest_session_id($pdo, $pid) : (bool)$sessions;
 
-    // ---------- 1. What you need to do ----------
-    $todo = [];
-    if ($sessions) {
-        $map = build_tooth_map($pdo, $pid, (int)$sessions[0]['id']);
-        foreach (array_merge($UPPER_TEETH, $LOWER_TEETH) as $t) {
-            $st = $map[$t] ?? 'Healthy';
-            if (in_array($st, ['Decayed', 'Fractured', 'Impacted'], true)) {
-                $todo[] = ['⚠️', "Tooth $t — " . tooth_name($t) . ' ' . (TOOTH_PLAIN[$st] ?? strtolower($st)), booking_treatment_for($st)];
-            }
-        }
-    }
-    foreach ($treatments as $tr) {
-        if (in_array($tr['status'], ['Planned', 'In Progress'], true)) {
-            $what = $tr['treatment_name'] . ($tr['tooth'] ? ' — ' . tooth_label($tr['tooth']) : '');
-            $todo[] = [$tr['status'] === 'Planned' ? '🗓' : '⏳',
-                       ($tr['status'] === 'Planned' ? 'Planned: ' : 'Not finished yet: ') . $what
-                       . ($tr['notes'] ? ' · “' . $tr['notes'] . '”' : ''), booking_treatment_for($tr['treatment_name'])];
-        }
-    }
-    // Follow-up plans: "Braces adjustment — session 6 of 24 done — next visit due Oct 15".
-    $booked = next_booked_appointment($pdo, $pid);
-    $planDue = [];
-    foreach (active_plans($pdo, $pid) as $pl) {
-        if (!$pl['next_due']) continue;
-        $planDue[] = $pl['next_due'];
-        $late = $pl['next_due'] < date('Y-m-d');
-        $todo[] = ['🔁', $pl['treatment_name'] . ($pl['tooth'] ? ' (' . tooth_label($pl['tooth']) . ')' : '') . ' — '
-                  . followup_session_text($pl) . ' — next visit ' . ($late ? 'was due ' : 'due ') . date('l, F j, Y', strtotime($pl['next_due']))
-                  . ($booked ? ' · booked for ' . date('M j', strtotime($booked['appointment_date'])) . ' at ' . $booked['appointment_time']
-                             : ($late ? ' · overdue — please book or call the clinic' : ' · not booked yet')), ''];
-    }
-    $next = (!empty($patient['next_visit']) && $patient['next_visit'] >= date('Y-m-d')
-             && !in_array($patient['next_visit'], $planDue, true)) ? $patient['next_visit'] : null;   // not twice
-    $req  = open_chart_request($pdo, $pid);
+    $req  = $chartOn ? null : open_chart_request($pdo, $pid);   // a printed chart asked for (chart hidden)
 
     // ---------- 2. Visits (one card per day) ----------
     $days = [];
@@ -188,39 +149,21 @@ function my_dental_care_html($pdo, $patient, array $treatments, $forMember = fal
     .dc-plan-hist li { font-size: .9rem; padding: 3px 0; }
     </style>
 
-    <!-- ===== 1. What you need to do ===== -->
-    <div class="card-box mb-3" data-keep-text>
-        <h5 class="mb-1">✅ <?= $forMember ? 'What ' . e($first) . ' needs' : 'What you need to do' ?></h5>
-        <?php if (!$todo && !$next): ?>
-            <div class="ds-good mt-2">Nothing right now. 🎉 Keep brushing twice a day, floss daily, and visit for a check-up every 6 months.</div>
-        <?php else: ?>
-            <ul class="dc-todo list-unstyled mb-0 mt-2">
-                <?php if ($next): ?>
-                    <li>📅 <?= $forMember ? 'The dentist recommends ' . e($whose) : 'Your dentist recommends your' ?> next visit on <b><?= date('l, F j, Y', strtotime($next)) ?></b>.</li>
-                <?php endif; ?>
-                <?php foreach ($todo as [$ic, $txt, $svc]): ?>
-                    <li><?= $ic ?> <?= e($txt) ?></li>
-                <?php endforeach; ?>
-            </ul>
-            <div class="dc-todo-foot">To book, use <b>Book Appointment</b> or call the clinic.</div>
-        <?php endif; ?>
-        <div class="ds-actions">
-            <?php if ($chartOn): ?>
-                <?php if ($hasChart): ?><a href="portal?view=chart<?= $memberQs ?>" class="btn btn-sm btn-light">🦷 See and print <?= $forMember ? e($whose) : 'my' ?> dental chart →</a><?php endif; ?>
-            <?php elseif ($req): ?>
-                <span class="badge-pill b-pending">📄 Printed copy of <?= e($whose) ?> dental chart requested <?= date('M j', strtotime($req['created_at'])) ?> — the clinic will let you know when it is ready</span>
-            <?php elseif ($sessions): ?>
-                <form method="POST" class="m-0"><input type="hidden" name="action" value="request_chart_copy">
-                    <input type="hidden" name="member_id" value="<?= $forMember ? $pid : 0 ?>"><input type="hidden" name="back" value="records">
-                    <button class="btn btn-sm btn-light">📄 Request a printed copy of <?= $forMember ? e($whose) : 'my' ?> dental chart</button></form>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- ===== 2. My visits ===== -->
+    <!-- ===== My visits ===== -->
     <div class="card-box">
         <h5 class="mb-1">🦷 <?= $forMember ? e($whose) . ' Visits' : 'My Visits' ?></h5>
         <div class="text-muted2 mb-3" style="font-size:.85rem;">Everything from each visit in one place — newest first.</div>
+        <?php if (!$chartOn && ($req || $sessions)):   /* the clinic hides the dental chart: a printed copy on request */ ?>
+            <div class="mb-3">
+                <?php if ($req): ?>
+                    <span class="badge-pill b-pending">📄 Printed copy of <?= e($whose) ?> dental chart requested <?= date('M j', strtotime($req['created_at'])) ?> — the clinic will let you know when it is ready</span>
+                <?php else: ?>
+                    <form method="POST" class="m-0"><input type="hidden" name="action" value="request_chart_copy">
+                        <input type="hidden" name="member_id" value="<?= $forMember ? $pid : 0 ?>"><input type="hidden" name="back" value="records">
+                        <button class="btn btn-sm btn-light" data-keep-text>📄 Request a printed copy of <?= $forMember ? e($whose) : 'my' ?> dental chart</button></form>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
         <?php if (!$forMember): /* a booked-for person's records are view only */ ?>
         <?= bulk_bar('bulk-treatment', 'archive_item', 'records', ['item_type' => 'treatment'], '🗑 Delete selected', 'They will be moved to My Archive, where you can restore them.') ?>
         <?php endif; ?>
