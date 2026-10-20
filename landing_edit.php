@@ -84,24 +84,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---- Upload an image used on the landing page ----
     if ($action === 'upload_image') {
         $slot = $_POST['slot'] ?? '';             // land_img_hero
+        if (!preg_match('/^land_img_[a-z0-9_]+$/', $slot)) {   // only the landing page's own image settings
+            set_flash('Unknown image.', 'error'); header("Location: landing_edit"); exit;
+        }
         $dir  = __DIR__ . '/uploads/landing';
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
-        if (!empty($_FILES['image']['name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
-            $ext = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, ['jpg','jpeg','png','gif','webp','svg'])) {
-                $fname = $slot . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($_FILES['image']['tmp_name'], "$dir/$fname")) {
-                    save_setting($pdo, $slot, 'uploads/landing/' . $fname);
-                    set_flash('Image uploaded.');
-                } else {
-                    set_flash('Could not save the file. Check the uploads/landing folder.', 'error');
-                }
-            } else {
-                set_flash('Please choose an image (jpg, png, gif, webp, svg).', 'error');
-            }
+        // JPG / PNG only, judged by the file's content (not its name), at most 5 MB,
+        // saved under a random name — includes/security.php
+        [$ext, $upErr] = check_image_upload($_FILES['image'] ?? null);
+        if ($upErr !== '') {
+            set_flash($upErr, 'error');
         } else {
-            set_flash('Please choose a file first.', 'error');
+            $fname = random_upload_name($ext, 'land_');
+            if (move_uploaded_file($_FILES['image']['tmp_name'], "$dir/$fname")) {
+                save_setting($pdo, $slot, 'uploads/landing/' . $fname);
+                set_flash('Image uploaded.');
+            } else {
+                set_flash('Could not save the file. Check the uploads/landing folder.', 'error');
+            }
         }
         header("Location: landing_edit"); exit;
     }
@@ -602,7 +603,7 @@ $active = 'landing_edit';
                         <input type="hidden" name="slot" value="land_img_hero">
                         <label class="field-label">Hero image <span class="text-muted2">(replaces the tooth illustration)</span></label>
                         <div class="d-flex gap-2">
-                            <input type="file" name="image" class="form-control" accept="image/*" required>
+                            <input type="file" name="image" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
                             <button class="btn btn-teal" style="white-space:nowrap;">⬆ Upload</button>
                         </div>
                     </form>
@@ -631,7 +632,7 @@ $active = 'landing_edit';
                         <input type="hidden" name="slot" value="land_img_hmo">
                         <label class="field-label">HMO poster <span class="text-muted2">("Accredited HMO's" image)</span></label>
                         <div class="d-flex gap-2">
-                            <input type="file" name="image" class="form-control" accept="image/*" required>
+                            <input type="file" name="image" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
                             <button class="btn btn-teal" style="white-space:nowrap;">⬆ Upload</button>
                         </div>
                     </form>

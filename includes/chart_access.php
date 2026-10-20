@@ -110,7 +110,9 @@ function chart_access_post($pdo, $pid) {
     }
     if (!password_verify($pin, $d['approval_pin'])) {
         $pdo->prepare("UPDATE users SET pin_fail_count = pin_fail_count + 1 WHERE id = ?")->execute([$did]);
-        $n = (int)$pdo->query("SELECT pin_fail_count FROM users WHERE id = " . $did)->fetchColumn();
+        $nq = $pdo->prepare("SELECT pin_fail_count FROM users WHERE id = ?");
+        $nq->execute([$did]);
+        $n = (int)$nq->fetchColumn();
         if ($n >= PIN_MAX_TRIES) {
             $pdo->prepare("UPDATE users SET pin_fail_count = 0, pin_locked_until = NOW() + INTERVAL " . PIN_LOCK_MINUTES . " MINUTE WHERE id = ?")->execute([$did]);
             log_activity($pdo, 'Approval PIN locked', $d['name'] . ' — ' . PIN_MAX_TRIES . ' wrong tries (patient ' . $who . ')');

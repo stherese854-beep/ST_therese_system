@@ -501,12 +501,24 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         if (t.id) document.querySelectorAll('[data-pw-match="' + t.id + '"]').forEach(pwMatchCheck);
     });
 
+    // ---- Image uploads (<input type="file" data-max-mb="5">): JPG / PNG and the size limit,
+    //      said straight away. The server check (check_image_upload) is the one that counts. ----
+    document.addEventListener('change', function (e) {
+        var t = e.target;
+        if (!t || t.type !== 'file' || !t.hasAttribute('data-max-mb')) return;
+        var mb = parseFloat(t.getAttribute('data-max-mb')), f = t.files && t.files[0], bad = '';
+        if (f && !/\.(jpe?g|png)$/i.test(f.name)) bad = 'Only JPG and PNG images are allowed.';
+        else if (f && f.size > mb * 1024 * 1024) bad = 'That image is too large. The limit is ' + mb + ' MB.';
+        t.setCustomValidity(bad);
+        if (bad) t.reportValidity();
+    });
+
     // ---- Password strength (same scoring as password_strength() in config/auth.php) ----
     // Any <input data-pw-meter> gets a live "Weak / Medium / Strong" line; only Strong is accepted.
     function pwLevel(p) {
         var s = 0; if (p.length >= 8) s++; if (p.length >= 12) s++;
         if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++; if (/\d/.test(p)) s++; if (/[^A-Za-z0-9]/.test(p)) s++;
-        return (p.length < 8 || s <= 2) ? 'weak' : (s === 3 ? 'medium' : 'strong');
+        return (p.length < 8 || s <= 2) ? 'weak' : ((s === 3 || !/\d/.test(p)) ? 'medium' : 'strong');   // Strong always has a number
     }
     document.addEventListener('input', function (e) {
         var t = e.target;

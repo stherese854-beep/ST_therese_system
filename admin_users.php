@@ -13,6 +13,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // back to the same list (e.g. ?role=staff from the menu's "Staff")
     $usersBack = 'admin_users' . (in_array($_GET['role'] ?? '', ['staff', 'dentist', 'admin', 'patient'], true) ? '?role=' . $_GET['role'] : '');
 
+    // Unlock an account locked after 5 wrong passwords (includes/security.php).
+    if ($action === 'unlock') {
+        $uid = (int)($_POST['id'] ?? 0);
+        $nm = $pdo->prepare("SELECT name FROM users WHERE id = ?");
+        $nm->execute([$uid]);
+        if ($name = $nm->fetchColumn()) {
+            login_succeeded($pdo, $uid);
+            log_activity($pdo, 'Unlocked account', $name);
+            set_flash($name . "'s account is unlocked — they can sign in again.");
+        }
+        header("Location: $usersBack"); exit;
+    }
+
     if ($action === 'save') {
         $id    = $_POST['id'] ?? '';
         $role  = $_POST['role'];
@@ -200,7 +213,15 @@ $active = 'users';
                             <td><span class="badge-pill <?= $roleBadge ?>"><?= ucfirst($u['role']) ?></span></td>
                             <td><?= e($u['specialty'] ?: $u['position'] ?: '–') ?></td>
                             <td><?= e($u['contact']) ?></td>
-                            <td><span class="badge-pill b-<?= $u['status'] ?>"><?= ucfirst($u['status']) ?></span></td>
+                            <td><span class="badge-pill b-<?= $u['status'] ?>"><?= ucfirst($u['status']) ?></span>
+                                <?php if (account_locked($u)): ?>
+                                    <div class="mt-1 d-flex align-items-center gap-1 flex-wrap">
+                                        <span class="badge-pill b-cancelled" title="<?= LOGIN_MAX_TRIES ?> wrong passwords in a row">🔒 Locked until <?= date('g:i A', strtotime($u['locked_until'])) ?></span>
+                                        <form method="POST" class="d-inline m-0"><input type="hidden" name="action" value="unlock"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                                            <button class="btn btn-sm btn-light py-0" data-keep-text>Unlock</button></form>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td style="white-space:nowrap;"><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : '–' ?></small></td>
                             <td class="no-print">
                                 <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>

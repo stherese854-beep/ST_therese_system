@@ -97,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($pid, $allowedPids, true)) {
         deny_access("Changed dental chart of patient #$pid");
     }
+    $GLOBALS['ACTIVITY_PATIENT_ID'] = $pid;          // log entries made here carry the patient (record history)
     // STAFF: only with a dentist's approval for THIS patient (includes/chart_access.php),
     // and only charting: teeth, today's chart, the latest visit's details.
     if (current_role() === 'staff') {
@@ -230,6 +231,7 @@ $staffMode    = current_role() === 'staff';
 $staffAccess  = ($staffMode && $pid) ? staff_chart_access($pid) : null;
 $staffLocked  = $staffMode && $pid && !$staffAccess;
 $canEditChart = current_role() === 'dentist' || (bool)$staffAccess;
+if ($pid && !$staffLocked) log_record_view($pdo, $pid, 'Odontogram');   // audit (includes/security.php)
 
 // Which visit are we looking at? Default = the newest one.
 $sid = (int)($_GET['session'] ?? 0);

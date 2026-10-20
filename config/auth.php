@@ -43,6 +43,7 @@ session_start();               // turn on PHP sessions (remembers who is logged 
 require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-balancer
 require_once __DIR__ . '/../includes/relationships.php';   // "Raquel is your Child" — the words, age checks
 require_once __DIR__ . '/../includes/chart_access.php';    // staff open a chart with a dentist's approval PIN
+require_once __DIR__ . '/../includes/security.php';        // account lockout, two-step sign-in, upload checks, record audit
 
 // ---- Self-healing database (new tables / columns) ----
 // These checks only need to run once after each update of the system, not on
@@ -83,6 +84,7 @@ if (!$__schemaOk) {
     require_once __DIR__ . '/../includes/walkins.php';
     ensure_walkin_table($pdo);                      // walk-in visits (no appointment)
     ensure_chart_access_schema($pdo);               // dentists' approval PINs + "entered by" (staff charting)
+    ensure_login_security_schema($pdo);             // account lockout columns + patient ID on Activity Log entries
     ensure_indexes($pdo);                           // last: indexes on the tables above, so pages stay fast as records grow
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
@@ -288,7 +290,7 @@ function password_strength($pass) {
     if (preg_match('/[^A-Za-z0-9]/', $pass)) $score++;
 
     if ($len < 8 || $score <= 2) return 'weak';
-    if ($score === 3) return 'medium';
+    if ($score === 3 || !preg_match('/\d/', $pass)) return 'medium';   // Strong always has a number
     return 'strong';
 }
 
@@ -504,11 +506,20 @@ function log_activity($pdo, $action, $details = '') {
 
 // Same, for someone who is not signed in (e.g. a failed sign-in: the name is
 // the email that was typed).
+// On a patient's page (Records, Odontogram…) the entry also gets that patient's
+// ID ($GLOBALS['ACTIVITY_PATIENT_ID'], see log_record_view()), for their record history.
 function log_activity_as($pdo, $userId, $name, $role, $action, $details = '') {
+    $row = [$userId, mb_substr((string)$name, 0, 100), $role, mb_substr((string)$action, 0, 60), mb_substr((string)$details, 0, 2000)];
+    $pid = (int)($GLOBALS['ACTIVITY_PATIENT_ID'] ?? 0);
     try {
-        $pdo->prepare("INSERT INTO activity_log (actor_user_id, actor_name, actor_role, action, details) VALUES (?,?,?,?,?)")
-            ->execute([$userId, mb_substr((string)$name, 0, 100), $role, mb_substr((string)$action, 0, 60),
-                       mb_substr((string)$details, 0, 2000)]);
+        if ($pid) {
+            $pdo->prepare("INSERT INTO activity_log (actor_user_id, actor_name, actor_role, action, details, patient_id) VALUES (?,?,?,?,?,?)")
+                ->execute(array_merge($row, [$pid]));
+            return;
+        }
+    } catch (Throwable $e) { /* no patient_id column yet: log it without */ }
+    try {
+        $pdo->prepare("INSERT INTO activity_log (actor_user_id, actor_name, actor_role, action, details) VALUES (?,?,?,?,?)")->execute($row);
     } catch (Throwable $e) { /* logging never blocks the real action */ }
 }
 
@@ -541,7 +552,7 @@ const ACTIVITY_CATEGORIES = [
 ];
 function activity_category($action) {
     $a = strtolower((string)$action);
-    if (preg_match('/failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported|approval pin|chart access/', $a)) return 'security';
+    if (preg_match('/failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported|approval pin|chart access|account locked|unlocked account|sign-in code/', $a)) return 'security';
     if (preg_match('/logged in|logged out|created account/', $a)) return 'signin';
     if (preg_match('/appointment|arriv|no-show|attended|booked|day off|cancell|reschedul|booking/', $a)) return 'appts';
     if (preg_match('/patient|treatment|x-ray|note|chart|health|clinical|follow-up|dentist|merged|booked-for|printed|pdf|report/', $a)) return 'records';
@@ -550,7 +561,7 @@ function activity_category($action) {
 // SQL that picks the same groups (so filters and counts run in the database).
 function activity_category_sql($cat) {
     $re = [
-        'security' => "failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported|approval pin|chart access",
+        'security' => "failed sign-in|sign-in blocked|access denied|permanently deleted|signed everyone out|changed password|login email|exported|approval pin|chart access|account locked|unlocked account|sign-in code",
         'signin'   => "logged in|logged out|created account",
         'appts'    => "appointment|arriv|no-show|attended|booked|day off|cancell|reschedul|booking",
         'records'  => "patient|treatment|x-ray|note|chart|health|clinical|follow-up|dentist|merged|booked-for|printed|pdf|report",

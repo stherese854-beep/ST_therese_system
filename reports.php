@@ -97,6 +97,8 @@ if ($patientId !== 0 && !in_array($patientId, $visibleIds)) {
 if ($patientId === 0 && count($patients) > 0) {
     $patientId = $patients[0]['id'];
 }
+// Audit: a patient's profile report picked to view / print (includes/security.php).
+if ($type === 'profile' && !empty($_GET['patient_id']) && $patientId) log_record_view($pdo, $patientId, 'Patient Profile report');
 
 // Load the selected patient + their treatments + appointments + dental chart
 $patient = null;

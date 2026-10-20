@@ -102,22 +102,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dir = __DIR__ . '/uploads/landing';
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
-        if (!empty($_FILES['photo']['name']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
-            $ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                $fname = 'dentist_' . $did . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($_FILES['photo']['tmp_name'], "$dir/$fname")) {
-                    $pdo->prepare("UPDATE users SET photo=? WHERE id=? AND role='dentist'")
-                        ->execute(['uploads/landing/' . $fname, $did]);
-                    set_flash('Photo uploaded — it now shows on the landing page.');
-                } else {
-                    set_flash('Could not save the photo.', 'error');
-                }
-            } else {
-                set_flash('Please choose an image file (jpg, png, gif, webp).', 'error');
-            }
+        // JPG / PNG only, judged by the file's content (not its name), at most 5 MB,
+        // saved under a random name — includes/security.php
+        [$ext, $upErr] = check_image_upload($_FILES['photo'] ?? null);
+        if ($upErr !== '') {
+            set_flash($upErr, 'error');
         } else {
-            set_flash('Please choose a photo first.', 'error');
+            $fname = random_upload_name($ext, 'dentist_');
+            if (move_uploaded_file($_FILES['photo']['tmp_name'], "$dir/$fname")) {
+                $pdo->prepare("UPDATE users SET photo=? WHERE id=? AND role='dentist'")
+                    ->execute(['uploads/landing/' . $fname, $did]);
+                set_flash('Photo uploaded — it now shows on the landing page.');
+            } else {
+                set_flash('Could not save the photo.', 'error');
+            }
         }
         header("Location: admin_dentists"); exit;
     }
@@ -168,6 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Which level are we on?
 $did = (int)($_GET['dentist'] ?? 0);
 $pid = (int)($_GET['patient'] ?? 0);
+if ($did && $pid) log_record_view($pdo, $pid, 'Dentists — dental chart');   // audit (includes/security.php)
 
 // Small helper: status word -> badge CSS class (same idea as reports.php).
 function badge_for($status) {
@@ -433,7 +432,7 @@ $active = 'dentists';
                             <input type="hidden" name="id" value="<?= $doc['id'] ?>">
                             <label class="field-label" style="font-size:.72rem;">Photo (shows on the landing page)</label>
                             <div class="d-flex gap-1">
-                                <input type="file" name="photo" class="form-control form-control-sm" accept="image/*" required>
+                                <input type="file" name="photo" class="form-control form-control-sm" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
                                 <button class="btn btn-sm btn-light" style="white-space:nowrap;">⬆</button>
                             </div>
                         </form>

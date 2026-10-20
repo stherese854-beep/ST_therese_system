@@ -99,6 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
     }
 }
 if (($_GET['mode'] ?? '') === 'cancel_google') { unset($_SESSION['google_pending']); header("Location: login?mode=register"); exit; }
+if (($_GET['mode'] ?? '') === 'cancel_code')   { unset($_SESSION['two_step']); header("Location: login"); exit; }
+if ($mode === 'code' && empty($_SESSION['two_step'])) $mode = 'signin';   // nothing waiting for a code
 
 // ---------- Handle the form when it is submitted ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'google_finish') {
@@ -113,13 +115,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
         $email = trim($_POST['email'] ?? '');
         $pass  = $_POST['password'] ?? '';
 
-        // Find the user by email.
+        // Find the user by email (a prepared statement: what was typed is never part of the SQL).
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
+        $who  = $user ? $user['name'] . ' (' . $email . ')' : '';
 
-        // password_verify checks the typed password against the stored hash.
-        if ($user && password_verify($pass, $user['password'])) {
+        if ($user && account_locked($user)) {
+            // 5 wrong passwords in a row: no sign-in for 15 minutes, not even with the right one
+            // (includes/security.php). The admin can unlock it early in Users.
+            $error = LOGIN_LOCKED_MESSAGE;
+            rate_hit($pdo, 'login_fail');
+            log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Sign-in blocked',
+                            'Account locked until ' . date('g:i A', strtotime($user['locked_until'])) . ' (IP ' . client_ip() . ')');
+        } elseif ($user && password_verify($pass, $user['password'])) {   // the typed password against the stored hash
             if ($user['status'] === 'archived') {
                 // The account still exists (nothing was deleted yet) but an
                 // admin moved it to the Archive — let them know plainly.
@@ -127,36 +136,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             } elseif ($user['status'] !== 'active') {
                 $error = "This account is inactive. Please contact the clinic.";
             } else {
-                // Save who is logged in inside the session.
-                session_regenerate_id(true);   // fresh session ID on sign-in
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['name']    = $user['name'];
-                $_SESSION['role']    = $user['role'];
-                $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
-
-                // A blank last_login means this is the very first time this
-                // account has ever signed in — greet them as "Welcome" instead
-                // of "Welcome back" (matches how a brand-new patient is greeted).
-                $isFirstLogin = empty($user['last_login']);
-
-                // Update last login time.
-                $pdo->prepare("UPDATE users SET last_login = NOW() WHERE id = ?")
-                    ->execute([$user['id']]);
-                log_activity($pdo, 'Logged in', ucfirst($user['role']));
-                if ($user['role'] === 'patient') {               // someone tried their password since last time?
-                    require_once 'includes/account_history.php';
-                    warn_failed_signins($pdo, $user);
+                login_succeeded($pdo, $user['id']);                  // wrong-password count back to 0
+                if (two_step_needed($pdo, $user)) {
+                    // Admin / dentist with two-step sign-in on: a 6-digit code is emailed,
+                    // and they are signed in only after typing it (action two_step_verify).
+                    $error = two_step_send($pdo, $user);
+                    if ($error === '') {
+                        log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Sent sign-in code', 'Two-step sign-in: code emailed to ' . mask_email($email));
+                        header("Location: login?mode=code"); exit;
+                    }
+                } else {
+                    complete_sign_in($pdo, $user);                   // new session ID, then their home page
                 }
-
-                // A one-time pop-up greeting, shown once right after logging in
-                // (the patient portal and the staff/dentist/admin dashboard each
-                // show their own version of it, then it clears itself).
-                $_SESSION['show_welcome_popup'] = true;
-                $_SESSION['just_registered']    = $isFirstLogin;
-
-                // Back to the page they were trying to open, else their own home
-                // page (patients: portal; everyone else: dashboard).
-                redirect_after_login();
             }
         } elseif (!$user && $email !== '') {
             // No live account under that email — but it may have been
@@ -175,13 +166,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             }
             rate_hit($pdo, 'login_fail');
             log_activity_as($pdo, null, $email, null, 'Failed sign-in', 'No account with this email (' . 'IP ' . client_ip() . ')');
-        } else {
-            // The email IS registered, so the only thing left to be wrong is
-            // the password.
-            $error = "Wrong password. Please try again.";
+        } elseif ($user) {
+            // The email IS registered, so the only thing left to be wrong is the password.
+            // Each one counts; the 5th in a row locks the account for 15 minutes.
+            [$locked, $left] = login_failed($pdo, $user);
             rate_hit($pdo, 'login_fail');
-            log_activity_as($pdo, (int)$user['id'], $user['name'] . ' (' . $email . ')', $user['role'], 'Failed sign-in', 'Wrong password (' . 'IP ' . client_ip() . ')');
+            log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Failed sign-in', 'Wrong password (' . 'IP ' . client_ip() . ')');
+            if ($locked) {
+                $error = LOGIN_LOCKED_MESSAGE;
+                log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Account locked',
+                                LOGIN_MAX_TRIES . ' wrong passwords in a row — locked for ' . LOGIN_LOCK_MINUTES . ' minutes');
+            } else {
+                $error = "Wrong password. Please try again. ($left " . ($left === 1 ? 'try' : 'tries') . ' left before the account is locked for ' . LOGIN_LOCK_MINUTES . ' minutes.)';
+            }
+        } else {
+            $error = 'Please enter your email and password.';
         }
+    }
+
+    // ===== TWO-STEP SIGN-IN (admin / dentist): the emailed 6-digit code =====
+    if (($_POST['action'] ?? '') === 'two_step_verify') {
+        $mode = 'code';
+        [$tsUser, $error] = two_step_verify($pdo, $_POST['code'] ?? '');
+        if ($tsUser) complete_sign_in($pdo, $tsUser, 'two-step code');
+        if (empty($_SESSION['two_step'])) $mode = 'signin';         // expired, locked or too many tries: sign in again
+    }
+    if (($_POST['action'] ?? '') === 'two_step_resend') {
+        $mode = 'code';
+        $error = two_step_resend($pdo);
+        if ($error === '') { set_flash('A new code was emailed.', 'info'); header("Location: login?mode=code"); exit; }
+        if (empty($_SESSION['two_step'])) $mode = 'signin';
     }
 
     // ===== REGISTER (step 1): validate, then send a verification code =====
@@ -412,6 +426,24 @@ include 'includes/head.php';
                     <button type="submit" class="btn btn-teal w-100 py-2">Create My Account →</button>
                 </form>
                 <p class="text-center mt-3 muted"><a href="login?mode=cancel_google" style="color:var(--teal);">← Cancel</a></p>
+
+            <?php elseif ($mode === 'code'): $ts = $_SESSION['two_step'] ?? []; ?>
+                <!-- ============ TWO-STEP SIGN-IN: the code emailed to an admin / dentist ============ -->
+                <h2>Check your email</h2>
+                <p class="muted">For your security, enter the 6-digit sign-in code we emailed to
+                    <strong><?= e(mask_email($ts['email'] ?? '')) ?></strong>. It works for <?= TWO_STEP_MINUTES ?> minutes.</p>
+                <form method="POST" action="login?mode=code">
+                    <input type="hidden" name="action" value="two_step_verify">
+                    <label class="field-label">Sign-in code</label>
+                    <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+                           data-digits autofocus required style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
+                    <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Sign In →</button>
+                </form>
+                <form method="POST" action="login?mode=code" class="text-center mt-2">
+                    <input type="hidden" name="action" value="two_step_resend">
+                    <button type="submit" class="btn btn-link p-0" style="color:var(--teal);font-size:.85rem;text-decoration:none;" data-keep-text>Didn't get it? Send a new code</button>
+                </form>
+                <p class="text-center mt-2 muted"><a href="login?mode=cancel_code" style="color:var(--teal);">← Back to sign in</a></p>
 
             <?php elseif ($mode === 'verify'): ?>
                 <!-- ============ VERIFY EMAIL ============ -->
@@ -662,7 +694,7 @@ function passwordStrength(pass){
     if (/[^A-Za-z0-9]/.test(pass)) score++;
 
     if (len < 8 || score <= 2) return 'weak';
-    if (score === 3) return 'medium';
+    if (score === 3 || !/\d/.test(pass)) return 'medium';   // Strong always has a number
     return 'strong';
 }
 

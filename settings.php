@@ -82,6 +82,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'sec_login_audit',      isset($_POST['login_audit'])      ? '1' : '0');
         save_setting($pdo, 'sec_session_timeout',  isset($_POST['session_timeout'])  ? '1' : '0');
         save_setting($pdo, 'sec_password_expiry',  isset($_POST['password_expiry'])  ? '1' : '0');
+        // Two-step sign-in for admins and dentists (a 6-digit code by email — includes/security.php).
+        $twoWas = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'sec_two_step'")->fetchColumn() === '1';
+        $twoNow = isset($_POST['two_step']);
+        save_setting($pdo, 'sec_two_step', $twoNow ? '1' : '0');
+        if ($twoWas !== $twoNow) log_activity($pdo, 'Changed security settings', 'Two-step sign-in code for admins and dentists: ' . ($twoNow ? 'on' : 'off'));
         set_flash('Settings saved.'); header("Location: settings"); exit;
     }
 
@@ -139,23 +144,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'upload_avatar') {
         $dir = __DIR__ . '/uploads/avatars';
         if (!is_dir($dir)) mkdir($dir, 0777, true);
-        if (!empty($_FILES['avatar']['name']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                $old = $pdo->prepare("SELECT photo FROM users WHERE id=?");
-                $old->execute([$_SESSION['user_id']]);
-                $oldPath = $old->fetchColumn();
-                if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
+        // JPG / PNG only, judged by the file's content (not its name), at most 5 MB,
+        // saved under a random name — includes/security.php
+        [$ext, $upErr] = check_image_upload($_FILES['avatar'] ?? null);
+        if ($upErr !== '') {
+            set_flash($upErr, 'error');
+        } else {
+            $old = $pdo->prepare("SELECT photo FROM users WHERE id=?");
+            $old->execute([$_SESSION['user_id']]);
+            $oldPath = $old->fetchColumn();
+            if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
 
-                $fname = 'user_' . $_SESSION['user_id'] . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($_FILES['avatar']['tmp_name'], "$dir/$fname")) {
-                    $pdo->prepare("UPDATE users SET photo=? WHERE id=?")
-                        ->execute(['uploads/avatars/' . $fname, $_SESSION['user_id']]);
-                    log_activity($pdo, 'Changed profile picture', 'Own account');
-                    set_flash('Profile picture updated.');
-                } else { set_flash('Could not save the picture.', 'error'); }
-            } else { set_flash('Please choose an image (jpg, png, gif, webp).', 'error'); }
-        } else { set_flash('Please choose a picture first.', 'error'); }
+            $fname = random_upload_name($ext, 'user_');
+            if (move_uploaded_file($_FILES['avatar']['tmp_name'], "$dir/$fname")) {
+                $pdo->prepare("UPDATE users SET photo=? WHERE id=?")
+                    ->execute(['uploads/avatars/' . $fname, $_SESSION['user_id']]);
+                log_activity($pdo, 'Changed profile picture', 'Own account');
+                set_flash('Profile picture updated.');
+            } else { set_flash('Could not save the picture.', 'error'); }
+        }
         header("Location: settings?view=profile"); exit;
     }
 
@@ -269,7 +276,7 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                             <form method="POST" enctype="multipart/form-data" class="mb-2">
                                 <input type="hidden" name="action" value="upload_avatar">
                                 <div class="d-flex gap-2">
-                                    <input type="file" name="avatar" class="form-control form-control-sm" accept="image/*" required>
+                                    <input type="file" name="avatar" class="form-control form-control-sm" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
                                     <button class="btn btn-sm btn-teal" style="white-space:nowrap;">⬆ Upload</button>
                                 </div>
                             </form>
@@ -372,13 +379,28 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                             </div>
                         </div>
 
-                        <div class="flex-between py-2 mb-3">
+                        <div class="flex-between py-2 border-bottom">
                             <div>
                                 <strong>Password Expiry</strong>
                                 <div class="text-muted2" style="font-size:.8rem;">Force password reset every 90 days</div>
                             </div>
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" name="password_expiry" <?= cfg($cfg,'sec_password_expiry','1')==='1'?'checked':'' ?>>
+                            </div>
+                        </div>
+
+                        <?php if (!function_exists('mail_is_ready')) require_once 'includes/mailer.php'; $mailOk = mail_is_ready($pdo); ?>
+                        <div class="flex-between py-2 mb-3 gap-3">
+                            <div>
+                                <strong>Two-step sign-in (admin &amp; dentists)</strong>
+                                <div class="text-muted2" style="font-size:.8rem;">After the password, a 6-digit code is emailed and must be typed to sign in.
+                                    Turn it on only when every admin and dentist account has a real email they can open.</div>
+                                <?php if (!$mailOk): ?>
+                                    <div style="font-size:.78rem;color:#b07d12;">⚠️ Email is not set up (Messaging Config), so no code can be sent — it stays off until email works.</div>
+                                <?php endif; ?>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="two_step" <?= cfg($cfg,'sec_two_step','0')==='1'?'checked':'' ?>>
                             </div>
                         </div>
 

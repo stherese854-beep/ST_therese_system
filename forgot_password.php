@@ -99,7 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
         $step = 'reset';
     } else {
         $hash = password_hash($pass, PASSWORD_DEFAULT);
-        $pdo->prepare("UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL WHERE email = ?")
+        // A new password also lifts a lockout (they proved they own the email).
+        $pdo->prepare("UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL, failed_attempts = 0, locked_until = NULL WHERE email = ?")
             ->execute([$hash, $email]);
         unset($_SESSION['reset_email'], $_SESSION['reset_verified']);
         header("Location: login?toast=pwreset");

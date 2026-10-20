@@ -55,6 +55,11 @@ if ($pid && $_SERVER['REQUEST_METHOD'] !== 'POST') $_SESSION['last_patient_id'] 
 $staffMode   = current_role() === 'staff';
 $staffAccess = ($staffMode && $pid && $_SERVER['REQUEST_METHOD'] !== 'POST') ? staff_chart_access($pid) : null;
 
+// Audit: opening a patient's record goes into the Activity Log, and what is done
+// here is tagged with the patient — their record history (includes/security.php).
+if ($pid) $GLOBALS['ACTIVITY_PATIENT_ID'] = $pid;
+if ($pid && $_SERVER['REQUEST_METHOD'] !== 'POST' && (!$staffMode || $staffAccess)) log_record_view($pdo, $pid, 'Treatment Records');
+
 // Name of the selected patient (saved into the treatments table).
 $patientName = '';
 foreach ($patients as $p) { if ($p['id'] == $pid) $patientName = $p['name']; }
@@ -276,27 +281,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ----- X-rays (image upload) -----
     if ($action === 'add_xray') {
-        if (!empty($_FILES['xray']['name']) && $_FILES['xray']['error'] === UPLOAD_ERR_OK) {
-            $ext     = strtolower(pathinfo($_FILES['xray']['name'], PATHINFO_EXTENSION));
-            $allowed = ['jpg','jpeg','png','gif','webp'];
-            if (in_array($ext, $allowed)) {
-                if (!is_dir($XRAY_DIR)) mkdir($XRAY_DIR, 0777, true);
-                // Make a unique file name so uploads never overwrite each other.
-                $fname = 'xray_' . $pid . '_' . time() . '_' . mt_rand(1000,9999) . '.' . $ext;
-                if (move_uploaded_file($_FILES['xray']['tmp_name'], "$XRAY_DIR/$fname")) {
-                    $pdo->prepare("INSERT INTO xrays (patient_id,image_file,caption,xray_date,uploaded_by) VALUES (?,?,?,?,?)")
-                        ->execute([$pid, $fname, trim($_POST['caption'] ?? ''), ($_POST['xray_date'] ?: null), $_SESSION['name'] ?? '']);
-                    complete_arrived_visit($pdo, $pid);
-                    log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid));
-                    set_flash('X-ray uploaded.');
-                } else {
-                    set_flash('Could not save the image. Check the uploads/xrays folder permissions.', 'error');
-                }
-            } else {
-                set_flash('Please upload an image file (jpg, png, gif, webp).', 'error');
-            }
+        // JPG / PNG only, judged by the file's content (not its name), at most 5 MB,
+        // saved under a random name — includes/security.php
+        [$ext, $upErr] = check_image_upload($_FILES['xray'] ?? null);
+        if ($upErr !== '') {
+            set_flash($upErr, 'error');
         } else {
-            set_flash('Please choose an image to upload.', 'error');
+            if (!is_dir($XRAY_DIR)) mkdir($XRAY_DIR, 0777, true);
+            $fname = random_upload_name($ext, 'xray_');
+            if (move_uploaded_file($_FILES['xray']['tmp_name'], "$XRAY_DIR/$fname")) {
+                $pdo->prepare("INSERT INTO xrays (patient_id,image_file,caption,xray_date,uploaded_by) VALUES (?,?,?,?,?)")
+                    ->execute([$pid, $fname, trim($_POST['caption'] ?? ''), ($_POST['xray_date'] ?: null), $_SESSION['name'] ?? '']);
+                complete_arrived_visit($pdo, $pid);
+                log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid));
+                set_flash('X-ray uploaded.');
+            } else {
+                set_flash('Could not save the image. Check the uploads/xrays folder permissions.', 'error');
+            }
         }
         header("Location: records?patient=$pid&tab=xrays"); exit;
     }
@@ -404,6 +405,9 @@ $active = 'records';
                     <span class="badge-pill <?= ($patientRow['patient_type'] ?? '') === 'Returning' ? 'b-completed' : 'b-pending' ?>"><?= e($patientRow['patient_type'] ?: 'New') ?></span>
                     <span><span class="text-muted2">Last visit</span> <?= $patientRow['last_visit'] ? date('M j, Y', strtotime($patientRow['last_visit'])) : '–' ?></span>
                     <span><span class="text-muted2">Next visit</span> <?= $nvDate ? date('M j, Y', strtotime($nvDate)) . ' <small class="text-muted2">· ' . e($nvFrom) . '</small>' : '–' ?></span>
+                    <?php if (current_role() === 'admin'): ?>
+                        <a href="admin_activity?patient=<?= (int)$pid ?>" class="btn btn-sm btn-light" data-keep-text title="Who opened or changed this patient's record, and when">🕘 Record history</a>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
         </div>
@@ -949,7 +953,8 @@ $active = 'records';
                     <div class="row g-2">
                         <div class="col-md-5"><label class="field-label">X-ray image</label>
                             <!-- accept="image/*" + capture lets phones open the camera -->
-                            <input type="file" name="xray" class="form-control" accept="image/*" capture="environment" required></div>
+                            <input type="file" name="xray" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" capture="environment" required>
+                            <div class="text-muted2" style="font-size:.75rem;margin-top:3px;"><?= image_upload_hint() ?></div></div>
                         <div class="col-md-4"><label class="field-label">Caption</label>
                             <input name="caption" class="form-control" placeholder="e.g. Upper molar, panoramic"></div>
                         <div class="col-md-3"><label class="field-label">Date taken</label>

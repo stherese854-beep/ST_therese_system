@@ -221,29 +221,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dir = __DIR__ . '/uploads/avatars';
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
-        if (!empty($_FILES['avatar']['name']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
-            $ext = strtolower(pathinfo($_FILES['avatar']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                // Delete the old picture so the folder does not fill up.
-                $old = $pdo->prepare("SELECT photo FROM users WHERE id=?");
-                $old->execute([$_SESSION['user_id']]);
-                $oldPath = $old->fetchColumn();
-                if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
-
-                $fname = 'user_' . $_SESSION['user_id'] . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($_FILES['avatar']['tmp_name'], "$dir/$fname")) {
-                    $pdo->prepare("UPDATE users SET photo=? WHERE id=?")
-                        ->execute(['uploads/avatars/' . $fname, $_SESSION['user_id']]);
-                    log_activity($pdo, 'Changed profile picture', 'Own account');
-                    set_flash('Profile picture updated.');
-                } else {
-                    set_flash('Could not save the picture.', 'error');
-                }
-            } else {
-                set_flash('Please choose an image (jpg, png, gif, webp).', 'error');
-            }
+        // JPG / PNG only, judged by the file's content (not its name), at most 5 MB,
+        // saved under a random name — includes/security.php
+        [$ext, $upErr] = check_image_upload($_FILES['avatar'] ?? null);
+        if ($upErr !== '') {
+            set_flash($upErr, 'error');
         } else {
-            set_flash('Please choose a picture first.', 'error');
+            // Delete the old picture so the folder does not fill up.
+            $old = $pdo->prepare("SELECT photo FROM users WHERE id=?");
+            $old->execute([$_SESSION['user_id']]);
+            $oldPath = $old->fetchColumn();
+            if ($oldPath && is_file(__DIR__ . '/' . $oldPath)) @unlink(__DIR__ . '/' . $oldPath);
+
+            $fname = random_upload_name($ext, 'user_');
+            if (move_uploaded_file($_FILES['avatar']['tmp_name'], "$dir/$fname")) {
+                $pdo->prepare("UPDATE users SET photo=? WHERE id=?")
+                    ->execute(['uploads/avatars/' . $fname, $_SESSION['user_id']]);
+                log_activity($pdo, 'Changed profile picture', 'Own account');
+                set_flash('Profile picture updated.');
+            } else {
+                set_flash('Could not save the picture.', 'error');
+            }
         }
         header("Location: portal?view=profile"); exit;
     }
@@ -1024,7 +1022,7 @@ include 'includes/head.php';
                         <form method="POST" enctype="multipart/form-data" class="mb-2">
                             <input type="hidden" name="action" value="upload_avatar">
                             <div class="d-flex gap-2">
-                                <input type="file" name="avatar" class="form-control" accept="image/*" required>
+                                <input type="file" name="avatar" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
                                 <button class="btn btn-teal" style="white-space:nowrap;">⬆ Upload</button>
                             </div>
                         </form>

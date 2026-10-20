@@ -800,7 +800,7 @@ $active = 'appointments';
                                         <input type="hidden" name="action" value="delete_appointment">
                                         <input type="hidden" name="id" value="<?= $a['id'] ?>">
                                         <input type="hidden" name="filter" value="<?= e($filter) ?>">
-                                        <button class="btn btn-sm icon-btn" style="background:#f0f0f0;color:#8aa0a0;" title="Move to Archive">🗑</button>
+                                        <button class="btn btn-sm icon-btn" style="background:#fbdcdc;color:#c0392b;" title="Move to Archive">🗑</button>
                                     </form>
                                     <?= bulk_pick('bulk-appts', $a['id'], 'Select to remove') ?>
                                 <?php endif; ?>

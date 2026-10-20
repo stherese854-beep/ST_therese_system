@@ -37,6 +37,10 @@ $to         = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '')   ? $_GET['
 if (!empty($_GET['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'])) { $from = $to = $_GET['date']; }   // old one-day links
 if ($from !== '' && $to !== '' && $from > $to) [$from, $to] = [$to, $from];
 $page = max(1, (int)($_GET['page'] ?? 1));
+// One patient's record history (Records → "🕘 Record history"): entries tagged with
+// the patient, plus older ones that name them.
+$patientFilter = (int)($_GET['patient'] ?? 0);
+$patientFilterName = $patientFilter ? patient_name_of($pdo, $patientFilter) : '';
 
 // Everything except the category: the chips count inside these.
 $where = []; $params = [];
@@ -47,6 +51,7 @@ if ($q !== '') {
 }
 if ($from !== '') { $where[] = "created_at >= ?"; $params[] = $from . ' 00:00:00'; }
 if ($to !== '')   { $where[] = "created_at <= ?"; $params[] = $to . ' 23:59:59'; }
+if ($patientFilter) { $where[] = "(patient_id = ? OR details LIKE ?)"; $params[] = $patientFilter; $params[] = '%' . $patientFilterName . '%'; }
 $baseWhere = $where ? implode(' AND ', $where) : '1=1';
 
 // Count per category (one query).
@@ -94,11 +99,11 @@ $roles = $pdo->query("SELECT DISTINCT actor_role FROM activity_log WHERE actor_r
 
 // A link that keeps the current filters, changing only $set.
 function activity_url(array $set = []) {
-    global $roleFilter, $q, $cat, $from, $to;
-    $p = array_merge(['cat' => $cat, 'role' => $roleFilter, 'from' => $from, 'to' => $to, 'q' => $q], $set);
+    global $roleFilter, $q, $cat, $from, $to, $patientFilter;
+    $p = array_merge(['cat' => $cat, 'role' => $roleFilter, 'from' => $from, 'to' => $to, 'q' => $q, 'patient' => $patientFilter ?: ''], $set);
     return 'admin_activity?' . http_build_query(array_filter($p, fn($v) => $v !== '' && $v !== null && $v !== 1));
 }
-$filtered = $roleFilter !== '' || $q !== '' || $from !== '' || $to !== '' || $cat !== '';
+$filtered = $roleFilter !== '' || $q !== '' || $from !== '' || $to !== '' || $cat !== '' || $patientFilter;
 
 $page_title = "Activity Log";
 include 'includes/head.php';
@@ -121,6 +126,13 @@ $active = 'activity';
         <!-- Top tabs shared across admin pages -->
         <?php include 'includes/admin_tabs.php'; ?>
 
+        <?php if ($patientFilter): ?>
+            <div class="alert py-2 d-flex align-items-center gap-2 flex-wrap" style="background:#eef7f6;border:1px solid #d3e8e5;color:#0f5e57;">
+                🕘 <span>Record history of <b><?= e($patientFilterName) ?></b> — who opened or changed this patient's record, and when.</span>
+                <a href="<?= e(activity_url(['patient' => '', 'page' => 1])) ?>" class="ms-auto btn btn-sm btn-light" data-keep-text>✕ Show everything</a>
+            </div>
+        <?php endif; ?>
+
         <!-- Categories (counts follow the other filters) -->
         <nav class="act-cats mb-2 no-print" aria-label="Categories">
             <a href="<?= e(activity_url(['cat' => '', 'page' => 1])) ?>" class="<?= $cat === '' ? 'on' : '' ?>" data-keep-text>All <span class="act-n"><?= $allCount ?></span></a>
@@ -133,6 +145,7 @@ $active = 'activity';
         <div class="card-box">
             <form method="GET" class="row g-2 align-items-center mb-3 no-print">
                 <input type="hidden" name="cat" value="<?= e($cat) ?>">
+                <?php if ($patientFilter): ?><input type="hidden" name="patient" value="<?= (int)$patientFilter ?>"><?php endif; ?>
                 <div class="col-6 col-md-2">
                     <select name="role" class="form-select form-select-sm" aria-label="Role" onchange="this.form.submit()">
                         <option value="">All roles</option>
