@@ -850,7 +850,7 @@ $active = 'records';
                 </form>
             </div>
 
-            <?php $plans = all_plans($pdo, $pid); $nextBooked = next_booked_appointment($pdo, $pid); ?>
+            <?php $plans = plans_with_history($pdo, $pid); $nextBooked = next_booked_appointment($pdo, $pid); ?>
             <?php if ($plans): ?>
             <div class="card-box mb-3" id="plans">
                 <h6 class="mb-2">🔁 Follow-up plans</h6>
@@ -866,6 +866,15 @@ $active = 'records';
                                     · next due <b><?= $pl['next_due'] ? date('M j, Y', strtotime($pl['next_due'])) : '–' ?></b>
                                     · <?= $nextBooked ? 'booked ' . date('M j', strtotime($nextBooked['appointment_date'])) . ' ' . e($nextBooked['appointment_time']) : '<span style="color:#c0392b;">not booked</span>' ?>
                                 <?php endif; ?></small>
+                            <?php if ($pl['history']): ?>
+                                <!-- every session with its date (newest first) -->
+                                <details class="mt-1" style="font-size:.84rem;"><summary class="text-muted2" style="cursor:pointer;">Session history (<?= count($pl['history']) ?>)</summary>
+                                    <?php foreach ($pl['history'] as $h): ?>
+                                        <div class="ps-3">Session <?= (int)$h['session_no'] ?> — <?= date('D, M j, Y', strtotime($h['session_date'])) ?>
+                                            <?= $h['label'] ? '<span class="text-muted2">· ' . e($h['label']) . '</span>' : '' ?></div>
+                                    <?php endforeach; ?>
+                                </details>
+                            <?php endif; ?>
                         </div>
                         <?php if ($pl['status'] === 'Active'): ?>
                         <div class="d-flex gap-1 flex-wrap align-items-center" data-keep-text>

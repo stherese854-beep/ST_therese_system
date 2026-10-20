@@ -86,7 +86,7 @@ require_once 'includes/followups.php';
 $planMsg = '';
 foreach (array_unique(array_map('intval', (array)($_POST['plan_sessions'] ?? []))) as $planId) {
     if ($pl = active_plan_by_id($pdo, $pid, $planId)) {
-        $planMsg .= record_plan_session($pdo, $pl, date('Y-m-d'));
+        $planMsg .= record_plan_session($pdo, $pl, date('Y-m-d'), 0, '', null, 'Walk-in visit — ' . $services, 'walk-in');
         log_activity($pdo, 'Follow-up session recorded', $patient['name'] . ' — ' . $pl['treatment_name'] . ' (walk-in)');
     }
 }

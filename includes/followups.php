@@ -58,6 +58,76 @@ function ensure_followup_table($pdo) {
     } catch (Throwable $e) {}
 }
 
+// ---- Every session of a plan, with its date (the plan itself only keeps the count) ----
+function ensure_plan_sessions_table($pdo) {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS treatment_plan_sessions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            plan_id INT NOT NULL,
+            patient_id INT NOT NULL,
+            session_no INT NOT NULL,
+            session_date DATE NOT NULL,
+            label VARCHAR(150) DEFAULT NULL,             -- what was done, e.g. Adjust his braces / Walk-in visit
+            source VARCHAR(20) DEFAULT NULL,             -- treatment / walk-in / earlier
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_plan (plan_id), INDEX idx_patient (patient_id)
+        )");
+    } catch (Throwable $e) { return; }
+    backfill_plan_sessions($pdo);
+}
+
+function add_plan_session($pdo, $planId, $patientId, $no, $date, $label, $source) {
+    try {
+        $pdo->prepare("INSERT INTO treatment_plan_sessions (plan_id, patient_id, session_no, session_date, label, source) VALUES (?,?,?,?,?,?)")
+            ->execute([(int)$planId, (int)$patientId, (int)$no, $date, mb_substr(trim((string)$label), 0, 150) ?: null, $source]);
+    } catch (Throwable $e) {}
+}
+
+// ONE TIME: plans made before the history was kept get it from their treatment records:
+// the most recent ones of the same kind, up to the plan's last session (an older, separate
+// treatment of the same kind is not part of this plan), plus that last session's date.
+function backfill_plan_sessions($pdo) {
+    try {
+        if ($pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'plan_sessions_backfill_v1'")->fetchColumn()) return;
+        $plans = $pdo->query("SELECT p.* FROM treatment_plans p
+                               WHERE NOT EXISTS (SELECT 1 FROM treatment_plan_sessions s WHERE s.plan_id = p.id)")->fetchAll();
+        $tq = $pdo->prepare("SELECT treatment_date, treatment_name FROM treatments
+                              WHERE patient_id = ? AND status <> 'Planned' ORDER BY treatment_date, id");
+        foreach ($plans as $pl) {
+            $fam  = treatment_family($pl['treatment_name']);
+            $last = $pl['last_session_date'] ?: date('Y-m-d');
+            $tq->execute([(int)$pl['patient_id']]);
+            $c = [];                                      // [date, what was done, source]
+            foreach ($tq->fetchAll() as $t) {
+                if ($t['treatment_date'] <= $last && treatment_family($t['treatment_name']) === $fam) $c[] = [$t['treatment_date'], $t['treatment_name'], 'treatment'];
+            }
+            if ($pl['last_session_date'] && !in_array($pl['last_session_date'], array_column($c, 0), true)) {
+                $c[] = [$pl['last_session_date'], $pl['treatment_name'], 'earlier'];
+            }
+            usort($c, fn($x, $y) => strcmp($x[0], $y[0]));
+            $done = max(1, (int)$pl['sessions_done']);
+            $c = array_slice($c, -$done);                 // the latest sessions; the newest is "session <done>"
+            $no = $done - count($c);
+            foreach ($c as [$d, $what, $src]) add_plan_session($pdo, $pl['id'], $pl['patient_id'], ++$no, $d, $what, $src);
+        }
+        save_setting($pdo, 'plan_sessions_backfill_v1', date('Y-m-d H:i:s') . ' (' . count($plans) . ' plans)');
+    } catch (Throwable $e) { /* try again after the next update */ }
+}
+
+/** All of a patient's plans, each with 'history' = its sessions, newest first. */
+function plans_with_history($pdo, $patientId) {
+    $plans = all_plans($pdo, $patientId);
+    if (!$plans) return [];
+    $hist = [];
+    try {
+        $q = $pdo->prepare("SELECT * FROM treatment_plan_sessions WHERE patient_id = ? ORDER BY session_no DESC, id DESC");
+        $q->execute([(int)$patientId]);
+        foreach ($q->fetchAll() as $r) $hist[(int)$r['plan_id']][] = $r;
+    } catch (Throwable $e) {}
+    foreach ($plans as &$p) $p['history'] = $hist[(int)$p['id']] ?? [];
+    return $plans;
+}
+
 function active_plans($pdo, $patientId) {
     ensure_followup_table($pdo);
     try {
@@ -145,7 +215,7 @@ function active_plan_by_id($pdo, $patientId, $planId) {
  * most ONE session a day (a walk-in and its treatment record are the same visit).
  * Returns a short message for the flash.
  */
-function record_plan_session($pdo, array $plan, $date, $every = 0, $custom = '', $total = null) {
+function record_plan_session($pdo, array $plan, $date, $every = 0, $custom = '', $total = null, $label = '', $source = 'treatment') {
     $name = $plan['treatment_name'];
     $patientId = (int)$plan['patient_id'];
     if ((string)($plan['last_session_date'] ?? '') === (string)$date) {
@@ -154,6 +224,7 @@ function record_plan_session($pdo, array $plan, $date, $every = 0, $custom = '',
     $done  = (int)$plan['sessions_done'] + 1;
     $int   = $every ?: (int)$plan['interval_days'];
     $total = $total ?: ($plan['total_sessions'] ? (int)$plan['total_sessions'] : null);
+    add_plan_session($pdo, $plan['id'], $patientId, $done, $date, $label !== '' ? $label : $name, $source);   // the history
     if ($total && $done >= $total) {
         $pdo->prepare("UPDATE treatment_plans SET sessions_done = ?, total_sessions = ?, last_session_date = ?, next_due = NULL,
                               status = 'Completed', completed_at = NOW() WHERE id = ?")
@@ -187,7 +258,7 @@ function followup_after_treatment($pdo, $patientId, $name, $tooth, $date, array 
 
     $plan = $planId === null ? find_active_plan($pdo, $patientId, $name)
           : ($planId > 0 ? active_plan_by_id($pdo, $patientId, $planId) : null);
-    if ($plan) return record_plan_session($pdo, $plan, $date, $every, $custom, $total);
+    if ($plan) return record_plan_session($pdo, $plan, $date, $every, $custom, $total, $name, 'treatment');
 
     if (!$want) return '';
     $next = $custom ?: ($every ? $dueFrom($every) : null);
@@ -197,6 +268,7 @@ function followup_after_treatment($pdo, $patientId, $name, $tooth, $date, array 
                                                 sessions_done, last_session_date, next_due, created_by)
                    VALUES (?,?,?,?,?,?,1,?,?,?)")
         ->execute([(int)$patientId, $name, trim((string)$tooth) ?: null, $dentist, $every ?: null, $total, $date, $next, $dentist]);
+    add_plan_session($pdo, $pdo->lastInsertId(), $patientId, 1, $date, $name, 'treatment');     // session 1 of the history
     sync_next_visit($pdo, $patientId);
     return ' Follow-up set: next ' . $name . ' due ' . date('M j, Y', strtotime($next)) . ($total ? " (session 1 of $total done)" : '') . '.';
 }

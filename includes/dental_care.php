@@ -143,6 +143,9 @@ function my_dental_care_html($pdo, $patient, array $treatments, $forMember = fal
     .dc-note { background: #fff8e8; border-left: 3px solid var(--gold); border-radius: 6px; padding: 8px 10px; margin-top: 6px; font-size: .92rem; }
     .dc-tip  { background: #eef7f6; border-radius: 6px; padding: 8px 10px; margin-top: 6px; font-size: .88rem; color: #3f5350; }
     .dc-chg  { font-size: .9rem; padding: 2px 0; }
+    .dc-plan { background: #f7fafa; border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+    .dc-plan-hist { list-style: none; margin: 8px 0 0; padding: 0 0 0 12px; border-left: 3px solid var(--teal-light); }
+    .dc-plan-hist li { font-size: .9rem; padding: 3px 0; }
     </style>
 
     <!-- ===== 1. What you need to do ===== -->
@@ -173,6 +176,40 @@ function my_dental_care_html($pdo, $patient, array $treatments, $forMember = fal
             <?php endif; ?>
         </div>
     </div>
+
+    <!-- ===== Treatment plans (braces, root canal sessions…): every session with its date ===== -->
+    <?php $planHist = plans_with_history($pdo, $pid); if ($planHist): ?>
+    <div class="card-box mb-3">
+        <h5 class="mb-1">🔁 <?= $forMember ? e($whose) . ' treatment plans' : 'My treatment plans' ?></h5>
+        <div class="text-muted2 mb-2" style="font-size:.85rem;">Every session with its date — newest first.</div>
+        <?php foreach ($planHist as $pl):
+            $late = $pl['status'] === 'Active' && $pl['next_due'] && $pl['next_due'] < date('Y-m-d'); ?>
+            <div class="dc-plan">
+                <div class="flex-between flex-wrap gap-2">
+                    <b>🦷 <?= e($pl['treatment_name']) ?><?= $pl['tooth'] ? ' (' . e(tooth_label($pl['tooth'])) . ')' : '' ?>
+                        — session <?= (int)$pl['sessions_done'] ?><?= $pl['total_sessions'] ? ' of ' . (int)$pl['total_sessions'] : '' ?></b>
+                    <span class="badge-pill <?= $pl['status'] === 'Active' ? ($late ? 'b-cancelled' : 'b-pending') : 'b-completed' ?>">
+                        <?= $pl['status'] === 'Active' ? ($late ? 'Overdue' : 'In progress') : e($pl['status'] === 'Completed' ? 'Finished' : $pl['status']) ?></span>
+                </div>
+                <div class="text-muted2" style="font-size:.86rem;">
+                    <?php if ($pl['status'] === 'Active'): ?>
+                        <?= $pl['next_due'] ? 'next visit ' . ($late ? 'was due ' : 'due ') . date('D, M j, Y', strtotime($pl['next_due'])) : 'next visit: the dentist will tell you' ?>
+                    <?php elseif ($pl['status'] === 'Completed'): ?>
+                        all sessions done<?= $pl['completed_at'] ? ' — finished ' . date('M j, Y', strtotime($pl['completed_at'])) : '' ?>
+                    <?php else: ?>stopped<?php endif; ?>
+                </div>
+                <?php if ($pl['history']): ?>
+                    <ul class="dc-plan-hist">
+                        <?php foreach ($pl['history'] as $h): ?>
+                            <li><b>Session <?= (int)$h['session_no'] ?></b> — <?= date('D, M j, Y', strtotime($h['session_date'])) ?>
+                                <?= $h['label'] ? '<span class="text-muted2">· ' . e($h['label']) . '</span>' : '' ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 
     <!-- ===== 2. My visits ===== -->
     <div class="card-box">
