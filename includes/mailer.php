@@ -167,6 +167,11 @@ function smtp_cmd($socket, $cmd, $expect, &$error) {
  * @return bool   true if the server accepted the message
  */
 function send_mail($pdo, $to, $subject, $htmlBody, &$error = '', $kind = 'general') {
+    // Sample-data logins (System → Sample data) use "@sample.test": that address can never get mail.
+    if (preg_match('/@sample\.test$/i', trim((string)$to))) {
+        $error = 'This is a sample account with no real inbox, so no email was sent.';
+        return false;
+    }
     $ok = mail_config($pdo)['method'] === 'smtp'
         ? smtp_deliver($pdo, $to, $subject, $htmlBody, $error)
         : api_deliver($pdo, $to, $subject, $htmlBody, $error);    // Resend / Brevo over HTTPS

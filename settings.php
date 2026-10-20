@@ -27,10 +27,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // These actions change clinic-wide settings and must be admin-only, even if
     // someone crafts the POST by hand. Personal actions (profile, avatar,
     // password) are allowed for everyone and are handled further down.
-    $adminOnly = ['save_clinic','save_security','save_hours','save_google','save_portal'];
+    $adminOnly = ['save_clinic','save_security','save_hours','save_google','save_portal','demo_add','demo_remove'];
     if (in_array($action, $adminOnly) && current_role() !== 'admin') {
         set_flash('You do not have permission to change that.', 'error');
         header("Location: settings"); exit;
+    }
+
+    // 🧪 Sample data: practice records for a demo or training, removable with one click.
+    if ($action === 'demo_add' || $action === 'demo_remove') {
+        require_once 'includes/demo_data.php';
+        if ($action === 'demo_add') {
+            [$ok, $msg] = demo_add($pdo, $_SESSION['name'] ?? 'Admin');
+            if ($ok) log_activity($pdo, 'Added sample data', $msg);
+            set_flash($ok ? 'Sample data added: ' . $msg . '.' : $msg, $ok ? 'success' : 'error');
+        } else {
+            try {
+                $n = demo_remove($pdo);
+                if ($n) log_activity($pdo, 'Removed sample data', "$n records");
+                set_flash($n ? "Sample data removed ($n records). Real records were not touched." : 'There was no sample data to remove.');
+            } catch (Throwable $e) {
+                set_flash('Could not remove the sample data: ' . $e->getMessage(), 'error');
+            }
+        }
+        header("Location: settings#sample-data"); exit;
     }
 
     if ($action === 'save_clinic') {
@@ -429,6 +448,55 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                 <button class="btn btn-teal">💾 Save Clinic Hours</button>
             </form>
         </div>
+
+        <!-- ===== 🧪 Sample data: fill the system for a demo / training, remove it again ===== -->
+        <?php require_once 'includes/demo_data.php'; $demo = demo_status($pdo); ?>
+        <div class="card-box mt-3" id="sample-data">
+            <h5 class="mb-1">🧪 Sample data</h5>
+            <div class="text-muted2 mb-3" style="font-size:.85rem;">Practice records for a demo or for training staff — added and removed with one click.
+                Real patients and records are never changed or removed.</div>
+            <?php if ($demo):
+                $dc = $demo['counts'];
+                $chips = ['Patients' => $dc['patients'] ?? 0, 'Appointments' => $dc['appointments'] ?? 0, 'Treatment records' => $dc['treatments'] ?? 0,
+                          'Walk-ins' => $dc['walk_in_visits'] ?? 0, 'Dental charts' => $dc['chart_sessions'] ?? 0, 'Follow-up plans' => $dc['treatment_plans'] ?? 0]; ?>
+                <div class="sd-on mb-2">✅ Sample data is in the system<?= $demo['at'] ? ' — added ' . date('M j, Y g:i A', strtotime($demo['at'])) . ($demo['by'] ? ' by ' . e($demo['by']) : '') : '' ?></div>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <?php foreach ($chips as $cl => $cn): ?><span class="sd-chip"><b><?= (int)$cn ?></b> <?= $cl ?></span><?php endforeach; ?>
+                </div>
+                <div class="field-label mb-1">Sample patient-portal logins</div>
+                <div class="text-muted2 mb-2" style="font-size:.8rem;">Sign in with these on the login page to see what patients see (they book for their family too). These addresses have no real inbox, so no email is ever sent to them.</div>
+                <div class="table-responsive mb-3" style="max-width:520px;">
+                    <table class="table table-sm mb-0 sd-logins">
+                        <thead><tr><th>Email</th><th>Password</th></tr></thead>
+                        <tbody>
+                        <?php foreach (DEMO_LOGINS as $dl): ?><tr><td><code><?= e($dl) ?></code></td><td><code><?= e(DEMO_PASSWORD) ?></code></td></tr><?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <form method="POST" class="m-0" onsubmit="return confirm('Remove all sample data? Every sample patient, appointment, record and the 2 sample logins are deleted — including anything added to those sample patients since. Real records are not touched.')">
+                    <input type="hidden" name="action" value="demo_remove">
+                    <button class="btn btn-outline-danger" data-keep-text>🗑 Remove sample data</button>
+                </form>
+            <?php else: ?>
+                <ul class="mb-3 ps-3" style="font-size:.88rem;">
+                    <li><b>About 35 patients</b> — with phone numbers, ages, some allergies and medical alerts, and 2 families</li>
+                    <li><b>Appointments</b> over the last 3 months and the next 2 weeks — completed, cancelled, no-shows, today's visits and pending requests</li>
+                    <li><b>Treatment records, walk-ins, dental charts and notes</b> for the completed visits</li>
+                    <li><b>Follow-up plans</b> — braces (session 4 of 12), a root canal and a 6-month cleaning</li>
+                    <li><b>2 patient-portal logins</b> (their email and password are shown here once added)</li>
+                </ul>
+                <form method="POST" class="m-0" onsubmit="return confirm('Add sample data? About 35 practice patients with their appointments and records are added. You can remove all of it here any time.')">
+                    <input type="hidden" name="action" value="demo_add">
+                    <button class="btn btn-teal" data-keep-text>🧪 Add sample data</button>
+                </form>
+            <?php endif; ?>
+        </div>
+        <style>
+        .sd-on { color: #138a4e; font-weight: 600; }
+        .sd-chip { background: #eef7f6; border: 1px solid #d3e8e5; border-radius: 100px; padding: 4px 12px; font-size: .82rem; color: #0f5e57; }
+        .sd-chip b { font-weight: 700; }
+        .sd-logins code { color: #0d3b3b; background: #f4f7f8; padding: 2px 6px; border-radius: 6px; }
+        </style>
         <?php endif; ?>
 
         <?php if ($isAdmin): ?>
