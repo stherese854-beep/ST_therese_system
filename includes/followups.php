@@ -114,6 +114,31 @@ function backfill_plan_sessions($pdo) {
     } catch (Throwable $e) { /* try again after the next update */ }
 }
 
+// Treatment records keep the moment they were saved (My Visits: "Tue, Oct 20, 2026 · 5:29 PM").
+// Records saved before get it once from the Activity Log ("Added treatment"), in order.
+function ensure_treatment_times($pdo) {
+    try {
+        if (!$pdo->query("SHOW COLUMNS FROM treatments LIKE 'created_at'")->fetch()) {
+            $pdo->exec("ALTER TABLE treatments ADD COLUMN created_at DATETIME NULL DEFAULT NULL");               // old rows: unknown for now
+            $pdo->exec("ALTER TABLE treatments MODIFY created_at DATETIME NULL DEFAULT CURRENT_TIMESTAMP");      // new rows: when saved
+        }
+        if ($pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'treatment_times_v1'")->fetchColumn()) return;
+        $logs = [];                                       // "patient — treatment" => times, oldest first
+        foreach ($pdo->query("SELECT details, created_at FROM activity_log WHERE action = 'Added treatment' ORDER BY id") as $l) {
+            $key = mb_strtolower(trim(preg_replace('/\s+\(for .*\)$/u', '', (string)$l['details'])));
+            $logs[$key][] = $l['created_at'];
+        }
+        $up = $pdo->prepare("UPDATE treatments SET created_at = ? WHERE id = ?");
+        $n = 0;
+        foreach ($pdo->query("SELECT t.id, t.treatment_name, p.name FROM treatments t JOIN patients p ON p.id = t.patient_id
+                               WHERE t.created_at IS NULL ORDER BY t.id")->fetchAll() as $t) {
+            $key = mb_strtolower(trim($t['name'] . ' — ' . trim($t['treatment_name'])));
+            if (!empty($logs[$key])) { $up->execute([array_shift($logs[$key]), $t['id']]); $n++; }
+        }
+        save_setting($pdo, 'treatment_times_v1', date('Y-m-d H:i:s') . " ($n)");
+    } catch (Throwable $e) { /* try again after the next update */ }
+}
+
 /** All of a patient's plans, each with 'history' = its sessions, newest first. */
 function plans_with_history($pdo, $patientId) {
     $plans = all_plans($pdo, $patientId);

@@ -71,6 +71,7 @@ if (!$__schemaOk) {
     require_once __DIR__ . '/../includes/followups.php';
     ensure_followup_table($pdo);                    // follow-ups / treatment plans (braces, root canal sessions)
     ensure_plan_sessions_table($pdo);               // + every session of a plan, with its date
+    ensure_treatment_times($pdo);                   // treatment records keep the time they were saved
     require_once __DIR__ . '/../includes/teeth.php';
     cleanup_auto_chart_sessions($pdo);              // one time: blank visits the old Odontogram page made by itself
     ensure_tooth_other_schema($pdo);                // tooth condition "Other" (typed) + its column
