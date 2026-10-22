@@ -196,10 +196,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     // clinic changes it), so it is not checked again here.
     $knownDependent = null;
     if (($_POST['for'] ?? 'myself') === 'other' && $me['id']) {
-        $kd = $pdo->prepare("SELECT id, name, relationship FROM patients WHERE guardian_patient_id = ?");
+        $kd = $pdo->prepare("SELECT id, name, relationship, date_of_birth FROM patients WHERE guardian_patient_id = ?");
         $kd->execute([$me['id']]);
         foreach ($kd->fetchAll() as $r) if (person_name_key($r['name']) === person_name_key($patientName)) $knownDependent = $r;
         if ($knownDependent && trim((string)$knownDependent['relationship']) !== '') $relationshipPosted = $knownDependent['relationship'];
+    }
+    // Inside one account, family members are told apart by NAME. So booking "someone else"
+    // with the holder's own name, or with a family member's name but another birthday,
+    // asks them to tell the two apart (Jr. / Sr. / II / middle name) instead of
+    // quietly using the wrong record.
+    $nameClash = '';
+    if (($_POST['for'] ?? 'myself') === 'other' && $me['id']) {
+        $postedDob = trim($_POST['patient_dob'] ?? '');
+        if (person_name_key($patientName) === person_name_key($me['name'] ?? '')) {
+            $nameClash = '<strong>' . e($patientName) . '</strong> is your own name. If you are booking for someone else with the same name, '
+                       . 'please add <strong>Jr.</strong>, <strong>Sr.</strong>, <strong>II</strong> or their middle name so we can tell you apart.';
+        } elseif ($knownDependent && !empty($knownDependent['date_of_birth']) && $postedDob !== '' && $postedDob !== $knownDependent['date_of_birth']) {
+            $nameClash = 'You have booked for <strong>' . e($knownDependent['name']) . '</strong> before, born <strong>'
+                       . date('M j, Y', strtotime($knownDependent['date_of_birth'])) . '</strong>. If this is the same person, please use that birthday '
+                       . '(the clinic can correct it if it is wrong). If it is a <strong>different person</strong> with the same name, '
+                       . 'add <strong>Jr.</strong>, <strong>Sr.</strong>, <strong>II</strong> or a middle name so we can tell them apart.';
+        }
     }
     $relAgeError = (($_POST['for'] ?? 'myself') === 'other' && !$knownDependent)
                  ? relationship_age_problem($relationshipPosted, trim($_POST['patient_dob'] ?? ''), $me['date_of_birth'] ?? null, $patientName) : '';
@@ -222,6 +239,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = "That time has already passed today. Please choose a later time.";
     } elseif (($_POST['for'] ?? 'myself') === 'other' && ($dobErr = birth_date_error($_POST['patient_dob'] ?? '', true)) !== '') {
         $bookError = $dobErr;
+    } elseif ($nameClash !== '') {
+        $bookError = $nameClash;                      // same name as the holder / another family member
     } elseif ($relAgeError !== '') {
         $bookError = e($relAgeError);                 // e.g. a 5-year-old cannot be your parent
     } elseif ($manualBlockReason !== '') {

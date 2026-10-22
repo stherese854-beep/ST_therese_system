@@ -356,9 +356,10 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                 </div>
                             <?php else: ?>
                             <select name="patient_id" class="form-select mb-3" data-search="Search patient, e.g. Bi…" data-search-combo onchange="this.form.submit()">
-                                <?php foreach ($patients as $p): ?>
+                                <?php $dupNames = same_name_keys($patients);
+                                      foreach ($patients as $p): ?>
                                     <option value="<?= $p['id'] ?>" <?= ($p['id']==$patientId)?'selected':'' ?>>
-                                        <?= e($p['name']) ?> · Age <?= e($p['age']) ?> · <?= e($p['patient_type']) ?>
+                                        <?= e(patient_option_text($p, $dupNames)) ?> · <?= e($p['patient_type']) ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>

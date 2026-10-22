@@ -167,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edit_
 // walk-in patient on the spot. A booking made by the clinic is Confirmed
 // straight away (the clinic chose the time with the patient).
 function staff_bookable_patients($pdo) {
-    $sql = "SELECT p.id, p.name, p.phone, p.email, p.user_id, p.primary_dentist, g.name AS guardian_name, g.email AS guardian_email
+    $sql = "SELECT p.id, p.name, p.phone, p.email, p.user_id, p.primary_dentist, p.date_of_birth, p.age, g.name AS guardian_name, g.email AS guardian_email
               FROM patients p
          LEFT JOIN users u ON u.id = p.user_id
          LEFT JOIN patients g ON g.id = p.guardian_patient_id
@@ -959,9 +959,10 @@ $active = 'appointments';
           <!-- Patient picker: one box — click it to see the list, type to narrow it (see includes/head.php) -->
           <select name="patient_id" id="sb-patient" class="form-select" data-search="Search by name or phone..." data-search-combo onchange="sbPick()">
             <option value="" hidden>Search by name or phone...</option>
-            <?php foreach ($bookPatients as $bp): ?>
+            <?php $dupNames = same_name_keys($bookPatients);
+                  foreach ($bookPatients as $bp): ?>
               <option value="<?= (int)$bp['id'] ?>" data-dentist="<?= e($bp['primary_dentist']) ?>" <?= $bookPrefill === (int)$bp['id'] ? 'selected' : '' ?>>
-                <?= e($bp['name']) ?><?= $bp['phone'] ? ' · ' . e($bp['phone']) : '' ?> —
+                <?= e(patient_option_text($bp, $dupNames, true)) ?> —
                 <?= $bp['user_id'] ? 'has an account' : ($bp['guardian_name'] ? 'family of ' . e($bp['guardian_name']) : 'no account (walk-in)') ?>
               </option>
             <?php endforeach; ?>

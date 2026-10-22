@@ -203,6 +203,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         //  - <option value="" hidden>Choose…</option>  = nothing chosen yet (grey hint, not in the list)
         //  - required on the <select> moves to the box, so the browser still asks for it
         //  - a script that changes the <select> calls  select.comboSync()  to update the box
+        //  - <option data-label="…">: the box shows that once chosen (the list shows the full text)
         function combo(sel) {
             if (sel.dataset.searchReady) return;
             sel.dataset.searchReady = '1';
@@ -224,7 +225,8 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
             var items = [], hi = -1;
             function txt(o) { return o ? o.text.replace(/\s+/g, ' ').trim() : ''; }
             function chosen() { return sel.options[sel.selectedIndex] || null; }
-            function current() { var o = chosen(); return o && o.value !== '' ? txt(o) : ''; }
+            function label(o) { return o && o.dataset.label ? o.dataset.label : txt(o); }
+            function current() { var o = chosen(); return o && o.value !== '' ? label(o) : ''; }
             function mark() {
                 items.forEach(function (d, i) { d.classList.toggle('is-hi', i === hi); });
                 if (items[hi]) items[hi].scrollIntoView({ block: 'nearest' });
@@ -252,7 +254,7 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
                 inp.placeholder = (o && o.value === '' && !o.hidden && txt(o)) || hint;
             }
             function open(q) { build(q); list.hidden = false; inp.setAttribute('aria-expanded', 'true'); }
-            function start() { inp.placeholder = txt(chosen()) || hint; inp.value = ''; open(''); }   // fresh search
+            function start() { inp.placeholder = label(chosen()) || hint; inp.value = ''; open(''); }   // fresh search
             function close() { list.hidden = true; inp.setAttribute('aria-expanded', 'false'); show(); }
             sel.comboSync = show;
             sel.addEventListener('change', function () { if (list.hidden) show(); });

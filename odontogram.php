@@ -78,7 +78,7 @@ function odo_save_teeth($pdo, $pid, $sid, $json) {
 
 // Patients this user may chart: only real patients, and a DENTIST only
 // their own assigned ones. Used to reject a tampered ?patient= / patient_id.
-$odoSql = "SELECT p.id, p.name FROM patients p
+$odoSql = "SELECT p.id, p.name, p.date_of_birth, p.age, p.phone FROM patients p
            LEFT JOIN users u ON p.user_id = u.id
            WHERE (u.id IS NULL OR u.role = 'patient')";
 $odoPrm = [];
@@ -366,8 +366,9 @@ $active = 'odontogram';
                         <label class="field-label">Patient</label>
                         <select name="patient" class="form-select" style="max-width:420px;" onchange="this.form.submit()" data-search="Search patient…" data-search-combo>
                             <option value="" hidden <?= $pickedPatient ? '' : 'selected' ?>>Search patient…</option>
-                            <?php foreach ($patients as $p): ?>
-                                <option value="<?= $p['id'] ?>" <?= ($pickedPatient && $p['id']==$pid) ? 'selected' : '' ?>><?= e($p['name']) ?></option>
+                            <?php $dupNames = same_name_keys($patients);   /* two patients with the same name: age, birthday, phone tell them apart */
+                                  foreach ($patients as $p): ?>
+                                <option value="<?= $p['id'] ?>" data-label="<?= e(patient_option_label($p, $dupNames)) ?>" <?= ($pickedPatient && $p['id']==$pid) ? 'selected' : '' ?>><?= e(patient_option_text($p, $dupNames)) ?></option>
                             <?php endforeach; ?>
                         </select>
                         <?php if (!$pickedPatient && $pid): ?>

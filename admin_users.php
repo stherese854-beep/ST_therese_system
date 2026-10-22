@@ -50,6 +50,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: $usersBack"); exit;
         }
 
+        // A dentist's name must be their own (appointments and patients point to it).
+        if ($role === 'dentist' && ($dnErr = dentist_name_problem($pdo, $name, (int)$id)) !== '') {
+            set_flash($dnErr, 'error');
+            header("Location: $usersBack"); exit;
+        }
+
         // Make sure the email is real and not already taken.
         $emailError = validate_account_email($pdo, $email, $id ?: null);
         if ($emailError !== '') {
@@ -62,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $was->execute([$id]); $was = $was->fetch() ?: [];
             $pdo->prepare("UPDATE users SET name=?,email=?,role=?,specialty=?,contact=?,status=? WHERE id=?")
                 ->execute([$name,$email,$role,$spec,$contact,$status,$id]);
+            if (($was['role'] ?? '') === 'dentist' && $role === 'dentist') rename_dentist_links($pdo, $was['name'] ?? '', $name);
             $chg = change_list($was, ['name' => $name, 'email' => $email, 'role' => $role, 'specialty' => $spec, 'contact' => $contact, 'status' => $status],
                                ['name' => 'Name', 'email' => 'Email', 'role' => 'Role', 'specialty' => 'Specialty', 'contact' => 'Phone', 'status' => 'Status']);
             log_activity($pdo, 'Updated user', "$name ($role)" . ($chg ? ' — ' . $chg : ''));

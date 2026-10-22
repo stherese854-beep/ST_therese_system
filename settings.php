@@ -128,7 +128,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         [$newContact, $phoneError] = validate_phone($_POST['my_contact'] ?? '', false);
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
+        } elseif ($newName !== '' && current_role() === 'dentist' && ($dnErr = dentist_name_problem($pdo, $newName, $uid)) !== '') {
+            set_flash($dnErr, 'error');
         } elseif ($newName !== '') {
+            if (current_role() === 'dentist') rename_dentist_links($pdo, (string)($_SESSION['name'] ?? ''), $newName);   // their patients follow
             $pdo->prepare("UPDATE users SET name=?, contact=? WHERE id=?")
                 ->execute([$newName, $newContact, $uid]);
             $_SESSION['name'] = $newName;   // keep the top-right widget in sync

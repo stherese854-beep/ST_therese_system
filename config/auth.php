@@ -878,6 +878,43 @@ function person_name_key($name) {
     return strtolower(preg_replace('/\s+/', ' ', trim((string)$name)));
 }
 
+// ---- Two different patients with the same name ----
+// Every record is linked by the patient's ID, so their data never mixes; the
+// pickers just have to make it clear which one is which.
+
+/** The names more than one patient in this list has: [name key => count]. */
+function same_name_keys(array $patients) {
+    $n = [];
+    foreach ($patients as $p) { $k = person_name_key($p['name'] ?? ''); $n[$k] = ($n[$k] ?? 0) + 1; }
+    return array_filter($n, fn($c) => $c > 1);
+}
+
+/** Age in years from the birthday (else the age saved on the record), or null. */
+function patient_age_now(array $p) {
+    if (!empty($p['date_of_birth']) && ($a = age_from_dob($p['date_of_birth'])) !== null) return $a;
+    return (isset($p['age']) && $p['age'] !== '' && $p['age'] !== null) ? (int)$p['age'] : null;
+}
+
+/**
+ * One patient in a picker list: "Maria Santos · 34 yrs". When another patient in the
+ * list has the same name: "Maria Santos · 34 yrs · born Mar 3, 1992 · 09171234567 ⚠ same name".
+ */
+function patient_option_text(array $p, array $dupKeys, $withPhone = false) {
+    $dup = isset($dupKeys[person_name_key($p['name'] ?? '')]);
+    $age = patient_age_now($p);
+    $t = (string)$p['name'] . ($age !== null ? ' · ' . $age . ' yrs' : '');
+    if ($dup && !empty($p['date_of_birth'])) $t .= ' · born ' . date('M j, Y', strtotime($p['date_of_birth']));
+    if (($dup || $withPhone) && !empty($p['phone'])) $t .= ' · ' . $p['phone'];
+    return $t . ($dup ? ' ⚠ same name' : '');
+}
+
+/** What the search box shows once a patient is picked: the name (+ age when the name is shared). */
+function patient_option_label(array $p, array $dupKeys) {
+    if (!isset($dupKeys[person_name_key($p['name'] ?? '')])) return (string)$p['name'];
+    $age = patient_age_now($p);
+    return $p['name'] . ($age !== null ? ' · ' . $age . ' yrs' : '') . (!empty($p['date_of_birth']) ? ' · born ' . date('M j, Y', strtotime($p['date_of_birth'])) : '');
+}
+
 // "Dr. Santos" (short form on old appointments) -> "Dr. Ana Santos" when that dentist exists.
 function canonical_dentist_name($pdo, $name) {
     if (!$name) return null;

@@ -87,6 +87,33 @@ function dentist_name_variants($fullName) {
 }
 
 // Builds an SQL fragment like "(col = ? OR col = ? OR col = ?)" plus its params.
+// Appointments, patients and schedules point to a dentist by NAME, so two dentists
+// may not share one. "Dr. Ana Santos" and "Ana Santos" count as the same name.
+// Returns an error message, or '' when the name is free.
+function dentist_name_problem($pdo, $name, $exceptUserId = 0) {
+    $bare = fn($n) => preg_replace('/^(dr|dra|doc|doctor)\.?\s+/i', '', person_name_key($n));
+    $st = $pdo->prepare("SELECT name FROM users WHERE role = 'dentist' AND id <> ?");
+    $st->execute([(int)$exceptUserId]);
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $d) {
+        if ($bare($d) === $bare($name)) {
+            return 'There is already a dentist named "' . $d . '". Please add a middle initial or a suffix '
+                 . '(e.g. "Ana B. Santos" or "Ana Santos Jr.") so their patients and schedules do not mix.';
+        }
+    }
+    return '';
+}
+
+// A dentist's name changed: their appointments, patients, walk-ins, follow-up plans,
+// treatment records and days off follow the new name (they are linked by name).
+function rename_dentist_links($pdo, $old, $new) {
+    if ($old === '' || $old === $new) return;
+    foreach (['appointments' => 'dentist', 'patients' => 'primary_dentist', 'walk_in_visits' => 'dentist',
+              'treatment_plans' => 'dentist', 'treatments' => 'dentist', 'dentist_daysoff' => 'dentist_name'] as $t => $col) {
+        try { $pdo->prepare("UPDATE `$t` SET `$col` = ? WHERE `$col` = ?")->execute([$new, $old]); }
+        catch (Throwable $e) { /* table not there on an old database */ }
+    }
+}
+
 function dentist_match_sql($column, $fullName, &$params) {
     $variants = dentist_name_variants($fullName);
     $marks = [];

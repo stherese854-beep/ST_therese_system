@@ -42,6 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $emailError = 'Please enter both a first name and a last name.';
         } elseif ($phoneError !== '') {
             $emailError = $phoneError;
+        } elseif (($emailError = dentist_name_problem($pdo, $name)) !== '') {
+            // another dentist already has this name
         } else {
             // Shared check: format, the domain really accepts mail, and not taken.
             $emailError = validate_account_email($pdo, $email);

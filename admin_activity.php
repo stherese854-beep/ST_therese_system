@@ -51,7 +51,18 @@ if ($q !== '') {
 }
 if ($from !== '') { $where[] = "created_at >= ?"; $params[] = $from . ' 00:00:00'; }
 if ($to !== '')   { $where[] = "created_at <= ?"; $params[] = $to . ' 23:59:59'; }
-if ($patientFilter) { $where[] = "(patient_id = ? OR details LIKE ?)"; $params[] = $patientFilter; $params[] = '%' . $patientFilterName . '%'; }
+// Older entries only carry the name, so when another patient has the SAME name only
+// the entries tagged with this patient's ID are shown (the others could be theirs).
+$patientNameShared = false;
+if ($patientFilter) {
+    $sn = $pdo->prepare("SELECT name FROM patients WHERE id <> ?");
+    $sn->execute([$patientFilter]);
+    foreach ($sn->fetchAll(PDO::FETCH_COLUMN) as $other) {
+        if (person_name_key($other) === person_name_key($patientFilterName)) { $patientNameShared = true; break; }
+    }
+    if ($patientNameShared) { $where[] = "patient_id = ?"; $params[] = $patientFilter; }
+    else { $where[] = "(patient_id = ? OR details LIKE ?)"; $params[] = $patientFilter; $params[] = '%' . $patientFilterName . '%'; }
+}
 $baseWhere = $where ? implode(' AND ', $where) : '1=1';
 
 // Count per category (one query).
@@ -128,7 +139,8 @@ $active = 'activity';
 
         <?php if ($patientFilter): ?>
             <div class="alert py-2 d-flex align-items-center gap-2 flex-wrap" style="background:#eef7f6;border:1px solid #d3e8e5;color:#0f5e57;">
-                🕘 <span>Record history of <b><?= e($patientFilterName) ?></b> — who opened or changed this patient's record, and when.</span>
+                🕘 <span>Record history of <b><?= e($patientFilterName) ?></b> — who opened or changed this patient's record, and when.
+                    <?php if ($patientNameShared): ?><br><small>⚠ Another patient has the same name, so only entries recorded for this exact patient are shown.</small><?php endif; ?></span>
                 <a href="<?= e(activity_url(['patient' => '', 'page' => 1])) ?>" class="ms-auto btn btn-sm btn-light" data-keep-text>✕ Show everything</a>
             </div>
         <?php endif; ?>

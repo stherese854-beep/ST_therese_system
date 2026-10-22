@@ -68,7 +68,7 @@ function walkins_today($pdo, $dentist = '') {
 
 // Patients the signed-in person may record a walk-in for (a dentist: their own patients).
 function walkin_patients($pdo) {
-    $sql = "SELECT p.id, p.name, p.phone, p.date_of_birth, p.primary_dentist FROM patients p
+    $sql = "SELECT p.id, p.name, p.phone, p.date_of_birth, p.age, p.primary_dentist FROM patients p
               LEFT JOIN users u ON u.id = p.user_id
              WHERE p.status <> 'Archived' AND (u.id IS NULL OR u.role = 'patient')";
     $prm = [];
@@ -130,8 +130,9 @@ function walkin_form($pdo, $assets = true) {
       <!-- One box: click it to see the list, type to narrow it (see includes/head.php) -->
       <select name="patient_id" id="wi-patient" class="form-select" data-search="Search name or phone…" data-search-combo onchange="wiPick()">
         <option value="" hidden>Search name or phone…</option>
-        <?php foreach ($pts as $p): ?>
-          <option value="<?= (int)$p['id'] ?>" data-dentist="<?= e($p['primary_dentist'] ?? '') ?>"><?= e($p['name']) ?><?= $p['phone'] ? ' · ' . e($p['phone']) : '' ?></option>
+        <?php $dupNames = same_name_keys($pts);
+              foreach ($pts as $p): ?>
+          <option value="<?= (int)$p['id'] ?>" data-dentist="<?= e($p['primary_dentist'] ?? '') ?>"><?= e(patient_option_text($p, $dupNames, true)) ?></option>
         <?php endforeach; ?>
       </select>
     </div>
