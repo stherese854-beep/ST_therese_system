@@ -85,6 +85,7 @@ if (!$__schemaOk) {
     ensure_walkin_table($pdo);                      // walk-in visits (no appointment)
     ensure_chart_access_schema($pdo);               // dentists' approval PINs + "entered by" (staff charting)
     ensure_login_security_schema($pdo);             // account lockout columns + patient ID on Activity Log entries
+    ensure_name_parts_schema($pdo);                 // first_name / last_name next to the full name (patients, users)
     ensure_indexes($pdo);                           // last: indexes on the tables above, so pages stay fast as records grow
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
@@ -878,6 +879,70 @@ function person_name_key($name) {
     return strtolower(preg_replace('/\s+/', ' ', trim((string)$name)));
 }
 
+// ---- First name / last name ----
+// patients and users keep the full name (`name`: shown everywhere, and what appointments
+// and schedules point to) AND its parts (`first_name`, `last_name`). The forms ask for the
+// parts; split_full_name() only works them out for names saved before, or typed in one box.
+/** [title, first, last]: "Dr. Jose Rizal Dela Cruz Jr." -> ['Dr.', 'Jose Rizal', 'Dela Cruz Jr.']. */
+function split_full_name($full) {
+    // (Lists kept inside the function: it also runs during the database update at the top of this file.)
+    static $NAME_TITLES = ['dr', 'dr.', 'dra', 'dra.', 'doc', 'mr', 'mr.', 'ms', 'ms.', 'mrs', 'mrs.'];
+    static $SURNAME_PARTICLES = ['de', 'del', 'dela', 'delos', 'della', 'di', 'da', 'dos', 'das', 'du', 'la', 'las', 'los',
+                                 'san', 'santa', 'santo', 'sta.', 'sto.', 'van', 'von', 'der', 'den', 'y'];
+    static $NAME_SUFFIXES = ['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v'];
+    $w = preg_split('/\s+/', trim((string)$full), -1, PREG_SPLIT_NO_EMPTY);
+    $title = '';
+    if (count($w) > 1 && in_array(strtolower($w[0]), $NAME_TITLES, true)) $title = array_shift($w);
+    if (count($w) < 2) return [$title, $w[0] ?? '', ''];
+    $suffix = '';
+    if (count($w) > 2 && in_array(strtolower(rtrim(end($w), ',')), $NAME_SUFFIXES, true)) $suffix = array_pop($w);
+    $last = [array_pop($w)];
+    // "Dela Cruz", "de la Paz", "San Juan", "Delos Santos": the small words before the surname belong to it.
+    while (count($w) > 1 && in_array(strtolower(end($w)), $SURNAME_PARTICLES, true)) array_unshift($last, array_pop($w));
+    return [$title, implode(' ', $w), trim(implode(' ', $last) . ' ' . $suffix)];
+}
+
+/**
+ * Saves the first / last name next to the full name of a patient or user. Pass them
+ * when the form asked for them; left out, they are worked out from the full name.
+ */
+function save_name_parts($pdo, $table, $id, $first = null, $last = null) {
+    if (!in_array($table, ['patients', 'users'], true) || !(int)$id) return;
+    try {
+        if ($first === null || $last === null) {
+            $st = $pdo->prepare("SELECT name FROM `$table` WHERE id = ?");
+            $st->execute([(int)$id]);
+            [, $first, $last] = split_full_name((string)$st->fetchColumn());
+        }
+        $pdo->prepare("UPDATE `$table` SET first_name = ?, last_name = ? WHERE id = ?")
+            ->execute([mb_substr(trim((string)$first), 0, 60) ?: null, mb_substr(trim((string)$last), 0, 60) ?: null, (int)$id]);
+    } catch (Throwable $e) { /* never blocks the save itself */ }
+}
+
+/** [first, last] of a patients / users row: the saved parts, else worked out from the full name. */
+function name_parts_of(array $row) {
+    if (trim((string)($row['first_name'] ?? '')) !== '') return [(string)$row['first_name'], (string)($row['last_name'] ?? '')];
+    [, $f, $l] = split_full_name($row['name'] ?? '');
+    return [$f, $l];
+}
+
+function ensure_name_parts_schema($pdo) {
+    foreach (['patients', 'users'] as $t) {
+        try {
+            if (!$pdo->query("SHOW COLUMNS FROM `$t` LIKE 'first_name'")->fetch()) {
+                $pdo->exec("ALTER TABLE `$t` ADD COLUMN first_name VARCHAR(60) NULL DEFAULT NULL AFTER name,
+                                             ADD COLUMN last_name VARCHAR(60) NULL DEFAULT NULL AFTER first_name");
+            }
+            // Names saved before (or by an older version) get their parts.
+            $up = $pdo->prepare("UPDATE `$t` SET first_name = ?, last_name = ? WHERE id = ?");
+            foreach ($pdo->query("SELECT id, name FROM `$t` WHERE first_name IS NULL AND name <> ''")->fetchAll() as $r) {
+                [, $f, $l] = split_full_name($r['name']);
+                $up->execute([mb_substr($f, 0, 60) ?: null, mb_substr($l, 0, 60) ?: null, $r['id']]);
+            }
+        } catch (Throwable $e) {}
+    }
+}
+
 // ---- Two different patients with the same name ----
 // Every record is linked by the patient's ID, so their data never mixes; the
 // pickers just have to make it clear which one is which.
@@ -927,7 +992,7 @@ function canonical_dentist_name($pdo, $name) {
 // The family member's record under this guardian (matched by name), created
 // the first time. Returns the patient id.
 function find_or_create_dependent($pdo, $guardianPid, $name, $relationship = null, $dob = null,
-                                  $dentist = null, $phone = null, $createdAt = null) {
+                                  $dentist = null, $phone = null, $createdAt = null, $first = null, $last = null) {
     $name = trim(preg_replace('/\s+/', ' ', (string)$name));
     if ($name === '' || (int)$guardianPid <= 0) return null;
     $st = $pdo->prepare("SELECT id, name FROM patients WHERE guardian_patient_id = ?");
@@ -945,7 +1010,9 @@ function find_or_create_dependent($pdo, $guardianPid, $name, $relationship = nul
                    VALUES (?, ?, ?, ?, 'New', 'Active', ?, ?, ?, COALESCE(?, NOW()))")
         ->execute([ucwords($name), $phone, $age, $dob ?: null, $dentist, (int)$guardianPid,
                    $relationship ?: null, $createdAt]);
-    return (int)$pdo->lastInsertId();
+    $newId = (int)$pdo->lastInsertId();
+    save_name_parts($pdo, 'patients', $newId, $first !== null ? ucwords($first) : null, $last !== null ? ucwords($last) : null);
+    return $newId;
 }
 
 // The patient's own record + every family member they book for.

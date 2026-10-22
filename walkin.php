@@ -64,6 +64,7 @@ if ($mode === 'new') {
                        VALUES (?, ?, ?, ?, 'New', 'Active', ?)")
             ->execute([$name, $phone, $dob ?: null, $dob !== '' ? age_from_dob($dob) : null, $dentist]);
         $patient = ['id' => (int)$pdo->lastInsertId(), 'name' => $name, 'primary_dentist' => $dentist];
+        save_name_parts($pdo, 'patients', $patient['id'], ucwords($first), ucwords($last));
         log_activity($pdo, 'Added patient', $name . ' (walk-in)');
         $note = '';
     }

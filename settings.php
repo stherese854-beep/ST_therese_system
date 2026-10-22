@@ -124,7 +124,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---- Update the logged-in user's own profile info (name, contact) ----
     if ($action === 'save_profile') {
         $uid = $_SESSION['user_id'];
-        $newName = trim($_POST['my_name'] ?? '');
+        // First + last name boxes; a title the name already had (e.g. "Dr.") is kept.
+        $myFirst = trim($_POST['my_first'] ?? '');
+        $myLast  = trim($_POST['my_last'] ?? '');
+        [$myTitle] = split_full_name($_SESSION['name'] ?? '');
+        $newName = $myFirst !== '' ? trim(preg_replace('/\s+/', ' ', "$myTitle $myFirst $myLast")) : trim($_POST['my_name'] ?? '');
         [$newContact, $phoneError] = validate_phone($_POST['my_contact'] ?? '', false);
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
@@ -134,6 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (current_role() === 'dentist') rename_dentist_links($pdo, (string)($_SESSION['name'] ?? ''), $newName);   // their patients follow
             $pdo->prepare("UPDATE users SET name=?, contact=? WHERE id=?")
                 ->execute([$newName, $newContact, $uid]);
+            save_name_parts($pdo, 'users', $uid, $myFirst !== '' ? $myFirst : null, $myFirst !== '' ? $myLast : null);
             $_SESSION['name'] = $newName;   // keep the top-right widget in sync
             log_activity($pdo, 'Updated profile', 'Own profile');
             set_flash('Your profile was updated.');
@@ -233,7 +238,7 @@ $profileView = !$isAdmin || ($_GET['view'] ?? '') === 'profile'
             || in_array($_POST['action'] ?? '', ['save_profile','upload_avatar','remove_avatar','change_password','verify_password_code'], true);
 
 // The logged-in user's own account (for the My Profile card).
-$meStmt = $pdo->prepare("SELECT name, email, contact, photo, role FROM users WHERE id=?");
+$meStmt = $pdo->prepare("SELECT name, first_name, last_name, email, contact, photo, role FROM users WHERE id=?");
 $meStmt->execute([$_SESSION['user_id'] ?? 0]);
 $meUser = $meStmt->fetch() ?: ['name'=>'','email'=>'','contact'=>'','photo'=>'','role'=>''];
 $myHasPhoto = !empty($meUser['photo']) && is_file(__DIR__ . '/' . $meUser['photo']);
@@ -299,9 +304,14 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                         <input type="hidden" name="action" value="save_profile">
                         <div class="text-muted2 mb-2" style="font-size:.82rem;font-weight:600;">Personal Information</div>
                         <div class="row">
-                            <div class="col-md-6">
-                                <label class="field-label">Full Name</label>
-                                <input name="my_name" class="form-control mb-3" value="<?= e($meUser['name']) ?>" required>
+                            <?php [$myF, $myL] = name_parts_of($meUser); ?>
+                            <div class="col-md-3">
+                                <label class="field-label">First Name</label>
+                                <input name="my_first" class="form-control mb-3" value="<?= e($myF) ?>" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="field-label">Last Name</label>
+                                <input name="my_last" class="form-control mb-3" value="<?= e($myL) ?>" required>
                             </div>
                             <div class="col-md-6">
                                 <label class="field-label">Contact Number</label>

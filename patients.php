@@ -81,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Age and blood type are left alone here — they are edited in Records.
             $pdo->prepare("UPDATE patients SET name=?, email=?, phone=?, status=?, patient_type=?, visit_reason=? WHERE id=?")
                 ->execute([$name, $email, $phone, $status, $ptype, $vreason, $id]);
+            save_name_parts($pdo, 'patients', $id, $first, $last);
             if ($canDob) {
                 $pdo->prepare("UPDATE patients SET date_of_birth=?, age=? WHERE id=?")->execute([$dob ?: null, $age, $id]);
                 // Who a booked-for person is to the account holder (People I Book For shows it).
@@ -109,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($uid) {
                 try {
                     $pdo->prepare("UPDATE users SET name=?, email=? WHERE id=?")->execute([$name, $email, $uid]);
+                    save_name_parts($pdo, 'users', $uid, $first, $last);
                     if ($newpass !== '') {
                         $pdo->prepare("UPDATE users SET password=? WHERE id=?")
                             ->execute([password_hash($newpass, PASSWORD_DEFAULT), $uid]);
@@ -129,6 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("INSERT INTO users (name,email,password,role,status) VALUES (?,?,?,'patient','active')")
                         ->execute([$name, $email, password_hash($accPass, PASSWORD_DEFAULT)]);
                     $newUserId = $pdo->lastInsertId();
+                    save_name_parts($pdo, 'users', $newUserId, $first, $last);
                 } catch (PDOException $ex) {
                     set_flash('That email is already used by another account. Patient not added.', 'error');
                     header("Location: patients"); exit;
@@ -142,6 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 : pick_dentist_for_new_patient($pdo);
             $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,status,patient_type,primary_dentist,date_of_birth,age) VALUES (?,?,?,?,?,'New',?,?,?)")
                 ->execute([$newUserId, $name, $email, $phone, $status, $assignedDentist, $dob ?: null, $age]);
+            save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $first, $last);
 
             // Message that explains whether an account was created.
             if ($newUserId) {
@@ -856,10 +860,10 @@ function validatePauseBooking(){
     function openEdit(p) {
         document.getElementById('modal-title').textContent = 'Edit Patient';
         document.getElementById('f-id').value = p.id;
-        // Split the full name into first + last (first word = first name).
+        // The saved first / last name (older records: the full name split at the first space).
         var parts = (p.name || '').trim().split(' ');
-        document.getElementById('f-first').value = parts.shift() || '';
-        document.getElementById('f-last').value  = parts.join(' ');
+        document.getElementById('f-first').value = p.first_name || parts.shift() || '';
+        document.getElementById('f-last').value  = p.first_name ? (p.last_name || '') : parts.join(' ');
         document.getElementById('f-email').value = p.email || '';
         document.getElementById('f-phone').value = p.phone || '';
         document.getElementById('f-em-name').value = p.emergency_name || '';

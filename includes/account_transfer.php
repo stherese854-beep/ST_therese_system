@@ -174,6 +174,7 @@ function accept_account_invite($pdo, $inv, $password, $phone) {
                        VALUES (?, ?, ?, 'patient', 'active', ?, 1, NOW())")
             ->execute([$inv['name'], $inv['email'], password_hash($password, PASSWORD_DEFAULT), $phone]);
         $uid = (int)$pdo->lastInsertId();
+        save_name_parts($pdo, 'users', $uid);
         // Same record, new owner: every appointment, chart, note and X-ray stays attached.
         $pdo->prepare("UPDATE patients SET user_id = ?, guardian_patient_id = NULL, relationship = NULL, email = ?,
                               phone = COALESCE(NULLIF(?, ''), phone) WHERE id = ?")

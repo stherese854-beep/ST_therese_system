@@ -209,6 +209,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
         // keep the login account's name in step
         $pdo->prepare("UPDATE users SET name=? WHERE id=?")->execute([$name, $_SESSION['user_id']]);
+        save_name_parts($pdo, 'patients', $pid, $first, $last);
+        save_name_parts($pdo, 'users', $_SESSION['user_id'], $first, $last);
         $_SESSION['name'] = $name;
 
         log_activity($pdo, 'Updated profile', 'Own profile');
@@ -1111,9 +1113,9 @@ include 'includes/head.php';
                             <input type="hidden" name="action" value="save_profile">
                             <div class="row g-3">
                                 <div class="col-md-6"><label class="field-label">First Name</label>
-                                    <input name="first_name" class="form-control" value="<?= e(explode(' ', $me['name'])[0] ?? '') ?>" required></div>
+                                    <input name="first_name" class="form-control" value="<?= e(name_parts_of($me)[0]) ?>" required></div>
                                 <div class="col-md-6"><label class="field-label">Last Name</label>
-                                    <input name="last_name" class="form-control" value="<?= e(trim(substr(strstr($me['name'],' '),1))) ?>"></div>
+                                    <input name="last_name" class="form-control" value="<?= e(name_parts_of($me)[1]) ?>"></div>
 
                                 <div class="col-md-6"><label class="field-label">Email (cannot be changed here)</label>
                                     <input class="form-control" value="<?= e($me['email']) ?>" readonly style="background:#eef7f6;"></div>

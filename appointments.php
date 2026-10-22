@@ -255,6 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
                        VALUES (?, ?, ?, ?, ?, 'New', 'Active', ?)")
             ->execute([ucwords(trim("$first $last")), $wPhone, $wEmail ?: null, $wDob ?: null, $age, $dentist]);
         $newId = (int)$pdo->lastInsertId();
+        save_name_parts($pdo, 'patients', $newId, ucwords($first), ucwords($last));
         $patient = ['id' => $newId, 'name' => ucwords(trim("$first $last")), 'email' => $wEmail, 'guardian_email' => null, 'primary_dentist' => $dentist];
         log_activity($pdo, 'Added patient', $patient['name'] . ' (walk-in)');
     } elseif (empty($patient['primary_dentist'])) {

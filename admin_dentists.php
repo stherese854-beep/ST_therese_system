@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status)
                            VALUES (?,?,?,'dentist',?,?,'active')")
                 ->execute([$name,$email,$hash,$spec,$contact]);
+            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);   // first / last name kept apart too
 
             // Email their login details. This is useful for them AND it proves the
             // address really works — if it bounces, we say so.

@@ -372,6 +372,10 @@ function demo_add($pdo, $by) {
                                                  'Brushes too hard; showed soft brushing.', 'Recommended a night guard for grinding.'])]);
     }
 
+    // First / last name next to each full name.
+    foreach ($added['patients'] ?? [] as $id) save_name_parts($pdo, 'patients', $id);
+    foreach ($added['users'] ?? [] as $id) save_name_parts($pdo, 'users', $id);
+
     // Remember every row, then the patients' last visit / New–Returning.
     $rec = $pdo->prepare("INSERT IGNORE INTO demo_records (tbl, row_id) VALUES (?, ?)");
     foreach ($added as $t => $ids) foreach ($ids as $id) $rec->execute([$t, $id]);

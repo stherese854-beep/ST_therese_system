@@ -77,10 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
                                VALUES (?,?,?,'patient','active',1,?,?)")
                     ->execute([$name, $gp['email'], $randomPass, $gp['gid'], $phone]);
                 $newId = $pdo->lastInsertId();
+                save_name_parts($pdo, 'users', $newId, $first, $last);
                 $assignedDentist = pick_dentist_for_new_patient($pdo);
                 $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,patient_type,status,primary_dentist,date_of_birth,age)
                                VALUES (?,?,?,?,'New','Active',?,?,?)")
                     ->execute([$newId, $name, $gp['email'], $phone, $assignedDentist, $dob, $age]);
+                save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $first, $last);
 
                 unset($_SESSION['google_pending']);
                 session_regenerate_id(true);   // fresh session ID on sign-in
@@ -275,6 +277,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             $code = (string) random_int(100000, 999999);
             $_SESSION['pending'] = [
                 'name'  => $name,
+                'first' => $first,
+                'last'  => $last,
                 'email' => $email,
                 'phone' => $phone,
                 'hash'  => password_hash($pass, PASSWORD_DEFAULT),
@@ -325,12 +329,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             $pdo->prepare("INSERT INTO users (name,email,password,role,status,email_verified,contact) VALUES (?,?,?,'patient','active',1,?)")
                 ->execute([$p['name'], $p['email'], $p['hash'], $p['phone'] ?? null]);
             $newId = $pdo->lastInsertId();
+            save_name_parts($pdo, 'users', $newId, $p['first'] ?? null, $p['last'] ?? null);
 
             // Also create a matching patient record + auto-assign a dentist.
             $assignedDentist = pick_dentist_for_new_patient($pdo);
             $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,patient_type,status,primary_dentist,date_of_birth,age) VALUES (?,?,?,?,'New','Active',?,?,?)")
                 ->execute([$newId, $p['name'], $p['email'], $p['phone'] ?? null, $assignedDentist,
                            $p['dob'] ?: null, $p['age'] ?? null]);
+            save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $p['first'] ?? null, $p['last'] ?? null);
 
             unset($_SESSION['pending']);
             session_regenerate_id(true);   // fresh session ID on sign-in

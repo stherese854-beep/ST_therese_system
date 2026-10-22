@@ -117,7 +117,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$err && $email !== '') $err = email_problem($email);
         $dob = trim($_POST['dob'] ?? '');
         if (!$err) $err = birth_date_error($dob);
-        if (trim($_POST['name'] ?? '') === '') $err = 'Please enter the patient\'s name.';
+        $ovFirst = trim($_POST['first_name'] ?? '');
+        $ovLast  = trim($_POST['last_name'] ?? '');
+        $ovName  = trim(preg_replace('/\s+/', ' ', "$ovFirst $ovLast"));
+        if ($ovFirst === '' || $ovLast === '') $err = 'Please enter the patient\'s first and last name.';
         if ($err) { set_flash($err, 'error'); header($back); exit; }
 
         $cur = $pdo->prepare("SELECT p.primary_dentist, p.user_id, u.email AS login_email FROM patients p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?");
@@ -140,10 +143,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdWas->execute([$pid]); $pdWas = $pdWas->fetch() ?: [];
         $pdo->prepare("UPDATE patients SET name = ?, date_of_birth = ?, age = ?, phone = ?, email = ?, primary_dentist = ?,
                               emergency_name = ?, emergency_phone = ? WHERE id = ?")
-            ->execute([trim($_POST['name']), $dob ?: null, $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null),
+            ->execute([$ovName, $dob ?: null, $dob !== '' ? age_from_dob($dob) : ($ageIn !== '' ? (int)$ageIn : null),
                        $cleanPhone, $email, $newDentist ?: null,
                        trim($_POST['emergency_name'] ?? '') ?: null, $emPhone ?: null, $pid]);
-        $pdChg = change_list($pdWas, ['name' => trim($_POST['name']), 'date_of_birth' => $dob, 'phone' => $cleanPhone, 'email' => $email,
+        save_name_parts($pdo, 'patients', $pid, $ovFirst, $ovLast);
+        $pdChg = change_list($pdWas, ['name' => $ovName, 'date_of_birth' => $dob, 'phone' => $cleanPhone, 'email' => $email,
                                       'primary_dentist' => $newDentist, 'emergency_name' => trim($_POST['emergency_name'] ?? ''), 'emergency_phone' => $emPhone],
                              ['name' => 'Name', 'date_of_birth' => 'Birthday', 'phone' => 'Phone', 'email' => 'Email', 'primary_dentist' => 'Dentist',
                               'emergency_name' => 'Emergency contact', 'emergency_phone' => 'Emergency phone']);
@@ -566,8 +570,13 @@ $active = 'records';
                     <input type="hidden" name="action" value="update_patient_details">
                     <input type="hidden" name="patient_id" value="<?= $pid ?>">
                     <div class="row g-3">
-                        <div class="col-md-4"><label class="field-label">Full name</label>
-                            <input name="name" class="form-control" value="<?= e($patientRow['name']) ?>" required></div>
+                        <?php [$ovF, $ovL] = name_parts_of($patientRow); ?>
+                        <div class="col-md-4"><div class="row g-2">
+                            <div class="col-6"><label class="field-label">First name</label>
+                                <input name="first_name" class="form-control" value="<?= e($ovF) ?>" required></div>
+                            <div class="col-6"><label class="field-label">Last name</label>
+                                <input name="last_name" class="form-control" value="<?= e($ovL) ?>" required></div>
+                        </div></div>
                         <div class="col-md-4"><label class="field-label">Date of birth</label>
                             <input type="date" name="dob" id="ov-dob" class="form-control" value="<?= e($patientRow['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>">
                             <!-- The age follows the birthday; it is typed only when the birthday is not known. -->

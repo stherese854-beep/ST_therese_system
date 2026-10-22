@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($sid) {
             $pdo->prepare("UPDATE users SET name = ?, email = ?, specialty = ?, contact = ?, status = ? WHERE id = ? AND role = 'staff'")
                 ->execute([$name, $email, $position, $contact, $status, $sid]);
+            save_name_parts($pdo, 'users', $sid, $first, $last);
             $chg = change_list($was, ['name' => $name, 'email' => $email, 'specialty' => $position, 'contact' => $contact, 'status' => $status],
                                ['name' => 'Name', 'email' => 'Email', 'specialty' => 'Position', 'contact' => 'Phone', 'status' => 'Status']);
             log_activity($pdo, 'Updated user', "$name (staff)" . ($chg ? ' — ' . $chg : ''));
@@ -55,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->prepare("INSERT INTO users (name, email, password, role, specialty, contact, status) VALUES (?, ?, ?, 'staff', ?, ?, 'active')")
                 ->execute([$name, $email, password_hash($tempPass, PASSWORD_DEFAULT), $position, $contact]);
+            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);
         } catch (PDOException $ex) {
             set_flash('That email is already in use. Please use a different email.', 'error');
             header("Location: admin_staff"); exit;
@@ -91,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------- The cards ----------
-$staffList = $pdo->query("SELECT id, name, email, specialty, position, contact, status, last_login, photo
+$staffList = $pdo->query("SELECT id, name, first_name, last_name, email, specialty, position, contact, status, last_login, photo
                             FROM users WHERE role = 'staff' AND status <> 'archived' ORDER BY name")->fetchAll();
 // Bookings + walk-ins each one entered in the last 30 days.
 $workDone = [];
@@ -128,7 +130,8 @@ $active = 'staff';
             <?php foreach ($staffList as $st):
                 $position = $st['specialty'] ?: ($st['position'] ?: '');
                 $done = $workDone[(int)$st['id']] ?? 0;
-                $form = ['id' => (int)$st['id'], 'name' => $st['name'], 'email' => $st['email'], 'position' => $position,
+                $form = ['id' => (int)$st['id'], 'name' => $st['name'], 'first_name' => (string)$st['first_name'], 'last_name' => (string)$st['last_name'],
+                         'email' => $st['email'], 'position' => $position,
                          'contact' => (string)$st['contact'], 'status' => $st['status']]; ?>
                 <div class="card-box h-100 mb-0">
                     <div class="d-flex align-items-center gap-3 mb-3">
@@ -226,6 +229,7 @@ function staffForm(s) {
     var $ = function (id) { return document.getElementById(id); };
     var parts = s ? s.name.trim().split(/\s+/) : [], title = '';
     if (parts.length && ['Mr.', 'Ms.', 'Mrs.'].indexOf(parts[0]) !== -1) title = parts.shift();
+    if (s && s.first_name) parts = [s.first_name].concat(s.last_name ? [s.last_name] : []);   // the saved first / last name
     $('s-action').value = s ? 'edit_staff' : 'add_staff';
     $('s-id').value = s ? s.id : '';
     $('s-title').textContent = s ? s.name : 'Add Staff';

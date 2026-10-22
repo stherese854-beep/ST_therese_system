@@ -305,7 +305,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         if ($forWhom === 'Someone else' && $me['id']) {
             $apptPatientId = find_or_create_dependent($pdo, $me['id'], $patientName, $relationship,
                                                       trim($_POST['patient_dob'] ?? '') ?: null,
-                                                      $bookDentist, $me['phone'] ?? null) ?: $me['id'];
+                                                      $bookDentist, $me['phone'] ?? null, null,
+                                                      trim($_POST['fname'] ?? ''), trim($_POST['lname'] ?? '')) ?: $me['id'];
         }
 
         $pdo->prepare("INSERT INTO appointments
@@ -680,10 +681,10 @@ include 'includes/head.php';
 
                 <div class="row">
                     <div class="col"><label class="field-label">First Name</label>
-                        <input name="fname" id="sel-fname" class="form-control mb-1" value="<?= e(explode(' ',$me['name'])[0]) ?>" readonly>
+                        <input name="fname" id="sel-fname" class="form-control mb-1" value="<?= e(name_parts_of($me)[0]) ?>" readonly>
                     </div>
                     <div class="col"><label class="field-label">Last Name</label>
-                        <input name="lname" id="sel-lname" class="form-control mb-1" value="<?= e(trim(substr(strstr($me['name'],' '),1))) ?>" readonly>
+                        <input name="lname" id="sel-lname" class="form-control mb-1" value="<?= e(name_parts_of($me)[1]) ?>" readonly>
                     </div>
                 </div>
                 <div id="name-warn" class="text-danger small mb-2" style="display:none;">Please enter the patient's first and last name.</div>

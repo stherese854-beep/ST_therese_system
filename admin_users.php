@@ -68,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $was->execute([$id]); $was = $was->fetch() ?: [];
             $pdo->prepare("UPDATE users SET name=?,email=?,role=?,specialty=?,contact=?,status=? WHERE id=?")
                 ->execute([$name,$email,$role,$spec,$contact,$status,$id]);
+            save_name_parts($pdo, 'users', $id, $first, $last);
             if (($was['role'] ?? '') === 'dentist' && $role === 'dentist') rename_dentist_links($pdo, $was['name'] ?? '', $name);
             $chg = change_list($was, ['name' => $name, 'email' => $email, 'role' => $role, 'specialty' => $spec, 'contact' => $contact, 'status' => $status],
                                ['name' => 'Name', 'email' => 'Email', 'role' => 'Role', 'specialty' => 'Specialty', 'contact' => 'Phone', 'status' => 'Status']);
@@ -79,6 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hash = password_hash($tempPass, PASSWORD_DEFAULT);
             $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status) VALUES (?,?,?,?,?,?,?)")
                 ->execute([$name,$email,$hash,$role,$spec,$contact,$status]);
+            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);
 
             // Email them their login details — useful, and it proves the address works.
             $note = '';
@@ -233,7 +235,7 @@ $active = 'users';
                             <td class="no-print">
                                 <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
                                 <?php // only what the form needs (never the password hash or tokens) ?>
-                                <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode(array_intersect_key($u, array_flip(['id', 'name', 'email', 'role', 'specialty', 'position', 'contact', 'status'])), JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode(array_intersect_key($u, array_flip(['id', 'name', 'first_name', 'last_name', 'email', 'role', 'specialty', 'position', 'contact', 'status'])), JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
                                 <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')"
                                       <?php if (!empty($famByUser[(int)$u['id']])): ?>data-family='<?= e(json_encode($famByUser[(int)$u['id']])) ?>' data-who="<?= e($u['name']) ?>"<?php endif; ?>>
                                     <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $u['id'] ?>">
@@ -323,6 +325,7 @@ function openEditUser(u){
     document.getElementById('u-title').textContent = 'Edit User';   // the form opens filled in: change only what you need
     document.getElementById('u-id').value=u.id;
     var n = splitName(u.name);
+    if (u.first_name) { n.first = u.first_name; n.last = u.last_name || ''; }   // the saved first / last name
     document.getElementById('u-title-sel').value = n.title;
     document.getElementById('u-first').value = n.first;
     document.getElementById('u-last').value  = n.last;
