@@ -1134,6 +1134,22 @@ function checkMerge() {
     return confirm('Merge records?\n\nKEEP: ' + kt + '\nMOVE + ARCHIVE: ' + dt + '\n\nEverything from the second record moves onto the first. Continue?');
 }
 </script>
+<?php
+// Opened from Treatment Records ("Give them an account →"): the invite form pops up for that patient.
+$inviteFor = in_array(current_role(), ['admin', 'staff'], true) ? (int)($_GET['invite'] ?? 0) : 0;
+if ($inviteFor) {
+    $iq = $pdo->prepare("SELECT id, name, email, date_of_birth, age, user_id FROM patients WHERE id = ?");
+    $iq->execute([$inviteFor]);
+    $inviteRow = $iq->fetch();
+}
+if (!empty($inviteRow) && empty($inviteRow['user_id']) && !isset($openInvites[(int)$inviteRow['id']])): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    openOwnInvite(<?= json_encode(['id' => (int)$inviteRow['id'], 'name' => $inviteRow['name'], 'email' => $inviteRow['email'] ?? '',
+                                   'age' => account_age($inviteRow)], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>);
+});
+</script>
+<?php endif; ?>
 <?php if (isset($_GET['add']) && !$isDentist): ?>
 <script>
 // Opened from the Dashboard's "+ New Patient": the Add Patient form pops up straight away.

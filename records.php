@@ -820,7 +820,27 @@ $active = 'records';
                         }
                         </script>
                     <?php endif; ?>
-                    <label class="field-label mt-2">💬 Note for the patient <span class="text-muted2">(they see this in their portal)</span></label>
+                    <?php
+                        // Who reads the note for the patient: the patient in their own portal, the
+                        // account holder who books for them, or — a walk-in with no account — nobody
+                        // online yet (it is printed on their record and shows if they get an account).
+                        $noteReader = !empty($patientRow['user_id']) ? 'self' : 'none';
+                        $noteHolder = '';
+                        if ($noteReader === 'none' && !empty($patientRow['guardian_patient_id'])) {
+                            $nh = $pdo->prepare("SELECT name, user_id FROM patients WHERE id = ?");
+                            $nh->execute([(int)$patientRow['guardian_patient_id']]);
+                            if (($nhr = $nh->fetch()) && !empty($nhr['user_id'])) { $noteReader = 'holder'; $noteHolder = $nhr['name']; }
+                        }
+                    ?>
+                    <label class="field-label mt-2">💬 Note for the patient <span class="text-muted2">
+                        <?php if ($noteReader === 'self'): ?>(they see this in their portal)
+                        <?php elseif ($noteReader === 'holder'): ?>(<?= e($noteHolder) ?>, who books for them, sees this in their portal)
+                        <?php else: ?>(no portal account — it is printed on their record, and shows online if they get an account)
+                        <?php endif; ?></span>
+                        <?php if ($noteReader === 'none' && in_array(current_role(), ['admin', 'staff'], true)): ?>
+                            <a href="patients?invite=<?= (int)$pid ?>" style="color:var(--teal);font-size:.8rem;text-transform:none;letter-spacing:0;" data-keep-text>Give them an account →</a>
+                        <?php endif; ?>
+                    </label>
                     <textarea name="notes" class="form-control mb-1" rows="2"
                               placeholder="e.g. Avoid chewing on the right side for 24 hours. Come back in 2 weeks to check the filling."></textarea>
                     <label class="field-label mt-2">🔒 Clinic-only note <span class="text-muted2">(the patient does not see this)</span></label>
@@ -851,7 +871,10 @@ $active = 'records';
                         <label class="d-flex align-items-center gap-2 mt-2 m-0" style="cursor:pointer;">
                             <input type="checkbox" name="book_next" value="1" class="form-check-input m-0"
                                    onchange="document.getElementById('fu-book').style.display = this.checked ? '' : 'none'">
-                            📅 Also book the next session now <span class="text-muted2" style="font-size:.8rem;">(for a follow-up plan — the patient sees it in their portal)</span>
+                            📅 Also book the next session now <span class="text-muted2" style="font-size:.8rem;">(for a follow-up plan — <?=
+                                $noteReader === 'self' ? 'the patient sees it in their portal'
+                                : ($noteReader === 'holder' ? e($noteHolder) . ' sees it in their portal'
+                                : 'they have no account, so call or text them to remind them') ?>)</span>
                         </label>
                         <div id="fu-book" class="row g-2 mt-1" style="display:none;">
                             <div class="col-md-5"><label class="field-label">Date</label>
