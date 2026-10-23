@@ -76,9 +76,22 @@ function nav_active($page) {
         <a class="nav-item <?= nav_active('analytics') ?>" href="analytics">Analytics</a>
     <?php endif; ?>
 
-    <?php if ($role === 'admin'): ?>
+    <?php if ($role === 'admin'):
+        require_once __DIR__ . '/admin_pages.php';
+        $sysPages = admin_system_pages();
+        $inSystem = isset($sysPages[$active]); ?>
         <div class="nav-label">System</div>
-        <a class="nav-item <?= nav_active('settings') ?>" href="settings">System</a>
+        <!-- Desktop: one link (the pages are tabs at the top of each System page) -->
+        <a class="nav-item nav-desktop-only <?= $inSystem ? 'active' : '' ?>" href="settings">System</a>
+        <!-- Phone: the tabs are hidden, so "System" opens into the same list here -->
+        <details class="nav-group nav-phone-only" <?= $inSystem ? 'open' : '' ?>>
+            <summary class="nav-item <?= $inSystem ? 'active' : '' ?>">System</summary>
+            <div class="nav-sub">
+                <?php foreach ($sysPages as $key => [$href, , $label]): ?>
+                    <a class="nav-item <?= nav_active($key) ?>" href="<?= $href ?>"><?= e($label) ?></a>
+                <?php endforeach; ?>
+            </div>
+        </details>
     <?php endif; ?>
     <!-- Dentists and staff open their settings from the profile menu (top right). -->
 
