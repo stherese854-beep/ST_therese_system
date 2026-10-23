@@ -1080,7 +1080,7 @@ include 'includes/head.php';
                                 <form method="POST" enctype="multipart/form-data" class="mb-2">
                                     <input type="hidden" name="action" value="upload_avatar">
                                     <div class="pi-upload">
-                                        <input type="file" name="avatar" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
+                                        <input type="file" name="avatar" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" data-avatar-crop title="<?= image_upload_hint() ?>" required>
                                         <button class="btn btn-teal" style="white-space:nowrap;">⬆ Upload</button>
                                     </div>
                                 </form>
@@ -1092,6 +1092,7 @@ include 'includes/head.php';
                                 <?php endif; ?>
                             </div>
                         </div>
+                        <?php include 'includes/avatar_cropper.php';   /* preview + move / zoom before uploading */ ?>
                         <hr class="my-3" style="border-color:#e3e9ee;opacity:1;">
                         <form method="POST">
                             <input type="hidden" name="action" value="save_profile">

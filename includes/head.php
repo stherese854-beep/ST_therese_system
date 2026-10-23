@@ -509,6 +509,8 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
         var t = e.target;
         if (!t || t.type !== 'file' || !t.hasAttribute('data-max-mb')) return;
         var mb = parseFloat(t.getAttribute('data-max-mb')), f = t.files && t.files[0], bad = '';
+        // A profile picture is adjusted first and saved as a small JPG (includes/avatar_cropper.php).
+        if (f && t.hasAttribute('data-avatar-crop') && /^image\//.test(f.type)) { t.setCustomValidity(''); return; }
         if (f && !/\.(jpe?g|png)$/i.test(f.name)) bad = 'Only JPG and PNG images are allowed.';
         else if (f && f.size > mb * 1024 * 1024) bad = 'That image is too large. The limit is ' + mb + ' MB.';
         t.setCustomValidity(bad);
