@@ -70,7 +70,21 @@ function nav_active($page) {
     <?php endif; ?>
 
     <div class="nav-label">Reports</div>
-    <a class="nav-item <?= nav_active('reports') ?>"  href="reports">Generate Reports</a>
+    <?php require_once __DIR__ . '/report_types.php';
+          $inReports   = $active === 'reports';
+          $curReport   = $inReports ? (isset(report_types()[$_GET['type'] ?? '']) ? $_GET['type'] : 'profile') : '';
+          $keepPatient = $inReports && !empty($_GET['patient_id']) ? '&patient_id=' . (int)$_GET['patient_id'] : ''; ?>
+    <!-- Desktop: one link (the reports are cards on the page) -->
+    <a class="nav-item nav-desktop-only <?= nav_active('reports') ?>"  href="reports">Generate Reports</a>
+    <!-- Phone: the cards are hidden, so "Generate Reports" opens into the four reports here -->
+    <details class="nav-group nav-phone-only" <?= $inReports ? 'open' : '' ?>>
+        <summary class="nav-item <?= $inReports ? 'active' : '' ?>">Generate Reports</summary>
+        <div class="nav-sub">
+            <?php foreach (report_types() as $rk => [, $rl]): ?>
+                <a class="nav-item <?= $curReport === $rk ? 'active' : '' ?>" href="reports?type=<?= $rk ?><?= $keepPatient ?>"><?= e($rl) ?></a>
+            <?php endforeach; ?>
+        </div>
+    </details>
     <a class="nav-item <?= nav_active('noshow') ?>"   href="noshow">No-Show Report</a>
     <?php if ($role === 'admin'): ?>
         <a class="nav-item <?= nav_active('analytics') ?>" href="analytics">Analytics</a>

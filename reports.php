@@ -165,13 +165,10 @@ $page_title = "Generate Reports";
 include 'includes/head.php';
 $active = 'reports';
 
-// The 4 report cards (key, emoji, title, description)
-$reportTypes = [
-    'profile'      => ['👤', 'Patient Profile',   'Complete patient info, dental chart & medical history'],
-    'treatment'    => ['💊', 'Treatment History', 'Detailed treatment records for a patient'],
-    'appointments' => ['📅', 'Appointments List', 'All appointments by status and date'],
-    'patients'     => ['👥', 'List of Patients',  'Complete patient registry with type and status'],
-];
+// The 4 report cards (key, emoji, title, description) — the same list is the side
+// menu's "Generate Reports" drop-down on a phone (includes/report_types.php).
+require_once 'includes/report_types.php';
+$reportTypes = report_types();
 // Front-desk staff only see the reports they are allowed to run.
 $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
 ?>
@@ -185,6 +182,8 @@ $reportTypes = array_intersect_key($reportTypes, array_flip($allowedTypes));
 .report-type-card .rt-icon { font-size: 1.7rem; line-height: 1; flex: none; }
 .report-type-card .rt-title { font-weight: 700; margin-bottom: 2px; }
 .report-type-card .rt-desc { font-size: .78rem; color: var(--muted, #6b7a86); line-height: 1.35; }
+/* Phone: no cards — the reports are in the side menu's "Generate Reports" drop-down */
+@media (max-width: 800px) { .report-types { display: none !important; } }
 
 /* Quick counts inside the report: a small row of four, never a swipe strip. */
 .report-counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
