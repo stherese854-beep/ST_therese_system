@@ -13,8 +13,7 @@ if (!function_exists('profile_sections')) {
     function profile_sections($role) {
         if ($role === 'patient') {
             return [
-                'info'     => ['👤', 'My Information',        true],    // personal information + account status
-                'photo'    => ['🖼️', 'Profile Picture',       true],
+                'info'     => ['👤', 'My Information',        true],    // picture + personal information + account status
                 'password' => ['🔑', 'Change Password',       true],
                 'health'   => ['🩺', 'Health Questionnaire',  true],
                 'review'   => ['⭐', 'Rate Our Clinic',       true],

@@ -127,6 +127,18 @@ body {
 .page-head .clock { text-align: right; font-size: .8rem; color: var(--muted); }
 .page-head .clock .time { font-weight: 700; color: var(--text); font-size: .95rem; }
 
+/* Profile picture row (My Information / My Profile): picture beside the upload box, stacked on a phone */
+.pi-photo { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.pi-photo .pi-avatar { width: 84px; height: 84px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.pi-photo-ctl { flex: 1 1 240px; min-width: 0; }
+.pi-upload { display: flex; gap: 8px; flex-wrap: wrap; }
+.pi-upload input[type=file] { flex: 1 1 190px; min-width: 0; }
+@media (max-width: 576px) {
+    .pi-photo { flex-direction: column; align-items: flex-start; }
+    .pi-photo-ctl { width: 100%; flex-basis: auto; }
+    .pi-upload .btn { flex: 1 1 100%; }
+}
+
 /* ----------------------------- CARDS ----------------------------- */
 .card-box {
     background: var(--card);
@@ -320,6 +332,13 @@ table.data .date-blue { color: var(--teal-light); font-weight: 600; }
     .app-wrap { display: block !important; }
     .main     { padding: 12px; padding-top: 66px !important; }
     .page-head { padding-top: 0; }
+    /* Page header buttons (e.g. Dashboard: + Walk-in, + Book Appointment, + New Patient) wrap
+       instead of running off the screen; the clock sits on its own line above them. */
+    .page-head > .d-flex { flex-wrap: wrap; width: 100%; gap: 8px !important; }
+    .page-head > .d-flex > .clock { flex: 1 1 100%; text-align: left; }
+    .page-head > .d-flex > .clock br { display: none; }
+    .page-head > .d-flex > .clock #clock-date { margin-left: 6px; }
+    .page-head > .d-flex > .btn { flex: 1 1 auto; white-space: nowrap; }
 
     /* Topbar widgets: keep them from overlapping the hamburger */
     #topbarWidgets { right: 10px; top: 10px; }

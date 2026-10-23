@@ -245,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('Could not save the picture.', 'error');
             }
         }
-        header("Location: portal?view=profile&section=photo"); exit;
+        header("Location: portal?view=profile&section=info"); exit;
     }
 
     // ---------- Remove the profile picture ----------
@@ -257,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE users SET photo=NULL WHERE id=?")->execute([$_SESSION['user_id']]);
         log_activity($pdo, 'Removed profile picture', 'Own account');
         set_flash('Profile picture removed.', 'info');
-        header("Location: portal?view=profile&section=photo"); exit;
+        header("Location: portal?view=profile&section=info"); exit;
     }
 
     // ---------- Leave a review about the clinic / system ----------
@@ -1013,40 +1013,6 @@ include 'includes/head.php';
 
             <?php endif; ?>
 
-            <?php if ($profSec === 'photo'): ?>
-            <!-- Profile picture -->
-            <div class="card-box mb-3">
-                <h5 class="mb-3">🖼️ Profile Picture</h5>
-                <div class="d-flex align-items-center gap-3 flex-wrap">
-                    <?php if ($myPhoto && is_file(__DIR__ . '/' . $myPhoto)): ?>
-                        <img src="<?= e($myPhoto) ?>" alt="Profile picture"
-                             style="width:96px;height:96px;border-radius:50%;object-fit:cover;border:3px solid var(--teal-light);">
-                    <?php else: ?>
-                        <span class="avatar" style="width:96px;height:96px;font-size:2rem;background:var(--teal);">
-                            <?= e(strtoupper(substr($_SESSION['name'] ?? 'P', 0, 1))) ?>
-                        </span>
-                    <?php endif; ?>
-
-                    <div style="flex:1;min-width:250px;">
-                        <form method="POST" enctype="multipart/form-data" class="mb-2">
-                            <input type="hidden" name="action" value="upload_avatar">
-                            <div class="d-flex gap-2">
-                                <input type="file" name="avatar" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
-                                <button class="btn btn-teal" style="white-space:nowrap;">⬆ Upload</button>
-                            </div>
-                        </form>
-                        <?php if ($myPhoto): ?>
-                            <form method="POST" onsubmit="return confirm('Remove your profile picture?')">
-                                <input type="hidden" name="action" value="remove_avatar">
-                                <button class="btn btn-sm btn-light" style="color:#c0392b;">🗑 Remove picture</button>
-                            </form>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-
-            <?php endif; ?>
-
             <?php if ($profSec === 'health'): ?>
             <!-- My health questionnaire (editable) -->
             <?php [$myHf, $myHfAt] = $pid ? patient_health($pdo, $pid) : [[], null]; ?>
@@ -1122,9 +1088,36 @@ include 'includes/head.php';
 
             <?php if ($profSec === 'info'): ?>
             <div class="row g-3">
-                <div class="col-lg-7">
+                <div class="col-xl-7">
                     <div class="card-box">
                         <h5 class="mb-3">👤 Personal Information</h5>
+                        <!-- Profile picture (part of My Information) -->
+                        <div class="pi-photo">
+                            <?php if ($myPhoto && is_file(__DIR__ . '/' . $myPhoto)): ?>
+                                <img src="<?= e($myPhoto) ?>" alt="Profile picture" class="pi-avatar" style="object-fit:cover;border:3px solid var(--teal-light);">
+                            <?php else: ?>
+                                <span class="avatar pi-avatar" style="font-size:1.8rem;background:var(--teal);">
+                                    <?= e(strtoupper(substr($_SESSION['name'] ?? 'P', 0, 1))) ?>
+                                </span>
+                            <?php endif; ?>
+                            <div class="pi-photo-ctl">
+                                <div class="field-label mb-1">Profile picture</div>
+                                <form method="POST" enctype="multipart/form-data" class="mb-2">
+                                    <input type="hidden" name="action" value="upload_avatar">
+                                    <div class="pi-upload">
+                                        <input type="file" name="avatar" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
+                                        <button class="btn btn-teal" style="white-space:nowrap;">⬆ Upload</button>
+                                    </div>
+                                </form>
+                                <?php if ($myPhoto): ?>
+                                    <form method="POST" onsubmit="return confirm('Remove your profile picture?')">
+                                        <input type="hidden" name="action" value="remove_avatar">
+                                        <button class="btn btn-sm btn-light" style="color:#c0392b;">🗑 Remove picture</button>
+                                    </form>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <hr class="my-3" style="border-color:#e3e9ee;opacity:1;">
                         <form method="POST">
                             <input type="hidden" name="action" value="save_profile">
                             <div class="row g-3">
@@ -1168,8 +1161,8 @@ include 'includes/head.php';
                     </div>
                 </div>
 
-                <div class="col-lg-5">
-                    <!-- Account status -->
+                <div class="col-xl-5">
+                    <!-- Account status (beside the form only on a wide screen; under it otherwise) -->
                     <div class="card-box mb-3">
                         <h5 class="mb-3">🔎 Account Status</h5>
                         <div class="flex-between py-2 border-bottom"><span>Email address</span><strong><?= e($account['email']) ?></strong></div>

@@ -287,7 +287,7 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                         <div style="flex:1;min-width:210px;">
                             <form method="POST" enctype="multipart/form-data" class="mb-2">
                                 <input type="hidden" name="action" value="upload_avatar">
-                                <div class="d-flex gap-2">
+                                <div class="pi-upload">
                                     <input type="file" name="avatar" class="form-control form-control-sm" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
                                     <button class="btn btn-sm btn-teal" style="white-space:nowrap;">⬆ Upload</button>
                                 </div>
