@@ -140,9 +140,7 @@ try {
 
     // Everyone: announcements from the last 30 days (newest 3).
     $annLink = ['admin' => 'announcements', 'patient' => 'portal?view=news'][$tbRole] ?? 'dashboard';
-    foreach ($pdo->query("SELECT id, title FROM announcements WHERE status='Published'
-                           AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-                         ORDER BY created_at DESC LIMIT 3")->fetchAll() as $an) {
+    foreach (announcements_for_viewer($pdo, 3, 30) as $an) {      // a patient: only the ones meant for them
         $tbAdd('ann', (int)$an['id'], '📣', 'Announcement: ' . $an['title'], $annLink);
     }
 } catch (Throwable $e) { $notifs = []; }

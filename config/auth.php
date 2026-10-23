@@ -86,6 +86,7 @@ if (!$__schemaOk) {
     ensure_chart_access_schema($pdo);               // dentists' approval PINs + "entered by" (staff charting)
     ensure_login_security_schema($pdo);             // account lockout columns + patient ID on Activity Log entries
     ensure_name_parts_schema($pdo);                 // first_name / last_name next to the full name (patients, users)
+    ensure_announcement_columns($pdo);              // announcements: pinned + when / to how many it was emailed
     ensure_indexes($pdo);                           // last: indexes on the tables above, so pages stay fast as records grow
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }
@@ -574,6 +575,65 @@ function activity_category_sql($cat) {
         $not[] = "LOWER(action) NOT REGEXP '" . $re[$k] . "'";
     }
     return '(' . implode(' AND ', $not) . ')';   // settings = everything else
+}
+
+// ---- Announcements: pinned, emailed, and who they are for ----
+// Audience (picked when it is written):  All Patients · Upcoming Appts (has a booking
+// coming up) · Returning Patients (has visited before). Patients only see the ones meant
+// for them, and "📧 Email" sends only to them. Pinned ones come first everywhere.
+function ensure_announcement_columns($pdo) {
+    try {
+        if (!$pdo->query("SHOW COLUMNS FROM announcements LIKE 'pinned'")->fetch()) {
+            $pdo->exec("ALTER TABLE announcements ADD COLUMN pinned TINYINT(1) NOT NULL DEFAULT 0,
+                                                  ADD COLUMN emailed_at DATETIME NULL DEFAULT NULL,
+                                                  ADD COLUMN emailed_count INT NOT NULL DEFAULT 0");
+        }
+    } catch (Throwable $e) {}
+}
+
+function announcement_is_for($audience, $hasUpcoming, $isReturning) {
+    if ($audience === 'Upcoming Appts')     return $hasUpcoming;
+    if ($audience === 'Returning Patients') return $isReturning;
+    return true;                                         // All Patients
+}
+
+/** Published announcements for the person viewing, pinned first, newest next. */
+function announcements_for_viewer($pdo, $limit = 10, $withinDays = 0) {
+    $sql = "SELECT * FROM announcements WHERE status = 'Published'"
+         . ($withinDays ? " AND created_at >= DATE_SUB(NOW(), INTERVAL " . (int)$withinDays . " DAY)" : '');
+    try { $rows = $pdo->query($sql . " ORDER BY pinned DESC, created_at DESC LIMIT 50")->fetchAll(); }
+    catch (Throwable $e) { $rows = $pdo->query($sql . " ORDER BY created_at DESC LIMIT 50")->fetchAll(); }   // before the update
+    if (current_role() === 'patient') {
+        // A patient (and the family they book for): only what is meant for them.
+        $me = $pdo->prepare("SELECT id FROM patients WHERE user_id = ? LIMIT 1");
+        $me->execute([(int)($_SESSION['user_id'] ?? 0)]);
+        $ids = ($pid = (int)$me->fetchColumn()) ? family_patient_ids($pdo, $pid) : [];
+        $upcoming = $returning = false;
+        if ($ids) {
+            $q = $pdo->prepare("SELECT COUNT(*) FROM appointments WHERE patient_id IN (" . in_placeholders($ids) . ")
+                                 AND status IN ('Pending','Confirmed') AND appointment_date >= CURDATE()");
+            $q->execute($ids); $upcoming = (bool)$q->fetchColumn();
+            $q = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE id IN (" . in_placeholders($ids) . ") AND patient_type = 'Returning'");
+            $q->execute($ids); $returning = (bool)$q->fetchColumn();
+        }
+        $rows = array_values(array_filter($rows, fn($a) => announcement_is_for($a['audience'] ?? '', $upcoming, $returning)));
+    }
+    return array_slice($rows, 0, $limit);
+}
+
+/** Email addresses for an audience: each patient's own, else (a family member) the account that books for them. */
+function announcement_recipients($pdo, $audience) {
+    $sql = "SELECT DISTINCT COALESCE(NULLIF(TRIM(p.email), ''), TRIM(g.email)) FROM patients p
+              LEFT JOIN patients g ON g.id = p.guardian_patient_id
+             WHERE p.status = 'Active'";
+    if ($audience === 'Upcoming Appts') {
+        $sql .= " AND p.id IN (SELECT patient_id FROM appointments WHERE status IN ('Pending','Confirmed') AND appointment_date >= CURDATE())";
+    } elseif ($audience === 'Returning Patients') {
+        $sql .= " AND p.patient_type = 'Returning'";
+    }
+    $list = array_map('strtolower', array_filter(array_map('trim', $pdo->query($sql)->fetchAll(PDO::FETCH_COLUMN))));
+    // sample-data logins (System → Sample data) have no real inbox
+    return array_values(array_unique(array_filter($list, fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL) && !preg_match('/@sample\.test$/', $e))));
 }
 
 // Announcement text for display: escaped first (safe), then the simple

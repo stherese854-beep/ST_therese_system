@@ -312,10 +312,7 @@ $active = 'dashboard';
              on the Announcements page, so they are not repeated here).
              Same card as the patient portal, with Hide / Show. ===== -->
         <?php
-        $annList = current_role() === 'admin' ? [] : $pdo->query(
-            "SELECT id, title, content, created_at FROM announcements
-             WHERE status='Published' ORDER BY created_at DESC LIMIT 10"
-        )->fetchAll();
+        $annList = current_role() === 'admin' ? [] : announcements_for_viewer($pdo, 10);   // pinned first
         $annSeeAll = '';
         include 'includes/announcements_card.php';
         ?>

@@ -46,7 +46,7 @@ $annLatest = max(array_map(fn($x) => (int)$x['id'], $annTop));
     <?php foreach ($annTop as $i => $n): ?>
         <div class="py-2 <?= $i < count($annTop) - 1 ? 'border-bottom' : '' ?>">
             <div class="flex-between">
-                <strong><?= e($n['title']) ?></strong>
+                <strong><?= !empty($n['pinned']) ? '📌 ' : '' ?><?= e($n['title']) ?></strong>
                 <small class="text-muted2"><?= date('M j, Y', strtotime($n['created_at'])) ?></small>
             </div>
             <div style="font-size:.92rem;color:#55606a;margin-top:4px;white-space:pre-line;"><?= format_announcement($n['content']) ?></div>

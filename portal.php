@@ -563,7 +563,8 @@ if ($rsDentist !== '') {
 }
 
 // Clinic announcements (published ones) - the patient's notifications.
-$news = $pdo->query("SELECT * FROM announcements WHERE status='Published' ORDER BY created_at DESC LIMIT 10")->fetchAll();
+// Pinned first, and only the ones meant for this patient / their family (Audience).
+$news = announcements_for_viewer($pdo, 10);
 
 // ---------- My Family: relatives this account books for ----------
 $family = [];
@@ -1353,7 +1354,7 @@ include 'includes/head.php';
                 <?php foreach ($news as $n): ?>
                     <div class="py-3 border-bottom">
                         <div class="flex-between">
-                            <strong><?= e($n['title']) ?></strong>
+                            <strong><?= !empty($n['pinned']) ? '📌 ' : '' ?><?= e($n['title']) ?></strong>
                             <small class="text-muted2"><?= date('M j, Y', strtotime($n['created_at'])) ?></small>
                         </div>
                         <div style="font-size:.92rem;color:#55606a;margin-top:4px;white-space:pre-line;"><?= format_announcement($n['content']) ?></div>
