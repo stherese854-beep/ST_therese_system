@@ -265,7 +265,6 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
         </div>
 
         <?php if ($isAdmin && !$profileView) include 'includes/admin_tabs.php'; ?>
-        <?php if ($profileView) echo profile_section_tabs(current_role(), $profSec); ?>
 
         <?php if ($profileView && $profSec === 'info'): ?>
         <!-- ===== MY PROFILE (same feature patients have) ===== -->
