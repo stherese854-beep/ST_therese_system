@@ -424,7 +424,7 @@ $active = 'records';
         <?php if ($staffAccess) echo chart_access_bar($staffAccess); ?>
         <!-- Tabs (once a patient is open) -->
         <?php if ($pid): ?>
-        <div class="mb-3 d-flex gap-2 flex-wrap" data-keep-text>
+        <div class="mb-3 d-flex gap-2 flex-wrap rec-tabs" data-keep-text>
             <?php
             $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 X-rays','notes'=>'📝 Notes',
                         'health'=>'🩺 Health form','chart'=>'🗂 Dental chart'];
@@ -432,6 +432,41 @@ $active = 'records';
                 <a href="records?patient=<?= $pid ?>&tab=<?= $k ?>" class="btn btn-sm <?= $tab===$k?'btn-dark-navy':'btn-light' ?>"><?= $label ?></a>
             <?php endforeach; ?>
         </div>
+        <!-- Phone: the same parts in one drop-down (shows the one open now) -->
+        <details class="rec-tabs-menu mb-3" data-keep-text>
+            <summary class="rec-tabs-btn"><span><?= $recTabs[$tab] ?? $recTabs['overview'] ?></span></summary>
+            <div class="rec-tabs-list">
+                <?php foreach ($recTabs as $k => $label): ?>
+                    <a href="records?patient=<?= $pid ?>&tab=<?= $k ?>" class="<?= $tab === $k ? 'on' : '' ?>" <?= $tab === $k ? 'aria-current="page"' : '' ?>><?= $label ?></a>
+                <?php endforeach; ?>
+            </div>
+        </details>
+        <style>
+        .rec-tabs-menu { display: none; position: relative; }
+        @media (max-width: 800px) {
+            .rec-tabs { display: none !important; }
+            .rec-tabs-menu { display: block; }
+        }
+        .rec-tabs-btn { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+                        background: #143a4a; color: #fff; border-radius: 10px; padding: 11px 14px; font-weight: 600; cursor: pointer; user-select: none; }
+        .rec-tabs-btn::-webkit-details-marker { display: none; }
+        .rec-tabs-btn::after { content: ''; width: 8px; height: 8px; margin: -4px 4px 0 0; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+                               transform: rotate(45deg); transition: transform .2s ease, margin .2s ease; }
+        .rec-tabs-menu[open] .rec-tabs-btn::after { transform: rotate(-135deg); margin-top: 4px; }
+        .rec-tabs-list { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 60; background: #fff; border: 1px solid #e3e9ee;
+                         border-radius: 12px; box-shadow: 0 12px 30px rgba(12,50,48,.14); overflow: hidden; animation: recTabsIn .16s ease-out; }
+        @keyframes recTabsIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+        .rec-tabs-list a { display: block; padding: 12px 14px; color: #3f5350; text-decoration: none; border-bottom: 1px solid #f0f3f5; }
+        .rec-tabs-list a:last-child { border-bottom: 0; }
+        .rec-tabs-list a:hover { background: #f4f8f8; }
+        .rec-tabs-list a.on { background: #eef7f6; color: var(--teal-mid, #0f766e); font-weight: 600; }
+        </style>
+        <script>
+        // Tapping anywhere else closes the drop-down.
+        document.addEventListener('click', function (e) {
+            document.querySelectorAll('details.rec-tabs-menu[open]').forEach(function (d) { if (!d.contains(e.target)) d.removeAttribute('open'); });
+        });
+        </script>
         <?php endif; ?>
 
         <?php if ($pid && $patientRow): ?>
