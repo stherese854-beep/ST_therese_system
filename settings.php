@@ -271,64 +271,56 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
         <!-- ===== MY PROFILE (same feature patients have) ===== -->
         <div class="card-box mb-3">
             <h5 class="mb-3">👤 My Profile</h5>
-            <div class="row g-4">
-                <!-- Profile picture -->
-                <div class="col-lg-5">
-                    <div class="text-muted2 mb-2" style="font-size:.82rem;font-weight:600;">Profile Picture</div>
-                    <div class="d-flex align-items-center gap-3 flex-wrap">
-                        <?php if ($myHasPhoto): ?>
-                            <img src="<?= e($meUser['photo']) ?>" alt="Profile picture"
-                                 style="width:88px;height:88px;border-radius:50%;object-fit:cover;border:3px solid var(--teal-light);">
-                        <?php else: ?>
-                            <span class="avatar" style="width:88px;height:88px;font-size:2rem;background:var(--teal);">
-                                <?= e($myInitial) ?>
-                            </span>
-                        <?php endif; ?>
-                        <div style="flex:1;min-width:210px;">
-                            <form method="POST" enctype="multipart/form-data" class="mb-2">
-                                <input type="hidden" name="action" value="upload_avatar">
-                                <div class="pi-upload">
-                                    <input type="file" name="avatar" class="form-control form-control-sm" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
-                                    <button class="btn btn-sm btn-teal" style="white-space:nowrap;">⬆ Upload</button>
-                                </div>
-                            </form>
-                            <?php if ($myHasPhoto): ?>
-                                <form method="POST" onsubmit="return confirm('Remove your profile picture?')">
-                                    <input type="hidden" name="action" value="remove_avatar">
-                                    <button class="btn btn-sm btn-light" style="color:#c0392b;">🗑 Remove picture</button>
-                                </form>
-                            <?php endif; ?>
+            <!-- Profile picture on top, then the personal information (same as the patient's My Information) -->
+            <div class="pi-photo">
+                <?php if ($myHasPhoto): ?>
+                    <img src="<?= e($meUser['photo']) ?>" alt="Profile picture" class="pi-avatar" style="object-fit:cover;border:3px solid var(--teal-light);">
+                <?php else: ?>
+                    <span class="avatar pi-avatar" style="font-size:1.8rem;background:var(--teal);"><?= e($myInitial) ?></span>
+                <?php endif; ?>
+                <div class="pi-photo-ctl" style="max-width:560px;">
+                    <div class="field-label mb-1">Profile picture</div>
+                    <form method="POST" enctype="multipart/form-data" class="mb-2">
+                        <input type="hidden" name="action" value="upload_avatar">
+                        <div class="pi-upload">
+                            <input type="file" name="avatar" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
+                            <button class="btn btn-teal" style="white-space:nowrap;" data-keep-text>⬆ Upload</button>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Personal info -->
-                <div class="col-lg-7">
-                    <form method="POST">
-                        <input type="hidden" name="action" value="save_profile">
-                        <div class="text-muted2 mb-2" style="font-size:.82rem;font-weight:600;">Personal Information</div>
-                        <div class="row">
-                            <?php [$myF, $myL] = name_parts_of($meUser); ?>
-                            <div class="col-md-3">
-                                <label class="field-label">First Name</label>
-                                <input name="my_first" class="form-control mb-3" value="<?= e($myF) ?>" required>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="field-label">Last Name</label>
-                                <input name="my_last" class="form-control mb-3" value="<?= e($myL) ?>" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="field-label">Contact Number</label>
-                                <input name="my_contact" class="form-control mb-3" value="<?= e($meUser['contact']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>>
-                            </div>
-                        </div>
-                        <label class="field-label">Email <span class="text-muted2">(read-only)</span></label>
-                        <input class="form-control mb-1" value="<?= e($meUser['email']) ?>" readonly style="background:#eef7f6;color:var(--teal);">
-                        <div class="text-muted2 mb-3" style="font-size:.76rem;">Role: <strong><?= e(ucfirst($meUser['role'])) ?></strong></div>
-                        <button class="btn btn-teal">💾 Save Profile</button>
                     </form>
+                    <?php if ($myHasPhoto): ?>
+                        <form method="POST" onsubmit="return confirm('Remove your profile picture?')">
+                            <input type="hidden" name="action" value="remove_avatar">
+                            <button class="btn btn-sm btn-light" style="color:#c0392b;" data-keep-text>🗑 Remove picture</button>
+                        </form>
+                    <?php endif; ?>
                 </div>
             </div>
+            <hr class="my-3" style="border-color:#e3e9ee;opacity:1;">
+
+            <!-- Personal info -->
+            <form method="POST">
+                <input type="hidden" name="action" value="save_profile">
+                <div class="field-label mb-2">Personal information</div>
+                <div class="row">
+                    <?php [$myF, $myL] = name_parts_of($meUser); ?>
+                    <div class="col-md-4">
+                        <label class="field-label">First Name</label>
+                        <input name="my_first" class="form-control mb-3" value="<?= e($myF) ?>" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="field-label">Last Name</label>
+                        <input name="my_last" class="form-control mb-3" value="<?= e($myL) ?>" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="field-label">Contact Number</label>
+                        <input name="my_contact" class="form-control mb-3" value="<?= e($meUser['contact']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>>
+                    </div>
+                </div>
+                <label class="field-label">Email <span class="text-muted2">(read-only)</span></label>
+                <input class="form-control mb-1" value="<?= e($meUser['email']) ?>" readonly style="background:#eef7f6;color:var(--teal);">
+                <div class="text-muted2 mb-3" style="font-size:.76rem;">Role: <strong><?= e(ucfirst($meUser['role'])) ?></strong></div>
+                <button class="btn btn-teal">💾 Save Profile</button>
+            </form>
         </div>
 
         <?php endif; /* $profileView */ ?>
