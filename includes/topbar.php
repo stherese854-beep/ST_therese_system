@@ -203,6 +203,19 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
                 <?php foreach (profile_sections($tbRole) as $tbKey => [$tbIcon, $tbLabel, $tbInMenu]): if (!$tbInMenu) continue; ?>
                     <a href="<?= profile_section_link($tbRole, $tbKey) ?>" class="pw-item"><?= $tbIcon ?> <?= e($tbLabel) ?></a>
                 <?php endforeach; ?>
+                <?php $tbMine = user_text_scale($pdo); $tbSys = system_text_scale($pdo); ?>
+                <!-- Text size (inside Profile & Settings): for anyone who finds the writing too small (saved to this account) -->
+                <div class="pw-text" onclick="event.stopPropagation()" data-keep-text>
+                    <div class="pw-text-label">🔠 Text size</div>
+                    <div class="pw-text-btns" role="group" aria-label="Text size">
+                        <?php foreach (TEXT_SCALES as $tsv => $tsl): ?>
+                            <button type="button" data-scale="<?= $tsv ?>" title="<?= e($tsl) ?>"
+                                    class="<?= ($tbMine ?? $tbSys) === $tsv ? 'on' : '' ?>"
+                                    style="font-size:<?= round(0.8 * $tsv / 100, 2) ?>rem;">A</button>
+                        <?php endforeach; ?>
+                    </div>
+                    <button type="button" class="pw-text-reset" data-scale="" <?= $tbMine === null ? 'hidden' : '' ?>>Use the clinic default</button>
+                </div>
             </div>
         </details>
         <?php if ($tbRole !== 'admin'): ?>
@@ -212,19 +225,6 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
                 <a href="portal?view=archive" class="pw-item" style="padding-left:34px;font-size:.9em;">🗄 My Archive</a>
             <?php endif; ?>
         <?php endif; ?>
-        <?php $tbMine = user_text_scale($pdo); $tbSys = system_text_scale($pdo); ?>
-        <!-- Text size: for anyone who finds the writing too small (saved to this account) -->
-        <div class="pw-text" onclick="event.stopPropagation()" data-keep-text>
-            <div class="pw-text-label">🔠 Text size</div>
-            <div class="pw-text-btns" role="group" aria-label="Text size">
-                <?php foreach (TEXT_SCALES as $tsv => $tsl): ?>
-                    <button type="button" data-scale="<?= $tsv ?>" title="<?= e($tsl) ?>"
-                            class="<?= ($tbMine ?? $tbSys) === $tsv ? 'on' : '' ?>"
-                            style="font-size:<?= round(0.8 * $tsv / 100, 2) ?>rem;">A</button>
-                <?php endforeach; ?>
-            </div>
-            <button type="button" class="pw-text-reset" data-scale="" <?= $tbMine === null ? 'hidden' : '' ?>>Use the clinic default</button>
-        </div>
         <a href="logout" class="pw-item pw-signout" data-confirm="Are you sure you want to log out?" data-confirm-title="Log out?" data-confirm-ok="Log out" data-confirm-icon="⏻">⏻ Sign Out</a>
     </div>
 </div>
@@ -302,6 +302,7 @@ summary.pw-item::after{content:'';width:7px;height:7px;margin:-3px 2px 0 auto;bo
 .pw-group[open] .pw-sub{animation:pwSubIn .16s ease-out;}
 @keyframes pwSubIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}
 .pw-text{padding:10px 16px;border-top:1px solid #eef2f3;}
+.pw-sub .pw-text{padding:10px 16px 12px 30px;border-top:1px solid #e8eef0;}
 .pw-text-label{font-size:.8rem;color:#6b7b8c;margin-bottom:6px;}
 .pw-text-btns{display:flex;gap:4px;}
 .pw-text-btns button{flex:1;min-width:0;height:36px;border:1px solid #dde5ea;background:#fff;border-radius:8px;color:#3f5350;font-weight:700;line-height:1;}
