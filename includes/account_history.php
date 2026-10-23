@@ -71,7 +71,7 @@ function account_history($pdo, $userId, $pid) {
             $events[] = ah_event($o['created_at'], 'account', '⚠️',
                 '<b>Someone tried to sign in to your account with a wrong password.</b> '
                 . ($d !== '' ? '<span class="text-muted2">(' . e(preg_replace('/^Wrong password \((.*)\)$/', '$1', $d)) . ')</span> ' : '')
-                . 'If this wasn\'t you, <a href="portal?view=profile#pw-card">change your password</a>.', 'danger');
+                . 'If this wasn\'t you, <a href="portal?view=profile&section=password">change your password</a>.', 'danger');
             continue;
         }
         if (isset($plain[$a])) {

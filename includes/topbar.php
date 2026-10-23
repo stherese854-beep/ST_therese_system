@@ -195,7 +195,16 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
                 <div class="pw-head-role"><?= e(ucfirst($tbRole)) ?></div>
             </div>
         </div>
-        <a href="<?= $tbProfileLink ?>" class="pw-item">⚙️ Profile &amp; Settings</a>
+        <?php require_once __DIR__ . '/profile_sections.php'; ?>
+        <!-- Profile & Settings opens into its parts (includes/profile_sections.php) -->
+        <details class="pw-group" onclick="event.stopPropagation()">
+            <summary class="pw-item">⚙️ Profile &amp; Settings</summary>
+            <div class="pw-sub">
+                <?php foreach (profile_sections($tbRole) as $tbKey => [$tbIcon, $tbLabel, $tbInMenu]): if (!$tbInMenu) continue; ?>
+                    <a href="<?= profile_section_link($tbRole, $tbKey) ?>" class="pw-item"><?= $tbIcon ?> <?= e($tbLabel) ?></a>
+                <?php endforeach; ?>
+            </div>
+        </details>
         <?php if ($tbRole !== 'admin'): ?>
             <a href="<?= $tbRole === 'patient' ? 'portal?view=activity' : 'my_activity' ?>" class="pw-item">🧾 <?= $tbRole === 'patient' ? 'Account History' : 'My Activity' ?></a>
             <?php if ($tbRole === 'patient'): ?>
@@ -281,6 +290,17 @@ $badgeCount = count(array_filter($notifs, fn($n) => $n['new']));   // only what 
 .pw-item{display:block;padding:12px 16px;text-decoration:none;color:#3f5350;font-size:.9rem;
          font-weight:500;transition:background .12s;}
 .pw-item:hover{background:#f2f7f6;}
+/* Profile & Settings: a drop-down inside the menu */
+summary.pw-item{list-style:none;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;}
+summary.pw-item::-webkit-details-marker{display:none;}
+summary.pw-item::after{content:'';width:7px;height:7px;margin:-3px 2px 0 auto;border-right:2px solid currentColor;border-bottom:2px solid currentColor;
+                       transform:rotate(45deg);transition:transform .2s ease,margin .2s ease;opacity:.7;}
+.pw-group[open] > summary.pw-item::after{transform:rotate(-135deg);margin-top:3px;}
+.pw-group[open] > summary.pw-item{background:#f2f7f6;}
+.pw-sub{background:#f8fbfb;border-top:1px solid #edf2f4;border-bottom:1px solid #edf2f4;}
+.pw-sub .pw-item{padding:9px 16px 9px 30px;font-size:.86rem;}
+.pw-group[open] .pw-sub{animation:pwSubIn .16s ease-out;}
+@keyframes pwSubIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}
 .pw-text{padding:10px 16px;border-top:1px solid #eef2f3;}
 .pw-text-label{font-size:.8rem;color:#6b7b8c;margin-bottom:6px;}
 .pw-text-btns{display:flex;gap:4px;}

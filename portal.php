@@ -118,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_activity($pdo, 'Updated health questionnaire', 'Own record');
             set_flash('Your health questionnaire was updated.');
         }
-        header("Location: portal?view=profile#my-health"); exit;
+        header("Location: portal?view=profile&section=health"); exit;
     }
 
     // ---- My Family: a relative's health questionnaire ----
@@ -189,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
-            header("Location: portal?view=profile"); exit;
+            header("Location: portal?view=profile&section=info"); exit;
         }
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
@@ -215,7 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         log_activity($pdo, 'Updated profile', 'Own profile');
         set_flash('Your profile has been updated.');
-        header("Location: portal?view=profile"); exit;
+        header("Location: portal?view=profile&section=info"); exit;
     }
 
     // ---------- Upload a profile picture ----------
@@ -245,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('Could not save the picture.', 'error');
             }
         }
-        header("Location: portal?view=profile"); exit;
+        header("Location: portal?view=profile&section=photo"); exit;
     }
 
     // ---------- Remove the profile picture ----------
@@ -257,7 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE users SET photo=NULL WHERE id=?")->execute([$_SESSION['user_id']]);
         log_activity($pdo, 'Removed profile picture', 'Own account');
         set_flash('Profile picture removed.', 'info');
-        header("Location: portal?view=profile"); exit;
+        header("Location: portal?view=profile&section=photo"); exit;
     }
 
     // ---------- Leave a review about the clinic / system ----------
@@ -401,24 +401,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_activity($pdo, 'Submitted review', $rating . ' star' . ($rating == 1 ? '' : 's'));
             set_flash('Thank you! Your review was sent to the clinic for approval.');
         }
-        header("Location: portal?view=profile"); exit;
+        header("Location: portal?view=profile&section=review"); exit;
     }
 
     // Patient changes their own password.
     // Step 1: check the passwords, then send a code (see pw_change_start()).
     if ($action === 'change_password') {
         $pwError = pw_change_start($pdo, $_POST['current_password'] ?? '', $_POST['new_password'] ?? '', $_POST['confirm_password'] ?? '');
-        if ($pwError === '') { header("Location: portal?view=profile#pw-card"); exit; }
+        if ($pwError === '') { header("Location: portal?view=profile&section=password"); exit; }
     }
     // Step 2: the right code changes the password.
     if ($action === 'verify_password_code') {
         $pwError = pw_change_finish($pdo, $_POST['code'] ?? '');
-        if ($pwError === '') { set_flash('Your password has been changed.'); header("Location: portal?view=profile"); exit; }
+        if ($pwError === '') { set_flash('Your password has been changed.'); header("Location: portal?view=profile&section=password"); exit; }
     }
     if ($action === 'cancel_password_change') {
         unset($_SESSION['pw_change']);
         set_flash('Password change cancelled. Your password stays the same.', 'info');
-        header("Location: portal?view=profile"); exit;
+        header("Location: portal?view=profile&section=password"); exit;
     }
 }
 
@@ -985,8 +985,11 @@ include 'includes/head.php';
             </div>
 
         <?php elseif ($view === 'profile'): ?>
-            <!-- ===== MY PROFILE (editable) ===== -->
+            <!-- ===== MY PROFILE (editable) — one part at a time (includes/profile_sections.php) ===== -->
+            <?php require_once 'includes/profile_sections.php'; $profSec = current_profile_section('patient'); ?>
+            <?= profile_section_tabs('patient', $profSec) ?>
 
+            <?php if ($profSec === 'textsize'): ?>
             <!-- Text size: make the writing bigger if it is hard to read (saved to this account) -->
             <?php $tsMine = user_text_scale($pdo); $tsNow = $tsMine ?? system_text_scale($pdo); ?>
             <div class="card-box mb-3" data-keep-text>
@@ -1008,6 +1011,9 @@ include 'includes/head.php';
             @media (max-width: 420px) { .ts-btns { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
             </style>
 
+            <?php endif; ?>
+
+            <?php if ($profSec === 'photo'): ?>
             <!-- Profile picture -->
             <div class="card-box mb-3">
                 <h5 class="mb-3">🖼️ Profile Picture</h5>
@@ -1039,6 +1045,9 @@ include 'includes/head.php';
                 </div>
             </div>
 
+            <?php endif; ?>
+
+            <?php if ($profSec === 'health'): ?>
             <!-- My health questionnaire (editable) -->
             <?php [$myHf, $myHfAt] = $pid ? patient_health($pdo, $pid) : [[], null]; ?>
             <?= health_form_styles() ?>
@@ -1057,6 +1066,9 @@ include 'includes/head.php';
                 </form>
             </div>
 
+            <?php endif; ?>
+
+            <?php if ($profSec === 'review'): ?>
             <!-- Leave a review -->
             <div class="card-box mb-3">
                 <h5 class="mb-1">⭐ Rate Our Clinic</h5>
@@ -1106,6 +1118,9 @@ include 'includes/head.php';
                 <?php endif; ?>
             </div>
 
+            <?php endif; ?>
+
+            <?php if ($profSec === 'info'): ?>
             <div class="row g-3">
                 <div class="col-lg-7">
                     <div class="card-box">
@@ -1172,6 +1187,12 @@ include 'includes/head.php';
                         <div class="flex-between py-2"><span>Last visit</span><strong><?= e($me['last_visit'] ?: '–') ?></strong></div>
                     </div>
 
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($profSec === 'password'): ?>
+            <div style="max-width:640px;">
                     <!-- Password -->
                     <div class="card-box" id="pw-card">
                         <h5 class="mb-3">🔑 Change Password</h5>
@@ -1216,8 +1237,8 @@ include 'includes/head.php';
                         </form>
                         <?php endif; ?>
                     </div>
-                </div>
             </div>
+            <?php endif; ?>
 
         <?php elseif ($view === 'family'): ?>
             <!-- ===== MY FAMILY: relatives this account books for ===== -->
@@ -1382,7 +1403,7 @@ include 'includes/head.php';
                 <?php if ($ahFailed): ?>
                     <div class="ah-alert mb-3">⚠️ <b>Someone tried to sign in to your account with a wrong password</b>
                         (<?= $ahFailed ?> time<?= $ahFailed === 1 ? '' : 's' ?>). If this wasn't you,
-                        <a href="portal?view=profile#pw-card">change your password</a>.</div>
+                        <a href="portal?view=profile&section=password">change your password</a>.</div>
                 <?php endif; ?>
 
                 <nav class="ah-tabs mb-3" aria-label="Show">
