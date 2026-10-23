@@ -20,10 +20,9 @@ if (!function_exists('profile_sections')) {
                 'textsize' => ['🔠', 'Text Size',             false],   // the menu has its own text-size buttons
             ];
         }
-        $s = ['info'     => ['👤', 'My Profile',      true],              // picture, name, contact
-              'password' => ['🔑', 'Change Password', true]];
-        if ($role === 'dentist') $s['pin'] = ['🔐', 'Approval PIN', true];
-        return $s;
+        return ['info'     => ['👤', 'My Profile', true],                 // picture, name, contact
+                // a dentist's approval PIN sits beside the password (one part)
+                'password' => $role === 'dentist' ? ['🔑', 'Password & PIN', true] : ['🔑', 'Change Password', true]];
     }
 
     function profile_section_link($role, $key) {

@@ -195,12 +195,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$me || !password_verify($_POST['current_password'] ?? '', (string)$me['password'])) $err = 'Your account password is not correct.';
         elseif (($err = pin_problem($pin)) !== '') { /* $err set */ }
         elseif ($pin !== $pin2) $err = 'The two PINs do not match. Please type the same PIN twice.';
-        if ($err !== '') { set_flash($err, 'error'); header("Location: settings?view=profile&section=pin"); exit; }
+        if ($err !== '') { set_flash($err, 'error'); header("Location: settings?view=profile&section=password"); exit; }
         $pdo->prepare("UPDATE users SET approval_pin = ?, pin_fail_count = 0, pin_locked_until = NULL WHERE id = ?")
             ->execute([password_hash($pin, PASSWORD_DEFAULT), $_SESSION['user_id']]);
         log_activity($pdo, empty($me['approval_pin']) ? 'Created approval PIN' : 'Changed approval PIN', 'Own account');
         set_flash('Your approval PIN is saved. Staff can now open a patient\'s chart when you type it for them.');
-        header("Location: settings?view=profile&section=pin"); exit;
+        header("Location: settings?view=profile&section=password"); exit;
     }
 
     // Step 1: check the passwords, then send a code (see pw_change_start()).
@@ -574,9 +574,13 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
         <?php endif; ?>
 
         <?php if ($profileView): ?>
-        <?php if ($profSec === 'password'): ?>
+        <?php if ($profSec === 'password'): $withPin = current_role() === 'dentist'; ?>
+        <!-- Centred like Clinic Contact: the password on the left, a dentist's approval PIN on the right -->
+        <div class="sec-wrap" style="max-width:<?= $withPin ? '1180px' : '640px' ?>;margin:0 auto;">
+        <div class="row g-4 align-items-stretch">
+        <div class="<?= $withPin ? 'col-lg-6' : 'col-12' ?>">
         <!-- ===== Change My Password (any logged-in user) ===== -->
-        <div class="card-box" id="pw-card" style="max-width:640px;">
+        <div class="card-box h-100" id="pw-card">
             <h5 class="mb-1">🔑 Change My Password</h5>
             <div class="text-muted2 mb-3" style="font-size:.85rem;">Update the password for your own account (<?= e($_SESSION['name'] ?? '') ?>).</div>
             <?php if ($pwError): ?><div class="alert alert-danger py-2"><?= e($pwError) ?></div><?php endif; ?>
@@ -619,13 +623,14 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
             </form>
             <?php endif; ?>
         </div>
-        <?php endif; ?>
+        </div>
 
-        <?php if (current_role() === 'dentist' && $profSec === 'pin'):
+        <?php if ($withPin):
             $pinRow = $pdo->prepare("SELECT approval_pin, pin_locked_until FROM users WHERE id = ?");
             $pinRow->execute([$_SESSION['user_id']]); $pinRow = $pinRow->fetch() ?: []; ?>
+        <div class="col-lg-6">
         <!-- ===== Approval PIN (dentists): staff open a patient's chart / records with it ===== -->
-        <div class="card-box" id="pin-card" style="max-width:640px;">
+        <div class="card-box h-100" id="pin-card">
             <h5 class="mb-1">🔐 Approval PIN</h5>
             <div class="text-muted2 mb-3" style="font-size:.85rem;">
                 Front-desk staff can open a patient's Odontogram and Treatment Records only when you type this PIN for them.
@@ -655,7 +660,11 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                 <button class="btn btn-teal"><?= !empty($pinRow['approval_pin']) ? '🔐 Change PIN' : '🔐 Create PIN' ?></button>
             </form>
         </div>
-        <?php endif; ?>
+        </div>
+        <?php endif; /* $withPin */ ?>
+        </div>
+        </div>
+        <?php endif; /* password part */ ?>
         <?php endif; /* $profileView */ ?>
     </main>
 </div>
