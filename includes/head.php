@@ -915,12 +915,30 @@ document.addEventListener('DOMContentLoaded', function(){
     var sidebar  = document.querySelector('.sidebar');
     if (!btn || !sidebar) return;
 
+    // Scroll the menu (not the page) just enough to show el: e.g. the "System" list
+    // that opened below the bottom edge, or the page you are on.
+    var calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function revealInMenu(el) {
+        if (!el || !el.offsetParent) return;
+        var er = el.getBoundingClientRect(), sr = sidebar.getBoundingClientRect(), by = 0;
+        if (er.bottom > sr.bottom - 12) by = Math.min(er.bottom - sr.bottom + 12, er.top - sr.top - 12);   // keep its top in view
+        else if (er.top < sr.top + 12)  by = er.top - sr.top - 12;
+        if (by) sidebar.scrollBy({ top: by, behavior: calm ? 'auto' : 'smooth' });
+    }
     function openSidebar(){
         sidebar.classList.add('open');
         backdrop.classList.add('open');
         btn.innerHTML = '&times;';
         btn.setAttribute('aria-label','Close menu');
+        var here = [].filter.call(sidebar.querySelectorAll('.nav-item.active'), function (a) { return a.offsetParent; }).pop();
+        revealInMenu(here);
     }
+    // "System" drop-down (admin): tapping it open scrolls its list into view.
+    sidebar.querySelectorAll('details.nav-group > summary').forEach(function (s) {
+        s.addEventListener('click', function () {
+            setTimeout(function () { if (s.parentNode.open) revealInMenu(s.parentNode); }, 30);
+        });
+    });
     function closeSidebar(){
         sidebar.classList.remove('open');
         backdrop.classList.remove('open');

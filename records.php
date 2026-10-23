@@ -387,7 +387,7 @@ $active = 'records';
         </div>
 
         <!-- Patient selector (top-aligned: the label and the facts line up with the box, not with the note under it) -->
-        <div class="card-box mb-3 d-flex align-items-start gap-2" style="padding:14px;">
+        <div class="card-box mb-3 d-flex align-items-start gap-2 pt-pick-card" style="padding:14px;">
             <label class="field-label mb-0 pt-pick-line">Patient:</label>
             <form method="GET" class="m-0" style="flex:1;max-width:420px;">
                 <input type="hidden" name="tab" value="<?= e($tab) ?>">
@@ -1069,6 +1069,17 @@ $active = 'records';
 .pt-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: .88rem; }
 .pt-pick-line { min-height: 45px; display: flex; align-items: center; white-space: nowrap; }   /* same height as the search box */
 .pt-facts.pt-pick-line { white-space: normal; }
+/* Narrower screens: the search box keeps a usable width; the facts move under it instead of squeezing it */
+.pt-pick-card { flex-wrap: wrap; }
+.pt-pick-card > form { min-width: 240px; }
+/* Phone: label, search box, "Showing …" and the facts each get the full width, one under the other */
+@media (max-width: 800px) {
+    .pt-pick-card { flex-wrap: wrap; row-gap: 8px !important; }
+    .pt-pick-card > .pt-pick-line { min-height: 0; }
+    .pt-pick-card > label.pt-pick-line { width: 100%; }
+    .pt-pick-card > form { flex: 1 1 100% !important; max-width: none !important; }
+    .pt-pick-card > .pt-facts { margin-left: 0 !important; width: 100%; gap: 6px 12px; }
+}
 .ov-val { color: #1f2d2b; font-size: .95rem; line-height: 1.45; word-break: break-word; }
 .ov-card.editing .ov-view, .ov-card.editing .ov-edit-btn { display: none; }
 </style>
