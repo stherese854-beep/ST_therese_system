@@ -87,6 +87,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') ==
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
+/* Nothing may make the page scroll sideways on a phone (a long email or address, a big phone text size).
+   "clip" (not "hidden") on body, so the sticky menu bar keeps working. */
+html{overflow-x:hidden}
+@supports (overflow:clip){html,body{overflow-x:clip}}
 body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--white);line-height:1.65;-webkit-font-smoothing:antialiased}
 h1,h2,h3,h4,.display{font-family:'Poppins',sans-serif;line-height:1.15;letter-spacing:-.02em}
 a{text-decoration:none;color:inherit}
@@ -270,6 +274,8 @@ section{scroll-margin-top:88px}
 
 /* contact */
 .contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:stretch}
+.contact-grid>*,.crow>div{min-width:0}                 /* the columns may shrink to the screen... */
+.crow h4,.crow p{overflow-wrap:anywhere}                /* ...and a long email / address wraps */
 .cinfo{display:grid;gap:16px;align-content:start}
 .crow{display:flex;gap:16px;align-items:flex-start;background:var(--white);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
 .crow .ic{width:46px;height:46px;border-radius:12px;background:var(--sky);display:grid;place-items:center;flex:none}
