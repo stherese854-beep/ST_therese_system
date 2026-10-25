@@ -392,6 +392,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
                 ->execute([$_SESSION['name'] ?? '', $lateM, $aid]);
             log_activity($pdo, 'Marked arrived', $ap['patient_name'] . ' — ' . $ap['appointment_time'] . ($lateM ? " ($lateM min late)" : ''));
             set_flash($ap['patient_name'] . ' marked as arrived' . ($lateM ? " — $lateM minutes late" : '') . '. It becomes Completed once treatment is recorded.');
+            // STAFF: next, the dentist's PIN opens the chart ("start the procedure?" pop-up,
+            // includes/chart_access.php). Closing it just leaves the patient arrived.
+            if (current_role() === 'staff') {
+                if (staff_chart_access((int)$ap['patient_id'], false)) {     // already approved for this patient
+                    header("Location: odontogram?patient=" . (int)$ap['patient_id']); exit;
+                }
+                $_SESSION['pin_prompt'] = ['pid' => (int)$ap['patient_id'], 'name' => $ap['patient_name'], 'dentist' => $ap['dentist']];
+            }
             // From the dentist's dashboard: go straight to the patient's dental chart.
             if (($_POST['goto'] ?? '') === 'chart' && current_role() === 'dentist') {
                 set_flash($ap['patient_name'] . ' is here. Check the teeth, then click Next for the treatment record.');
@@ -850,6 +858,7 @@ $active = 'appointments';
                 </table>
             </div>
         </div>
+        <?= chart_access_prompt($pdo)   /* staff just marked someone arrived: "start the procedure?" */ ?>
     </main>
 </div>
 

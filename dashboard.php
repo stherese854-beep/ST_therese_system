@@ -319,6 +319,7 @@ $active = 'dashboard';
         </div>
 
         <?= late_styles()   /* "⏰ late" badge + the late menu (includes/late.php) */ ?>
+        <?= chart_access_prompt($pdo)   /* staff just marked someone arrived: "start the procedure?" */ ?>
         <!-- ===== Clinic announcements (dentists & staff; the admin writes them
              on the Announcements page, so they are not repeated here).
              Same card as the patient portal, with Hide / Show. ===== -->

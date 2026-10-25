@@ -170,6 +170,73 @@ function chart_access_card($pdo, $pid, $patientName) {
     <?php return ob_get_clean();
 }
 
+/**
+ * Right after STAFF mark a patient as arrived: "start the procedure?" — the
+ * dentist types their PIN and the patient's Odontogram opens. ✕ / Not now just
+ * closes it: the arrival is already saved. Shown once (set by the Arrived action).
+ */
+function chart_access_prompt($pdo) {
+    $p = $_SESSION['pin_prompt'] ?? null;
+    if (!$p || current_role() !== 'staff') return '';
+    unset($_SESSION['pin_prompt']);
+    $pid  = (int)$p['pid'];
+    $list = chart_access_dentists($pdo, $pid);
+    $ready = array_filter($list, fn($d) => !empty($d['approval_pin']) && !($d['pin_locked_until'] && strtotime($d['pin_locked_until']) > time()));
+    $prefer = null;                                        // the appointment's own dentist first
+    foreach ($ready as $id => $d) if ($d['name'] === ($p['dentist'] ?? '')) $prefer = $id;
+    ob_start(); ?>
+    <div class="cap-overlay" id="capOverlay" role="dialog" aria-modal="true" aria-labelledby="capTitle">
+        <div class="cap-box">
+            <button type="button" class="cap-x" onclick="capClose()" aria-label="Close — the arrival is already saved">✕</button>
+            <div class="cap-title" id="capTitle">✓ <?= e($p['name']) ?> has arrived</div>
+            <div class="cap-sub">Start the procedure? The dentist types their approval PIN to open <?= e($p['name']) ?>'s chart.</div>
+            <?php if ($ready): ?>
+                <form method="POST" action="odontogram" autocomplete="off">
+                    <input type="hidden" name="action" value="unlock_chart">
+                    <input type="hidden" name="patient_id" value="<?= $pid ?>">
+                    <label class="field-label">Dentist</label>
+                    <select name="dentist_id" class="form-select mb-2" required>
+                        <?php foreach ($list as $id => $d):
+                            $ok = isset($ready[$id]); ?>
+                            <option value="<?= (int)$id ?>" <?= $ok ? '' : 'disabled' ?> <?= $prefer === $id ? 'selected' : '' ?>>
+                                <?= e($d['name']) ?><?= $ok ? '' : (empty($d['approval_pin']) ? ' — no PIN set up yet' : ' — PIN locked for now') ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <label class="field-label">Dentist's PIN</label>
+                    <input type="password" name="pin" id="capPin" class="form-control mb-3" inputmode="numeric" maxlength="6" pattern="\d{4,6}" data-digits
+                           autocomplete="one-time-code" placeholder="••••" required>
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-light" onclick="capClose()" data-keep-text>Not now</button>
+                        <button class="btn btn-teal" data-keep-text>🔓 Open chart</button>
+                    </div>
+                </form>
+            <?php else: ?>
+                <div class="alert alert-warning py-2 mb-3" style="font-size:.85rem;">No dentist can approve right now (no PIN set up, or locked).</div>
+                <div class="text-end"><button type="button" class="btn btn-light" onclick="capClose()" data-keep-text>Close</button></div>
+            <?php endif; ?>
+            <div class="cap-note">Not now? The patient stays marked as arrived — open the chart later from Odontogram.</div>
+        </div>
+    </div>
+    <style>
+    .cap-overlay { position: fixed; inset: 0; z-index: 20040; background: rgba(15,35,40,.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .cap-overlay[hidden] { display: none; }
+    .cap-box { position: relative; background: #fff; border-radius: 16px; width: min(420px, 100%); padding: 22px 20px 16px; box-shadow: 0 18px 50px rgba(0,0,0,.3); animation: capPop .18s ease-out; }
+    @keyframes capPop { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+    .cap-x { position: absolute; top: 10px; right: 12px; border: 0; background: #f1f4f5; width: 32px; height: 32px; border-radius: 50%; font-size: .95rem; color: #55606a; }
+    .cap-x:hover { background: #e6ecee; }
+    .cap-title { font-weight: 700; font-size: 1.05rem; color: #138a4e; padding-right: 36px; }
+    .cap-sub { font-size: .86rem; color: #55606a; margin: 4px 0 14px; }
+    .cap-note { font-size: .76rem; color: #8aa0a0; margin-top: 10px; }
+    </style>
+    <script>
+    function capClose() { var o = document.getElementById('capOverlay'); if (o) o.hidden = true; }
+    document.getElementById('capOverlay').addEventListener('click', function (e) { if (e.target === this) capClose(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') capClose(); });
+    setTimeout(function () { var i = document.getElementById('capPin'); if (i) i.focus(); }, 150);
+    </script>
+    <?php return ob_get_clean();
+}
+
 /** The bar shown while a staff member is working with a dentist's approval. */
 function chart_access_bar($access) {
     ob_start(); ?>
