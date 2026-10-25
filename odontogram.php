@@ -76,6 +76,34 @@ function odo_save_teeth($pdo, $pid, $sid, $json) {
     return [$sid, $done];
 }
 
+/** Is the patient at the clinic today (marked Arrived, or a walk-in today)? The visit, or null. */
+function odo_here_today($pdo, $pid) {
+    $hq = $pdo->prepare("SELECT treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
+                          AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");
+    $hq->execute([$pid]);
+    if ($here = $hq->fetch()) return $here;
+    try {                                                // or came in today as a walk-in
+        $wq = $pdo->prepare("SELECT services AS treatment, visit_time AS appointment_time, 1 AS walkin FROM walk_in_visits
+                              WHERE patient_id = ? AND visit_date = CURDATE() ORDER BY id DESC LIMIT 1");
+        $wq->execute([$pid]);
+        return $wq->fetch() ?: null;
+    } catch (Throwable $e) { return null; }
+}
+
+/**
+ * A patient's FIRST visit chart is only started for someone who is at the clinic today;
+ * otherwise the dentist confirms it first (so no visit is made by accident for a patient
+ * who was never seen). Returns why it needs that confirmation, or '' when they are here.
+ */
+function odo_first_visit_reason($pdo, $pid, $name) {
+    if (odo_here_today($pdo, $pid)) return '';
+    $q = $pdo->prepare("SELECT appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
+                         AND status IN ('Pending','Confirmed') ORDER BY id LIMIT 1");
+    $q->execute([$pid]);
+    if ($t = $q->fetchColumn()) return "$name's appointment today ($t) is not marked as arrived yet.";
+    return "$name has no appointment or walk-in today.";
+}
+
 // Patients this user may chart: only real patients, and a DENTIST only
 // their own assigned ones. Used to reject a tampered ?patient= / patient_id.
 $odoSql = "SELECT p.id, p.name, p.date_of_birth, p.age, p.phone FROM patients p
@@ -122,6 +150,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                ORDER BY visit_date DESC, id DESC LIMIT 1");
     $latestQ->execute([$pid]);
     $latestSid = (int)$latestQ->fetchColumn();
+    // No visit yet and the patient is not here today: the first visit needs the dentist's "yes".
+    if (!$latestSid && in_array($action, ['save_teeth', 'new_session', 'save_session'], true) && empty($_POST['first_visit_ok'])
+        && ($why = odo_first_visit_reason($pdo, $pid, patient_name_of($pdo, $pid))) !== '') {
+        set_flash('Not saved — ' . $why . ' A first visit is only started when you confirm that you are seeing them.', 'error');
+        header("Location: odontogram?patient=$pid"); exit;
+    }
     if (in_array($action, ['save_teeth', 'save_session'], true)) {
         $postSid = (int)($_POST['session_id'] ?? 0);
         if ($postSid && $postSid !== $latestSid) {
@@ -246,19 +280,7 @@ $isLatestVisit = !$sessions || $sid === ($validIds[0] ?? 0);
 $canEditVisit  = $canEditChart && $isLatestVisit && $pid > 0;
 
 // Is the patient at the clinic today (marked Arrived)? Then show what they came for.
-$hereToday = null;
-if ($pid && $canEditChart) {
-    $hq = $pdo->prepare("SELECT treatment, appointment_time FROM appointments WHERE patient_id = ? AND appointment_date = CURDATE()
-                          AND arrived_at IS NOT NULL AND status IN ('Arrived','Completed') ORDER BY id DESC LIMIT 1");
-    $hq->execute([$pid]); $hereToday = $hq->fetch() ?: null;
-    if (!$hereToday) {                                   // or came in today as a walk-in
-        try {
-            $wq = $pdo->prepare("SELECT services AS treatment, visit_time AS appointment_time, 1 AS walkin FROM walk_in_visits
-                                  WHERE patient_id = ? AND visit_date = CURDATE() ORDER BY id DESC LIMIT 1");
-            $wq->execute([$pid]); $hereToday = $wq->fetch() ?: null;
-        } catch (Throwable $e) {}
-    }
-}
+$hereToday = ($pid && $canEditChart) ? odo_here_today($pdo, $pid) : null;
 
 // The chart we are editing (+ each tooth's typed condition and note).
 $toothMap  = $pid ? build_tooth_map($pdo, $pid, $sid) : [];
@@ -304,6 +326,9 @@ foreach ($changes as $ch) {
 // ---- For the printed / PDF chart ----
 $printPatient = null;
 if ($pid) { $pp = $pdo->prepare("SELECT name, age, date_of_birth, primary_dentist FROM patients WHERE id=?"); $pp->execute([$pid]); $printPatient = $pp->fetch(); }
+// No visit yet and not here today: starting the first visit asks the dentist first.
+$firstWhy = ($pid && $canEditVisit && !$sessions && !$hereToday)
+          ? odo_first_visit_reason($pdo, $pid, $printPatient['name'] ?? 'This patient') : '';
 $printClinic = [];
 foreach ($pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('clinic_name','land_contact_address','clinic_address','land_contact_phone','clinic_phone')") as $r) $printClinic[$r['setting_key']] = trim((string)$r['setting_value']);
 $printFindings = array_filter($toothMap, fn($st) => $st !== 'Healthy');   // teeth that are not healthy
@@ -407,6 +432,9 @@ $active = 'odontogram';
                         <div class="no-print" style="background:#f7fafa;border:1px dashed #cfe0dd;border-radius:10px;padding:12px 14px;font-size:.9rem;color:#52606b;margin-bottom:8px;">
                             📭 <b>No visits yet.</b> This patient has not been charted, so the chart is empty.
                             <?= $canEditChart ? 'Start the first visit when you see the patient — or just click a tooth and the first visit (today) is created.' : 'The dentist starts it at the first visit.' ?>
+                            <?php if ($firstWhy !== ''): ?>
+                                <div class="mt-1" style="color:#8a6d2f;">⚠️ <?= e($firstWhy) ?> You will be asked to confirm before a visit is started.</div>
+                            <?php endif; ?>
                         </div>
                     <?php endif; ?>
                     <div class="sess-tabs no-print">
@@ -706,6 +734,7 @@ $active = 'odontogram';
     <input type="hidden" name="session_id" value="<?= $sid ?>">
     <input type="hidden" name="teeth" id="odo-save-teeth">
     <input type="hidden" name="next" id="odo-save-next" value="">
+    <input type="hidden" name="first_visit_ok" id="odo-first-ok" value=""><!-- the dentist confirmed the first visit -->
 </form>
 <?php endif; ?>
 
@@ -731,6 +760,15 @@ $active = 'odontogram';
             <?php if (!$sessions): ?>
                 <input type="hidden" name="copy_from" value="0">
                 <div class="text-muted2" style="font-size:.85rem;">The chart starts with every tooth as Healthy — mark what you find.</div>
+                <?php if ($firstWhy !== ''): ?>
+                    <div class="mt-3 p-2" style="background:#fff6e0;border:1px solid #e0b64a;border-radius:8px;font-size:.85rem;color:#8a6d2f;">
+                        ⚠️ <?= e($firstWhy) ?>
+                        <label class="d-flex gap-2 align-items-start mt-2" style="color:#5a4a20;cursor:pointer;">
+                            <input type="checkbox" name="first_visit_ok" value="1" required style="margin-top:3px;">
+                            <span>Yes, I am seeing <?= e($printPatient['name'] ?? 'this patient') ?> (or recording a visit that happened — set its date above).</span>
+                        </label>
+                    </div>
+                <?php endif; ?>
             <?php else: ?>
             <label class="field-label">Start this chart from...</label>
             <div class="form-check">
@@ -817,8 +855,20 @@ function odoNext() {
         document.querySelectorAll('[data-sum]').forEach(function (el) { el.textContent = sums[el.dataset.sum] || 0; });
     }
 
+    // No visit yet and the patient is not here today: ask once, before the first tooth.
+    var FIRST_WHY = <?= json_encode($firstWhy, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP) ?>, firstOk = FIRST_WHY === '';
+    function askFirstVisit() {
+        if (firstOk) return true;
+        if (!confirm('Start the first visit for ' + <?= json_encode($printPatient['name'] ?? 'this patient', JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP) ?>
+                     + ' today?\n\n' + FIRST_WHY + '\n\nThe visit is only made when you save with ✔ Done.')) return false;
+        firstOk = true;
+        $('odo-first-ok').value = '1';
+        return true;
+    }
+
     // A tooth was clicked: open the pop-up with its condition and note.
     window.odoSelect = function (n) {
+        if (!askFirstVisit()) return;
         toggleOdoEdit(true);
         openNum = String(n);
         var c = cur(openNum);
