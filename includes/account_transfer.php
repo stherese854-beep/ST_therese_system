@@ -175,6 +175,8 @@ function accept_account_invite($pdo, $inv, $password, $phone) {
             ->execute([$inv['name'], $inv['email'], password_hash($password, PASSWORD_DEFAULT), $phone]);
         $uid = (int)$pdo->lastInsertId();
         save_name_parts($pdo, 'users', $uid);
+        $pdo->prepare("UPDATE users u JOIN patients p ON p.id = ? SET u.middle_name = p.middle_name, u.no_middle_name = p.no_middle_name WHERE u.id = ?")
+            ->execute([(int)$inv['patient_id'], $uid]);                // the middle name on the record goes to the login too
         // Same record, new owner: every appointment, chart, note and X-ray stays attached.
         $pdo->prepare("UPDATE patients SET user_id = ?, guardian_patient_id = NULL, relationship = NULL, email = ?,
                               phone = COALESCE(NULLIF(?, ''), phone) WHERE id = ?")
@@ -233,6 +235,10 @@ function merge_patient_records($pdo, $keepId, $dupId, $by) {
                 $pdo->prepare("UPDATE patients SET `$f` = ? WHERE id = ?")->execute([$dup[$f], $keepId]);
             }
         }
+        if (!middle_name_known($keep) && middle_name_known($dup)) {        // the middle name too
+            $pdo->prepare("UPDATE patients SET middle_name = ?, no_middle_name = ? WHERE id = ?")
+                ->execute([$dup['middle_name'] ?: null, (int)$dup['no_middle_name'], $keepId]);
+        }
         $pdo->prepare("UPDATE patients SET pre_archive_status = status, status = 'Archived', archived_at = NOW(), archived_by = ?,
                               guardian_patient_id = NULL WHERE id = ?")
             ->execute([$by . ' (merged into #' . $keepId . ')', $dupId]);
@@ -242,6 +248,7 @@ function merge_patient_records($pdo, $keepId, $dupId, $by) {
         return [false, 'The merge could not be completed. Nothing was changed.'];
     }
     log_activity($pdo, 'Merged patient records', $dup['name'] . " (#$dupId) → " . $keep['name'] . " (#$keepId)");
+    identity_after_merge($pdo, $keepId, $dupId, $by);      // "same full name" pairs with the archived record are closed
     return [true, $dup['name'] . "'s records were moved onto " . $keep['name'] . " (#$keepId). The duplicate is in the Archive."];
 }
 

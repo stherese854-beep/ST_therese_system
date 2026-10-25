@@ -121,6 +121,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ovLast  = trim($_POST['last_name'] ?? '');
         $ovName  = trim(preg_replace('/\s+/', ' ', "$ovFirst $ovLast"));
         if ($ovFirst === '' || $ovLast === '') $err = 'Please enter the patient\'s first and last name.';
+        $ovMiddle = posted_middle_name();                     // in full, or "No middle name" (includes/identity.php)
+        if (!$err) $err = middle_name_problem($ovMiddle);
         if ($err) { set_flash($err, 'error'); header($back); exit; }
 
         $cur = $pdo->prepare("SELECT p.primary_dentist, p.user_id, u.email AS login_email FROM patients p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?");
@@ -147,6 +149,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                        $cleanPhone, $email, $newDentist ?: null,
                        trim($_POST['emergency_name'] ?? '') ?: null, $emPhone ?: null, $pid]);
         save_name_parts($pdo, 'patients', $pid, $ovFirst, $ovLast);
+        save_middle_name($pdo, 'patients', $pid, $ovMiddle);
+        if (!empty($cur['user_id'])) save_middle_name($pdo, 'users', (int)$cur['user_id'], $ovMiddle);
+        if ($sameN = identity_check_patient($pdo, $pid, false)) { $msg .= identity_staff_note($sameN); $type = 'warning'; }
         $pdChg = change_list($pdWas, ['name' => $ovName, 'date_of_birth' => $dob, 'phone' => $cleanPhone, 'email' => $email,
                                       'primary_dentist' => $newDentist, 'emergency_name' => trim($_POST['emergency_name'] ?? ''), 'emergency_phone' => $emPhone],
                              ['name' => 'Name', 'date_of_birth' => 'Birthday', 'phone' => 'Phone', 'email' => 'Email', 'primary_dentist' => 'Dentist',
@@ -593,7 +598,7 @@ $active = 'records';
                     <?php endif; ?>
                 </div>
                 <div class="row g-3 ov-view">
-                    <?= $item('Full name', e($patientRow['name'])) ?>
+                    <?= $item('Full name', e(name_with_initial($patientRow))) ?>
                     <?= $item('Date of birth / Age', e($dobTxt)) ?>
                     <?= $item('Primary dentist', e($patientRow['primary_dentist'] ?? '')) ?>
                     <?= $item('Phone', e($patientRow['phone'] ?? '')) ?>
@@ -611,6 +616,7 @@ $active = 'records';
                                 <input name="first_name" class="form-control" value="<?= e($ovF) ?>" required></div>
                             <div class="col-6"><label class="field-label">Last name</label>
                                 <input name="last_name" class="form-control" value="<?= e($ovL) ?>" required></div>
+                            <div class="col-12"><?= middle_name_input('middle_name', $patientRow['middle_name'] ?? '', !empty($patientRow['no_middle_name']), ['id' => 'ov-middle']) ?></div>
                         </div></div>
                         <div class="col-md-4"><label class="field-label">Date of birth</label>
                             <input type="date" name="dob" id="ov-dob" class="form-control" value="<?= e($patientRow['date_of_birth']) ?>" min="1900-01-01" max="<?= birth_date_max() ?>">

@@ -75,6 +75,8 @@ if ($me['id']) {
         $pauseMessage = "<strong>Online booking is currently paused on your account.</strong><br><br>"
                       . (trim((string)$mbRow['booking_block_reason']) !== '' ? e($mbRow['booking_block_reason']) . "<br><br>" : '')
                       . "Please visit the clinic and our staff will be happy to help you.";
+    } elseif (identity_hold($pdo, $me['id'])) {
+        $pauseMessage = identity_hold_message();      // same full name as another patient: an ID check at the clinic first
     } elseif ($missed >= 3) {
         $pauseMessage = "<strong>Online booking is paused on your account.</strong><br><br>"
                       . "You have missed <strong>$missed scheduled appointments</strong>. "
@@ -196,10 +198,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     // clinic changes it), so it is not checked again here.
     $knownDependent = null;
     if (($_POST['for'] ?? 'myself') === 'other' && $me['id']) {
-        $kd = $pdo->prepare("SELECT id, name, relationship, date_of_birth FROM patients WHERE guardian_patient_id = ?");
+        $kd = $pdo->prepare("SELECT id, name, relationship, date_of_birth, middle_name, no_middle_name FROM patients WHERE guardian_patient_id = ?");
         $kd->execute([$me['id']]);
         foreach ($kd->fetchAll() as $r) if (person_name_key($r['name']) === person_name_key($patientName)) $knownDependent = $r;
         if ($knownDependent && trim((string)$knownDependent['relationship']) !== '') $relationshipPosted = $knownDependent['relationship'];
+    }
+    // Someone else: their middle name in full (or "No middle name"). Someone booked before whose
+    // middle name is on file keeps it (the box shows the initial, locked).
+    $depMiddle = null; $depMiddleErr = '';
+    if (($_POST['for'] ?? 'myself') === 'other' && $me['id'] && !($knownDependent && middle_name_known($knownDependent))) {
+        $depMiddle    = posted_middle_name('mname');
+        $depMiddleErr = middle_name_problem($depMiddle, true);
     }
     // Inside one account, family members are told apart by NAME. So booking "someone else"
     // with the holder's own name, or with a family member's name but another birthday,
@@ -210,12 +219,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $postedDob = trim($_POST['patient_dob'] ?? '');
         if (person_name_key($patientName) === person_name_key($me['name'] ?? '')) {
             $nameClash = '<strong>' . e($patientName) . '</strong> is your own name. If you are booking for someone else with the same name, '
-                       . 'please add <strong>Jr.</strong>, <strong>Sr.</strong>, <strong>II</strong> or their middle name so we can tell you apart.';
+                       . 'please add <strong>Jr.</strong>, <strong>Sr.</strong> or <strong>II</strong> to their last name so we can tell you apart.';
         } elseif ($knownDependent && !empty($knownDependent['date_of_birth']) && $postedDob !== '' && $postedDob !== $knownDependent['date_of_birth']) {
             $nameClash = 'You have booked for <strong>' . e($knownDependent['name']) . '</strong> before, born <strong>'
                        . date('M j, Y', strtotime($knownDependent['date_of_birth'])) . '</strong>. If this is the same person, please use that birthday '
                        . '(the clinic can correct it if it is wrong). If it is a <strong>different person</strong> with the same name, '
-                       . 'add <strong>Jr.</strong>, <strong>Sr.</strong>, <strong>II</strong> or a middle name so we can tell them apart.';
+                       . 'add <strong>Jr.</strong>, <strong>Sr.</strong> or <strong>II</strong> to their last name so we can tell them apart.';
         }
     }
     $relAgeError = (($_POST['for'] ?? 'myself') === 'other' && !$knownDependent)
@@ -239,6 +248,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = "That time has already passed today. Please choose a later time.";
     } elseif (($_POST['for'] ?? 'myself') === 'other' && ($dobErr = birth_date_error($_POST['patient_dob'] ?? '', true)) !== '') {
         $bookError = $dobErr;
+    } elseif ($depMiddleErr !== '') {
+        $bookError = e($depMiddleErr);
     } elseif ($nameClash !== '') {
         $bookError = $nameClash;                      // same name as the holder / another family member
     } elseif ($relAgeError !== '') {
@@ -309,51 +320,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
                                                       trim($_POST['fname'] ?? ''), trim($_POST['lname'] ?? '')) ?: $me['id'];
         }
 
-        $pdo->prepare("INSERT INTO appointments
-                       (patient_id,patient_name,dentist,treatment,appointment_date,appointment_time,
-                        status,notes,booked_for,relationship,booked_by,reason_for_visit,health_form)
-                       VALUES (?,?,?,?,?,?, 'Pending', ?,?,?,?,?,?)")
-            ->execute([
-                $apptPatientId, $patientName,
-                $bookDentist,
-                $_POST['treatment'],
-                $_POST['date'],
-                $_POST['time'],
-                $bookingNotes,
-                $forWhom, $relationship, $bookedBy, $reason,
-                json_encode($healthForm, JSON_UNESCAPED_UNICODE)
-            ]);
-        // The answers also go onto the patient's record (the family member's own
-        // record when booking for someone else), where Records shows them.
-        save_patient_health($pdo, $apptPatientId, $healthForm);
-
-        // Email the patient a "request received" confirmation (if email is set up).
-        if (!empty($me['email'])) {
-            $who = ($forWhom === 'Someone else')
-                 ? "<strong>" . e($patientName) . "</strong> (" . ($relationship ? e(relationship_phrase($relationship)) . ', ' : '') . "booked by you)"
-                 : "<strong>" . e($patientName) . "</strong>";
-            $cat = message_catalogue()['confirmation'];
-            [$mailSubj, $body] = tpl_message($pdo, 'confirmation', $cat['subject'], $cat['body'], [
-                'patient'   => $patientName,
-                'date'      => date('l, F j, Y', strtotime($_POST['date'])),
-                'time'      => $_POST['time'],
-                'treatment' => $_POST['treatment'],
-                'dentist'   => $bookDentist ?: 'To be assigned',
-                'clinic'    => clinic_name($pdo),
-            ]);
-            $mErr = '';
-            send_mail($pdo, $me['email'], $mailSubj, $body, $mErr, 'confirmation');
+        // Their middle name; then: the same full name as another patient? The booking waits —
+        // the account is asked to visit the clinic with a valid ID first (includes/identity.php).
+        $identityStop = false;
+        if ($forWhom === 'Someone else' && $apptPatientId !== $me['id']) {
+            save_middle_name($pdo, 'patients', $apptPatientId, $depMiddle);
+            identity_check_patient($pdo, $apptPatientId);
+            $identityStop = identity_hold($pdo, $me['id']);
         }
 
-        log_activity($pdo, 'Booked appointment', $patientName . ' — ' . $_POST['treatment'] . ', '
-                     . date('M j, Y', strtotime($_POST['date'])) . ' ' . $_POST['time']);
+        if ($identityStop) {
+            $bookError = identity_hold_message();
+        } else {
+            $pdo->prepare("INSERT INTO appointments
+                           (patient_id,patient_name,dentist,treatment,appointment_date,appointment_time,
+                            status,notes,booked_for,relationship,booked_by,reason_for_visit,health_form)
+                           VALUES (?,?,?,?,?,?, 'Pending', ?,?,?,?,?,?)")
+                ->execute([
+                    $apptPatientId, $patientName,
+                    $bookDentist,
+                    $_POST['treatment'],
+                    $_POST['date'],
+                    $_POST['time'],
+                    $bookingNotes,
+                    $forWhom, $relationship, $bookedBy, $reason,
+                    json_encode($healthForm, JSON_UNESCAPED_UNICODE)
+                ]);
+            // The answers also go onto the patient's record (the family member's own
+            // record when booking for someone else), where Records shows them.
+            save_patient_health($pdo, $apptPatientId, $healthForm);
 
-        $booked = true;
-        $confirm = $_POST;   // keep details to show on the success screen
-        $confirm['patient_name'] = $patientName;
-        $confirm['dentist']      = $bookDentist;
-        $confirm['booked_by']    = $bookedBy;
-        $confirm['relationship'] = $relationship;
+            // Email the patient a "request received" confirmation (if email is set up).
+            if (!empty($me['email'])) {
+                $who = ($forWhom === 'Someone else')
+                     ? "<strong>" . e($patientName) . "</strong> (" . ($relationship ? e(relationship_phrase($relationship)) . ', ' : '') . "booked by you)"
+                     : "<strong>" . e($patientName) . "</strong>";
+                $cat = message_catalogue()['confirmation'];
+                [$mailSubj, $body] = tpl_message($pdo, 'confirmation', $cat['subject'], $cat['body'], [
+                    'patient'   => $patientName,
+                    'date'      => date('l, F j, Y', strtotime($_POST['date'])),
+                    'time'      => $_POST['time'],
+                    'treatment' => $_POST['treatment'],
+                    'dentist'   => $bookDentist ?: 'To be assigned',
+                    'clinic'    => clinic_name($pdo),
+                ]);
+                $mErr = '';
+                send_mail($pdo, $me['email'], $mailSubj, $body, $mErr, 'confirmation');
+            }
+
+            log_activity($pdo, 'Booked appointment', $patientName . ' — ' . $_POST['treatment'] . ', '
+                         . date('M j, Y', strtotime($_POST['date'])) . ' ' . $_POST['time']);
+
+            $booked = true;
+            $confirm = $_POST;   // keep details to show on the success screen
+            $confirm['patient_name'] = $patientName;
+            $confirm['dentist']      = $bookDentist;
+            $confirm['booked_by']    = $bookedBy;
+            $confirm['relationship'] = $relationship;
+        }
     }
 }
 
@@ -373,13 +397,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($healthForm)) {
 // their details don't have to be typed again.
 $familyList = [];
 if ($me['id']) {
-    $fl = $pdo->prepare("SELECT id, name, relationship, date_of_birth FROM patients
+    $fl = $pdo->prepare("SELECT id, name, first_name, middle_name, no_middle_name, last_name, relationship, date_of_birth FROM patients
                           WHERE guardian_patient_id = ? AND status <> 'Archived' ORDER BY name");
     $fl->execute([$me['id']]);
     foreach ($fl->fetchAll() as $f) {
-        $parts = preg_split('/\s+/', trim($f['name']), 2);
+        $parts = name_parts_of($f);
         $familyList[] = [
-            'first' => $parts[0] ?? '', 'last' => $parts[1] ?? '',
+            'first' => $parts[0], 'last' => $parts[1],
+            'mid'   => middle_name_known($f) ? (!empty($f['no_middle_name']) ? 'None' : middle_initial($f['middle_name'])) : null,   // null: type it
             'name'  => $f['name'], 'relationship' => (string)$f['relationship'], 'dob' => (string)$f['date_of_birth'],
             'busy'  => $busyPeople[person_key($f['name'])] ?? null,        // already has an active booking?
         ];
@@ -688,6 +713,9 @@ include 'includes/head.php';
                         <input name="lname" id="sel-lname" class="form-control mb-1" value="<?= e(name_parts_of($me)[1]) ?>" readonly>
                     </div>
                 </div>
+                <!-- Middle name: yours (and someone booked before) is on file, shown as the initial;
+                     someone new: typed in full, or "No middle name" -->
+                <div class="mb-1"><?= middle_name_input('mname', '', false, ['id' => 'sel-mname', 'label' => 'Middle Name *']) ?></div>
                 <div id="name-warn" class="text-danger small mb-2" style="display:none;">Please enter the patient's first and last name.</div>
 
                 <!-- Booking for someone else: their birthday, right after their name -->
@@ -890,6 +918,7 @@ function validateStep3() {
     var ln = document.getElementById('sel-lname').value.trim();
 
     if (fn === '' || ln === '') {
+        document.getElementById('name-warn').textContent = "Please enter the patient's first and last name.";
         document.getElementById('name-warn').style.display = 'block';
         return;
     }
@@ -906,6 +935,18 @@ function validateStep3() {
         return;
     }
     document.getElementById('name-warn').textContent = "Please enter the patient's first and last name.";
+
+    // Someone new: the middle name in full, or "No middle name".
+    var mb = document.getElementById('sel-mname'), mt = document.querySelector('[data-mid-none="sel-mname"]');
+    var mv = mb.value.replace(/[.\s]/g, '');
+    if (!mb.disabled && !mt.checked && mv.length < 2) {
+        var mw = document.getElementById('name-warn');
+        mw.textContent = mv.length ? 'Please type the full middle name, not just the initial.'
+                                   : "Please type the patient's full middle name, or tick “No middle name”.";
+        mw.style.display = 'block'; mb.focus();
+        return;
+    }
+    document.getElementById('name-warn').style.display = 'none';
 
     // When booking for someone else, the relationship AND their birthday are required.
     var forOther = document.querySelector('input[name="for"]:checked').value === 'other';
@@ -1028,6 +1069,24 @@ function hfPrefillFor() {
 // "Who is it?" — someone booked before: fill in their details (name locked);
 // "Someone new": empty fields to type in.
 var FAMILY = <?= json_encode($familyList, JSON_HEX_TAG | JSON_HEX_APOS) ?>;
+// The middle name box: text = the initial on file (shown, locked), or null = type it in full.
+var MY_MID = <?= json_encode(middle_name_known($me) ? (!empty($me['no_middle_name']) ? 'None' : middle_initial($me['middle_name'])) : '') ?>;
+function midLock(text) {
+    var b = document.getElementById('sel-mname'), t = document.querySelector('[data-mid-none="sel-mname"]');
+    t.checked = false; b.setCustomValidity('');
+    if (text !== null) {
+        b.disabled = true; b.value = text;
+        b.placeholder = text === '' ? 'Not on file yet — add it in My Information' : '';
+        t.parentNode.style.display = 'none';
+    } else {
+        b.disabled = false; b.value = '';
+        b.placeholder = 'Full middle name, e.g. Santos';
+        t.parentNode.style.display = '';
+    }
+}
+document.addEventListener('DOMContentLoaded', function () {
+    if (document.querySelector('input[name="for"]:checked').value !== 'other') midLock(MY_MID);
+});
 function pickFamily() {
     var sel = document.getElementById('sel-family'), f = sel && sel.value !== '' ? FAMILY[+sel.value] : null;
     var fn = document.getElementById('sel-fname'), ln = document.getElementById('sel-lname');
@@ -1035,6 +1094,7 @@ function pickFamily() {
     var fixed = document.getElementById('rel-fixed'), pick = document.getElementById('rel-pick');
     if (f) {
         fn.value = f.first; ln.value = f.last; fn.readOnly = true; ln.readOnly = true;
+        midLock(f.mid);
         var known = [].some.call(rel.options, function (o) { return o.value === f.relationship; });
         if (f.relationship && !known) { rel.value = 'Other relative'; relOtherBox.value = f.relationship; }
         else { rel.value = f.relationship; relOtherBox.value = ''; }
@@ -1046,6 +1106,7 @@ function pickFamily() {
         document.getElementById('sel-dob').value = f.dob || ''; document.getElementById('sel-dob').dispatchEvent(new Event('change', {bubbles: true}));
     } else {
         fn.value = ''; ln.value = ''; fn.readOnly = false; ln.readOnly = false;
+        midLock(null);
         rel.value = ''; relOtherBox.value = ''; document.getElementById('sel-dob').value = '';
         document.getElementById('sel-dob').dispatchEvent(new Event('change', {bubbles: true}));   // clears the "Age …" note
         fixed.style.display = 'none'; pick.style.display = '';
@@ -1069,11 +1130,13 @@ function toggleFor() {
     if (forOther) {
         fn.readOnly = false; ln.readOnly = false;
         fn.value = ''; ln.value = '';
+        midLock(null);
         if (fam) { fam.value = ''; pickFamily(); } else { fn.focus(); }
     } else {
         fn.readOnly = true; ln.readOnly = true;
-        fn.value = <?= json_encode(explode(' ', $me['name'])[0]) ?>;
-        ln.value = <?= json_encode(trim(substr(strstr($me['name'],' '),1))) ?>;
+        fn.value = <?= json_encode(name_parts_of($me)[0]) ?>;
+        ln.value = <?= json_encode(name_parts_of($me)[1]) ?>;
+        midLock(MY_MID);
         document.getElementById('sel-rel').value = '';
     }
 }
@@ -1261,8 +1324,10 @@ function fillReview() {
     document.getElementById('rev-treat').textContent = tpPicked('bk-list').join(', ');
     document.getElementById('rev-date').textContent  = document.getElementById('sel-date').value;
     document.getElementById('rev-time').textContent  = document.getElementById('sel-time').value;
+    var revMid = document.getElementById('sel-mname').value.trim();          // shown as the initial
+    revMid = revMid && revMid !== 'None' ? ' ' + revMid.charAt(0).toUpperCase() + '.' : '';
     document.getElementById('rev-name').textContent  =
-        document.getElementById('sel-fname').value + ' ' + document.getElementById('sel-lname').value;
+        document.getElementById('sel-fname').value + revMid + ' ' + document.getElementById('sel-lname').value;
     document.getElementById('rev-phone').textContent = document.getElementById('sel-phone').value;
     // Booking for someone else: show their birthday (and age) too.
     var forOtherRv = document.querySelector('input[name="for"]:checked').value === 'other';

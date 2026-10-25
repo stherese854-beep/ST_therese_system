@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim(preg_replace('/\s+/', ' ', "$title $first $last"));
+        $middle = posted_middle_name();                       // in full, or "No middle name" (includes/identity.php)
         $email = strtolower(trim($_POST['email'] ?? ''));
         $position = mb_substr(trim($_POST['position'] ?? ''), 0, 100);
         $status = ($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
@@ -31,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $err = '';
         if ($first === '' || $last === '')  $err = 'Please enter both a first name and a last name.';
+        elseif (($mErr = middle_name_problem($middle)) !== '') $err = $mErr;
         elseif ($phoneError !== '')         $err = $phoneError;
         else                                $err = validate_account_email($pdo, $email, $sid ?: null);   // real, and not taken
         if ($sid) {
@@ -44,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE users SET name = ?, email = ?, specialty = ?, contact = ?, status = ? WHERE id = ? AND role = 'staff'")
                 ->execute([$name, $email, $position, $contact, $status, $sid]);
             save_name_parts($pdo, 'users', $sid, $first, $last);
+            save_middle_name($pdo, 'users', $sid, $middle);
             $chg = change_list($was, ['name' => $name, 'email' => $email, 'specialty' => $position, 'contact' => $contact, 'status' => $status],
                                ['name' => 'Name', 'email' => 'Email', 'specialty' => 'Position', 'contact' => 'Phone', 'status' => 'Status']);
             log_activity($pdo, 'Updated user', "$name (staff)" . ($chg ? ' — ' . $chg : ''));
@@ -56,7 +59,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->prepare("INSERT INTO users (name, email, password, role, specialty, contact, status) VALUES (?, ?, ?, 'staff', ?, ?, 'active')")
                 ->execute([$name, $email, password_hash($tempPass, PASSWORD_DEFAULT), $position, $contact]);
-            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);
+            $newSid = (int)$pdo->lastInsertId();
+            save_name_parts($pdo, 'users', $newSid, $first, $last);
+            save_middle_name($pdo, 'users', $newSid, $middle);
         } catch (PDOException $ex) {
             set_flash('That email is already in use. Please use a different email.', 'error');
             header("Location: admin_staff"); exit;
@@ -93,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------- The cards ----------
-$staffList = $pdo->query("SELECT id, name, first_name, last_name, email, specialty, position, contact, status, last_login, photo
+$staffList = $pdo->query("SELECT id, name, first_name, middle_name, no_middle_name, last_name, email, specialty, position, contact, status, last_login, photo
                             FROM users WHERE role = 'staff' AND status <> 'archived' ORDER BY name")->fetchAll();
 // Bookings + walk-ins each one entered in the last 30 days.
 $workDone = [];
@@ -131,6 +136,7 @@ $active = 'staff';
                 $position = $st['specialty'] ?: ($st['position'] ?: '');
                 $done = $workDone[(int)$st['id']] ?? 0;
                 $form = ['id' => (int)$st['id'], 'name' => $st['name'], 'first_name' => (string)$st['first_name'], 'last_name' => (string)$st['last_name'],
+                         'middle_name' => (string)$st['middle_name'], 'no_middle_name' => (int)$st['no_middle_name'],
                          'email' => $st['email'], 'position' => $position,
                          'contact' => (string)$st['contact'], 'status' => $st['status']]; ?>
                 <div class="card-box h-100 mb-0">
@@ -187,6 +193,7 @@ $active = 'staff';
                         <div class="col-8"><label class="field-label">First Name</label>
                             <input name="first_name" id="s-first" class="form-control mb-3" placeholder="Juan" required></div>
                     </div>
+                    <div class="mb-3"><?= middle_name_input('middle_name', '', false, ['id' => 's-middle']) ?></div>
                     <label class="field-label">Last Name</label>
                     <input name="last_name" id="s-last" class="form-control mb-3" placeholder="Dela Cruz" required>
 
@@ -237,6 +244,7 @@ function staffForm(s) {
     $('s-title-sel').value = title;
     $('s-first').value = s ? (parts.shift() || '') : '';
     $('s-last').value = s ? parts.join(' ') : '';
+    midSet('s-middle', s ? s.middle_name : '', s ? s.no_middle_name : 0);
     $('s-email').value = s ? s.email : '';
     $('s-position').value = s ? s.position : '';
     $('s-contact').value = s ? s.contact : '';

@@ -129,11 +129,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // First + last name boxes; a title the name already had (e.g. "Dr.") is kept.
         $myFirst = trim($_POST['my_first'] ?? '');
         $myLast  = trim($_POST['my_last'] ?? '');
+        // The middle name is typed once, in full (the admin changes it after that, in User Management).
+        $mk = $pdo->prepare("SELECT middle_name, no_middle_name FROM users WHERE id = ?");
+        $mk->execute([$uid]);
+        $myMiddle = middle_name_known($mk->fetch() ?: []) ? null : posted_middle_name('my_middle');
         [$myTitle] = split_full_name($_SESSION['name'] ?? '');
         $newName = $myFirst !== '' ? trim(preg_replace('/\s+/', ' ', "$myTitle $myFirst $myLast")) : trim($_POST['my_name'] ?? '');
         [$newContact, $phoneError] = validate_phone($_POST['my_contact'] ?? '', false);
         if ($phoneError !== '') {
             set_flash($phoneError, 'error');
+        } elseif ($myMiddle !== null && ($mErr = middle_name_problem($myMiddle, true)) !== '') {
+            set_flash($mErr, 'error');
         } elseif ($newName !== '' && current_role() === 'dentist' && ($dnErr = dentist_name_problem($pdo, $newName, $uid)) !== '') {
             set_flash($dnErr, 'error');
         } elseif ($newName !== '') {
@@ -141,6 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE users SET name=?, contact=? WHERE id=?")
                 ->execute([$newName, $newContact, $uid]);
             save_name_parts($pdo, 'users', $uid, $myFirst !== '' ? $myFirst : null, $myFirst !== '' ? $myLast : null);
+            save_middle_name($pdo, 'users', $uid, $myMiddle);
             $_SESSION['name'] = $newName;   // keep the top-right widget in sync
             log_activity($pdo, 'Updated profile', 'Own profile');
             set_flash('Your profile was updated.');
@@ -243,7 +250,7 @@ require_once 'includes/profile_sections.php';
 $profSec = $profileView ? current_profile_section(current_role()) : '';
 
 // The logged-in user's own account (for the My Profile card).
-$meStmt = $pdo->prepare("SELECT name, first_name, last_name, email, contact, photo, role FROM users WHERE id=?");
+$meStmt = $pdo->prepare("SELECT name, first_name, middle_name, no_middle_name, last_name, email, contact, photo, role FROM users WHERE id=?");
 $meStmt->execute([$_SESSION['user_id'] ?? 0]);
 $meUser = $meStmt->fetch() ?: ['name'=>'','email'=>'','contact'=>'','photo'=>'','role'=>''];
 $myHasPhoto = !empty($meUser['photo']) && is_file(__DIR__ . '/' . $meUser['photo']);
@@ -309,6 +316,9 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                         <label class="field-label">First Name</label>
                         <input name="my_first" class="form-control mb-3" value="<?= e($myF) ?>" required>
                     </div>
+                    <!-- Only the initial is shown; it is typed in full once -->
+                    <div class="col-md-4 mb-3"><?= middle_name_profile_field('my_middle', $meUser,
+                        ['locked' => current_role() === 'admin' ? 'Change it in User Management' : 'Ask the admin to change your middle name']) ?></div>
                     <div class="col-md-4">
                         <label class="field-label">Last Name</label>
                         <input name="my_last" class="form-control mb-3" value="<?= e($myL) ?>" required>
@@ -320,7 +330,7 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                 </div>
                 <label class="field-label">Email <span class="text-muted2">(read-only)</span></label>
                 <input class="form-control mb-1" value="<?= e($meUser['email']) ?>" readonly style="background:#eef7f6;color:var(--teal);">
-                <div class="text-muted2 mb-3" style="font-size:.76rem;">Role: <strong><?= e(ucfirst($meUser['role'])) ?></strong></div>
+                <div class="text-muted2 mb-3" style="font-size:.76rem;">Name: <strong><?= e(name_with_initial($meUser)) ?></strong> · Role: <strong><?= e(ucfirst($meUser['role'])) ?></strong></div>
                 <button class="btn btn-teal">💾 Save Profile</button>
             </form>
         </div>

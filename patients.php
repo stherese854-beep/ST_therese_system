@@ -17,6 +17,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim($first . ' ' . $last);
+        $middle = posted_middle_name();                       // in full, or "No middle name" (includes/identity.php)
+        if (($mErr = middle_name_problem($middle)) !== '') {
+            set_flash($mErr, 'error');
+            header("Location: patients"); exit;
+        }
         $email = trim($_POST['email']);
         [$phone, $phoneError] = validate_phone($_POST['phone'] ?? '', false);   // optional, but must be real
         if ($phoneError !== '') {
@@ -82,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE patients SET name=?, email=?, phone=?, status=?, patient_type=?, visit_reason=? WHERE id=?")
                 ->execute([$name, $email, $phone, $status, $ptype, $vreason, $id]);
             save_name_parts($pdo, 'patients', $id, $first, $last);
+            save_middle_name($pdo, 'patients', $id, $middle);
             if ($canDob) {
                 $pdo->prepare("UPDATE patients SET date_of_birth=?, age=? WHERE id=?")->execute([$dob ?: null, $age, $id]);
                 // Who a booked-for person is to the account holder (People I Book For shows it).
@@ -111,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     $pdo->prepare("UPDATE users SET name=?, email=? WHERE id=?")->execute([$name, $email, $uid]);
                     save_name_parts($pdo, 'users', $uid, $first, $last);
+                    save_middle_name($pdo, 'users', $uid, $middle);
                     if ($newpass !== '') {
                         $pdo->prepare("UPDATE users SET password=? WHERE id=?")
                             ->execute([password_hash($newpass, PASSWORD_DEFAULT), $uid]);
@@ -132,6 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ->execute([$name, $email, password_hash($accPass, PASSWORD_DEFAULT)]);
                     $newUserId = $pdo->lastInsertId();
                     save_name_parts($pdo, 'users', $newUserId, $first, $last);
+                    save_middle_name($pdo, 'users', $newUserId, $middle);
                 } catch (PDOException $ex) {
                     set_flash('That email is already used by another account. Patient not added.', 'error');
                     header("Location: patients"); exit;
@@ -145,7 +153,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 : pick_dentist_for_new_patient($pdo);
             $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,status,patient_type,primary_dentist,date_of_birth,age) VALUES (?,?,?,?,?,'New',?,?,?)")
                 ->execute([$newUserId, $name, $email, $phone, $status, $assignedDentist, $dob ?: null, $age]);
-            save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $first, $last);
+            $newPid = (int)$pdo->lastInsertId();
+            save_name_parts($pdo, 'patients', $newPid, $first, $last);
+            save_middle_name($pdo, 'patients', $newPid, $middle);
 
             // Message that explains whether an account was created.
             if ($newUserId) {
@@ -166,8 +176,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (Throwable $e) {}
         }
         log_activity($pdo, $id ? 'Updated patient' : 'Added patient', $name);
-        set_flash($id ? 'Patient updated.' . $emailNote : $newMsg,
-                  strpos($emailNote, 'NOT') !== false || strpos($emailNote, 'cannot') !== false ? 'warning' : 'success');
+        $sameName = identity_check_patient($pdo, $emTarget, false);   // same full name as another patient? (staff are told here)
+        set_flash(($id ? 'Patient updated.' . $emailNote : $newMsg) . identity_staff_note($sameName),
+                  $sameName || strpos($emailNote, 'NOT') !== false || strpos($emailNote, 'cannot') !== false ? 'warning' : 'success');
         header("Location: patients"); exit;
     }
 
@@ -300,7 +311,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             [$okM, $msgM] = merge_patient_records($pdo, $_POST['keep_id'] ?? 0, $_POST['dup_id'] ?? 0, $_SESSION['name'] ?? 'Admin');
             set_flash($msgM, $okM ? 'success' : 'error');
         }
-        header("Location: patients"); exit;
+        header("Location: patients" . (($_POST['goto'] ?? '') === 'namecheck' ? '?namecheck=1#same-name' : '')); exit;
+    }
+
+    // ---- Same full name: the clinic saw a valid ID — they are two different people ----
+    // (Same person: the admin merges the records instead.) See includes/identity.php.
+    if ($action === 'identity_different') {
+        if (!in_array(current_role(), ['admin','staff'], true)) {
+            set_flash('Only admin and staff can check same-name records.', 'error');
+        } elseif ($chk = identity_resolve($pdo, (int)($_POST['check_id'] ?? 0), 'different', $_SESSION['name'] ?? 'Staff')) {
+            log_activity($pdo, 'Checked same full name', patient_name_of($pdo, (int)$chk['patient_id']) . ' (#' . (int)$chk['patient_id']
+                         . ') and #' . (int)$chk['match_id'] . ': two different people');
+            $lifted = !identity_hold($pdo, account_holder_id($pdo, (int)$chk['patient_id']));
+            set_flash('Marked as two different people — they will not be flagged again.'
+                    . ($lifted ? ' The same-name pause on online booking is lifted.' : ''));
+        } else {
+            set_flash('That pair was already checked.', 'info');
+        }
+        header("Location: patients?namecheck=1#same-name"); exit;
     }
 
     if ($action === 'restore_booking') {
@@ -410,6 +438,12 @@ if (current_role() === 'admin') {
                                WHERE p.status <> 'Archived' AND (u.id IS NULL OR u.role = 'patient') ORDER BY p.name, p.id")->fetchAll();
 }
 
+// ---- Same full name (first + full middle + last) as another patient, waiting for an ID check ----
+$canCheckNames = in_array(current_role(), ['admin','staff'], true);
+$samePairs     = $canCheckNames ? identity_open_pairs($pdo) : [];
+$sameOpenIds   = $canCheckNames ? identity_open_ids($pdo) : [];
+$showSameNames = $canCheckNames && isset($_GET['namecheck']);
+
 // ---- Who is blocked from booking online? ----
 // Same shared rule as the booking page: three missed visits inside the
 // rolling window (and only those after any staff reset) pauses booking.
@@ -480,6 +514,86 @@ $active = 'patients';
             <?php endif; ?>
         </form>
 
+        <?php if ($showSameNames): ?>
+        <!-- ===== 👥 Same full name: one person with two records, or two people? (includes/identity.php) ===== -->
+        <div class="card-box mb-3" id="same-name">
+            <div class="flex-between mb-1 flex-wrap gap-2">
+                <h5 class="mb-0">👥 Same full name — to check</h5>
+                <a href="patients" class="btn btn-sm btn-light" data-keep-text>Close</a>
+            </div>
+            <div class="text-muted2 mb-3" style="font-size:.83rem;">
+                These records have the same <b>first, middle and last name</b> (the birthday and phone are not compared).
+                When the patient visits, check a <b>valid ID</b>: one person with two records → merge them; two different
+                people → mark them as checked (they are never flagged again). Online booking stays paused for the account
+                that was asked to visit until then.
+            </div>
+            <?php if (!$samePairs): ?>
+                <div class="text-center text-muted2 py-3">✓ Nothing to check.</div>
+            <?php endif; ?>
+            <?php
+            // One record of a pair.
+            $snCard = function ($p, $tag) {
+                $age = patient_age_now($p);
+                $mid = !empty($p['no_middle_name']) ? '<span class="text-muted2">(no middle name)</span>' : '';
+                $acct = !empty($p['user_id']) ? '🔑 Has an online account'
+                      : (!empty($p['guardian_patient_id']) ? '👪 Booked by ' . e($p['guardian_name'] ?: '–') . ($p['relationship'] ? ' (' . e($p['relationship']) . ')' : '')
+                                                           : 'Walk-in · no online account');
+                return '<div class="sn-card"><div class="sn-tag">' . $tag . '</div>'
+                     . '<div class="sn-name">' . e(name_with_middle($p)) . ' ' . $mid . '</div>'
+                     . '<div class="sn-line">#' . (int)$p['id'] . ' · ' . ($p['date_of_birth'] ? 'Born ' . date('M j, Y', strtotime($p['date_of_birth'])) . ($age !== null ? " ($age yrs)" : '') : 'Birthday not given') . '</div>'
+                     . '<div class="sn-line">📞 ' . e($p['phone'] ?: '–') . (trim((string)$p['email']) !== '' ? ' · ✉️ ' . e($p['email']) : '') . '</div>'
+                     . '<div class="sn-line">' . $acct . '</div>'
+                     . '<div class="sn-line">Added ' . (!empty($p['created_at']) ? date('M j, Y', strtotime($p['created_at'])) : '–') . ' · '
+                     . (int)$p['appt_count'] . ' appointment' . ((int)$p['appt_count'] === 1 ? '' : 's') . '</div>'
+                     . '<a href="records?patient=' . (int)$p['id'] . '" class="btn btn-sm btn-light mt-2" data-keep-text>Open record</a></div>';
+            };
+            foreach ($samePairs as $sp): $a = $sp['a']; $b = $sp['b']; ?>
+                <div class="sn-pair">
+                    <div class="sn-when">Found <?= date('M j, Y g:i A', strtotime($sp['found_at'])) ?></div>
+                    <div class="sn-grid">
+                        <?= $snCard($a, '⚠️ Asked to visit the clinic') ?>
+                        <?= $snCard($b, 'Already a patient') ?>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                        <form method="POST" class="m-0" onsubmit="return confirm('Did you check a valid ID? Mark <?= e(addslashes($a['name'])) ?> (#<?= (int)$a['id'] ?>) and #<?= (int)$b['id'] ?> as two different people? They will not be flagged again.')">
+                            <input type="hidden" name="action" value="identity_different">
+                            <input type="hidden" name="check_id" value="<?= (int)$sp['id'] ?>">
+                            <button class="btn btn-sm btn-outline-teal" data-keep-text>✓ Different people — checked</button>
+                        </form>
+                        <?php if (current_role() !== 'admin'): ?>
+                            <span class="text-muted2" style="font-size:.8rem;">Same person? Ask the admin to merge the two records.</span>
+                        <?php elseif (!empty($a['user_id']) && !empty($b['user_id'])): ?>
+                            <span class="text-muted2" style="font-size:.8rem;">Same person? Both records have a login — archive one account in User Management first, then merge.</span>
+                        <?php else: ?>
+                            <form method="POST" class="m-0" onsubmit="return confirm('Same person: move everything from #<?= (int)$a['id'] ?> onto #<?= (int)$b['id'] ?>? #<?= (int)$a['id'] ?> goes to the Archive.')">
+                                <input type="hidden" name="action" value="merge_records">
+                                <input type="hidden" name="keep_id" value="<?= (int)$b['id'] ?>">
+                                <input type="hidden" name="dup_id" value="<?= (int)$a['id'] ?>">
+                                <input type="hidden" name="goto" value="namecheck">
+                                <button class="btn btn-sm btn-teal" data-keep-text>🔀 Same person — merge into #<?= (int)$b['id'] ?></button>
+                            </form>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <style>
+        .sn-pair { border: 1px solid #e3e9ee; border-radius: 12px; padding: 12px; margin-bottom: 12px; background: #fbfdfd; }
+        .sn-when { font-size: .74rem; color: #8aa0a0; margin-bottom: 6px; }
+        .sn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .sn-card { background: #fff; border: 1px solid #edf1f3; border-radius: 10px; padding: 10px 12px; min-width: 0; }
+        .sn-tag { font-size: .7rem; font-weight: 700; color: #8a6d2f; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 4px; }
+        .sn-name { font-weight: 700; color: #0d3b3b; margin-bottom: 4px; overflow-wrap: anywhere; }
+        .sn-line { font-size: .8rem; color: #55606a; overflow-wrap: anywhere; }
+        @media (max-width: 800px) { .sn-grid { grid-template-columns: 1fr; } }
+        </style>
+        <?php elseif ($samePairs): ?>
+            <a href="patients?namecheck=1#same-name" class="alert d-flex align-items-center gap-2 mb-3" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;text-decoration:none;font-size:.88rem;">
+                👥 <span><strong><?= count($samePairs) ?></strong> patient<?= count($samePairs) > 1 ? 's have' : ' has' ?> the same full name as another patient — check their ID when they visit.</span>
+                <span class="ms-auto" style="white-space:nowrap;font-weight:600;">Check →</span>
+            </a>
+        <?php endif; ?>
+
         <!-- Patients table -->
         <div class="card-box">
             <?php if (current_role() === 'admin'): ?>
@@ -508,8 +622,11 @@ $active = 'patients';
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="avatar" style="background:<?= $avatarColors[$i % 5] ?>"><?= strtoupper(substr($p['name'],0,1)) ?></span>
                                     <div>
-                                        <strong><?= e($p['name']) ?></strong>
+                                        <strong><?= e(name_with_initial($p)) ?></strong>
                                         <?php if (trim((string)$p['email']) !== ''): ?><br><small class="text-muted2"><?= e($p['email']) ?></small><?php endif; ?>
+                                        <?php if (isset($sameOpenIds[(int)$p['id']])): ?>
+                                            <br><a href="patients?namecheck=1#same-name" class="badge-pill" style="font-size:.66rem;background:#fff3cd;color:#8a6d2f;text-decoration:none;">👥 Same full name — check ID</a>
+                                        <?php endif; ?>
                                         <?php if (empty($p['user_id'])): ?>
                                             <br><small class="text-muted2" style="font-size:.7rem;"><?= !empty($p['guardian_patient_id']) ? '👪 Booked by ' . e($p['booked_by_name'] ?: '–') . ' · no login of their own' : 'Walk-in · no online account yet' ?></small>
                                             <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
@@ -664,6 +781,7 @@ $active = 'patients';
                 <div class="col"><label class="field-label">Last Name</label>
                     <input type="text" name="last_name" id="f-last" class="form-control mb-3"></div>
             </div>
+            <div class="mb-3"><?= middle_name_input('middle_name', '', false, ['id' => 'f-middle']) ?></div>
             <label class="field-label">Email</label>
             <input type="email" name="email" id="f-email" class="form-control mb-1">
             <div class="text-muted2 mb-3" style="font-size:.76rem;" id="f-email-help">For a patient with a login, this is their sign-in email: <?= current_role() === 'admin' ? 'a change is sent to the new address to confirm first, and the old address is told.' : 'only the admin can change it.' ?></div>
@@ -843,6 +961,7 @@ function validatePauseBooking(){
         document.getElementById('f-id').value = '';
         document.getElementById('f-first').value = '';
         document.getElementById('f-last').value = '';
+        midSet('f-middle', '', 0);
         document.getElementById('f-email').value = '';
         document.getElementById('f-phone').value = '';
         document.getElementById('f-em-name').value = '';
@@ -864,6 +983,7 @@ function validatePauseBooking(){
         var parts = (p.name || '').trim().split(' ');
         document.getElementById('f-first').value = p.first_name || parts.shift() || '';
         document.getElementById('f-last').value  = p.first_name ? (p.last_name || '') : parts.join(' ');
+        midSet('f-middle', p.middle_name, p.no_middle_name);
         document.getElementById('f-email').value = p.email || '';
         document.getElementById('f-phone').value = p.phone || '';
         document.getElementById('f-em-name').value = p.emergency_name || '';

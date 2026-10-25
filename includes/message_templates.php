@@ -108,6 +108,19 @@ function message_catalogue() {
                    . "penalty — we just want to make sure the next visit works out.",
     ],
 
+    'same_name_check' => [
+        'group'   => 'To the patient',
+        'label'   => 'Same full name — please visit the clinic',
+        'when'    => 'Sent when someone signs up (or books for a family member) with the same first, middle and last name as another patient. Online booking pauses until the clinic has checked their ID.',
+        'vars'    => ['patient','who','clinic'],
+        'subject' => 'Please visit the clinic to check your record',
+        'body'    => "Hello {patient},\n\n"
+                   . "We found another patient record with the same full name as {who} (first, middle and last name).\n\n"
+                   . "To keep everyone's dental records safe and correct, please visit the clinic with a valid ID "
+                   . "so our staff can check it. It only takes a few minutes at the front desk.\n\n"
+                   . "Online booking is paused on your account until then. Thank you for understanding.",
+    ],
+
     'cancel_limit' => [
         'group'   => 'To the patient',
         'label'   => 'Cancellation limit reached — booking paused',

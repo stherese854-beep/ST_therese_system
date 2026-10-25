@@ -45,6 +45,7 @@ require_once __DIR__ . '/../includes/relationships.php';   // "Raquel is your Ch
 require_once __DIR__ . '/../includes/chart_access.php';    // staff open a chart with a dentist's approval PIN
 require_once __DIR__ . '/../includes/security.php';        // account lockout, two-step sign-in, upload checks, record audit
 require_once __DIR__ . '/../includes/late.php';            // late arrivals: grace period, "⏰ late", move / no-show
+require_once __DIR__ . '/../includes/identity.php';        // middle name (in full) + the "same full name" check
 
 // ---- Self-healing database (new tables / columns) ----
 // These checks only need to run once after each update of the system, not on
@@ -87,6 +88,7 @@ if (!$__schemaOk) {
     ensure_chart_access_schema($pdo);               // dentists' approval PINs + "entered by" (staff charting)
     ensure_login_security_schema($pdo);             // account lockout columns + patient ID on Activity Log entries
     ensure_name_parts_schema($pdo);                 // first_name / last_name next to the full name (patients, users)
+    ensure_identity_schema($pdo);                   // + middle_name / no_middle_name, and same-full-name pairs (identity_checks)
     ensure_announcement_columns($pdo);              // announcements: pinned + when / to how many it was emailed
     ensure_late_schema($pdo);                       // appointments.late_minutes (arrived after the grace period)
     ensure_indexes($pdo);                           // last: indexes on the tables above, so pages stay fast as records grow
@@ -945,6 +947,7 @@ function person_name_key($name) {
 // patients and users keep the full name (`name`: shown everywhere, and what appointments
 // and schedules point to) AND its parts (`first_name`, `last_name`). The forms ask for the
 // parts; split_full_name() only works them out for names saved before, or typed in one box.
+// The MIDDLE name (in full, or "no middle name") is kept beside them — see includes/identity.php.
 /** [title, first, last]: "Dr. Jose Rizal Dela Cruz Jr." -> ['Dr.', 'Jose Rizal', 'Dela Cruz Jr.']. */
 function split_full_name($full) {
     // (Lists kept inside the function: it also runs during the database update at the top of this file.)

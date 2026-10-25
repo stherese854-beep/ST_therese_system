@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim(preg_replace('/\s+/', ' ', "$title $first $last"));
+        $middle = posted_middle_name();                       // in full, or "No middle name" (includes/identity.php)
 
         $email   = strtolower(trim($_POST['email']));
         $spec    = trim($_POST['specialty'] ?? '');
@@ -40,6 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $emailError = '';
         if ($first === '' || $last === '') {
             $emailError = 'Please enter both a first name and a last name.';
+        } elseif (($emailError = middle_name_problem($middle)) !== '') {
+            // the middle name, in full
         } elseif ($phoneError !== '') {
             $emailError = $phoneError;
         } elseif (($emailError = dentist_name_problem($pdo, $name)) !== '') {
@@ -60,7 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status)
                            VALUES (?,?,?,'dentist',?,?,'active')")
                 ->execute([$name,$email,$hash,$spec,$contact]);
-            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);   // first / last name kept apart too
+            $newDid = (int)$pdo->lastInsertId();
+            save_name_parts($pdo, 'users', $newDid, $first, $last);   // first / last name kept apart too
+            save_middle_name($pdo, 'users', $newDid, $middle);
 
             // Email their login details. This is useful for them AND it proves the
             // address really works — if it bounces, we say so.
@@ -482,6 +487,7 @@ $active = 'dentists';
                         </div>
                     </div>
 
+                    <div class="mb-3"><?= middle_name_input('middle_name', '', false, ['id' => 'd-middle']) ?></div>
                     <label class="field-label">Last Name</label>
                     <input name="last_name" class="form-control mb-1" placeholder="Dela Cruz" required>
                     <div class="text-muted2 mb-3" style="font-size:.78rem;">

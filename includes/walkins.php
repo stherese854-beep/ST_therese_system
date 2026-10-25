@@ -139,6 +139,7 @@ function walkin_form($pdo, $assets = true) {
     <div id="wi-new" class="row g-2 mb-3" style="display:none;">
       <div class="col-6"><input name="first_name" class="form-control" placeholder="First name"></div>
       <div class="col-6"><input name="last_name" class="form-control" placeholder="Last name"></div>
+      <div class="col-12"><?= middle_name_input('middle_name', '', false, ['label' => false, 'id' => 'wi-middle', 'placeholder' => 'Middle name, in full (e.g. Santos)']) ?></div>
       <div class="col-6"><input name="phone" class="form-control" placeholder="Phone 09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
       <div class="col-6"><input type="date" name="dob" class="form-control" title="Birthday (optional)" min="1900-01-01" max="<?= birth_date_max() ?>"></div>
       <div class="col-12"><small class="text-muted2">Birthday is optional, but needed later to give them their own online account.</small></div>

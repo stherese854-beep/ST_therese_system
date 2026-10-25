@@ -199,7 +199,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
         [$wPhone, $phoneErr] = validate_phone($_POST['phone'] ?? '');
         $wEmail = trim($_POST['email'] ?? '');
         $wDob   = trim($_POST['dob'] ?? '');
+        $wMiddle = posted_middle_name();                                    // in full, or "No middle name" (includes/identity.php)
+        if ($wMiddle) $wMiddle[0] = ucwords($wMiddle[0]);
         if ($first === '' || $last === '')                                  $err = 'Please enter the walk-in patient\'s first and last name.';
+        elseif (($mErr = middle_name_problem($wMiddle)) !== '')               $err = $mErr;
         elseif ($phoneErr !== '')                                           $err = $phoneErr;
         elseif ($wEmail !== '' && ($emErr = email_problem($wEmail)) !== '') $err = $emErr;
         elseif (($dobErr = birth_date_error($wDob)) !== '')                   $err = $dobErr;
@@ -256,6 +259,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
             ->execute([ucwords(trim("$first $last")), $wPhone, $wEmail ?: null, $wDob ?: null, $age, $dentist]);
         $newId = (int)$pdo->lastInsertId();
         save_name_parts($pdo, 'patients', $newId, ucwords($first), ucwords($last));
+        save_middle_name($pdo, 'patients', $newId, $wMiddle);
+        $sameNameNote = identity_staff_note(identity_check_patient($pdo, $newId, false));   // same full name as another patient?
         $patient = ['id' => $newId, 'name' => ucwords(trim("$first $last")), 'email' => $wEmail, 'guardian_email' => null, 'primary_dentist' => $dentist];
         log_activity($pdo, 'Added patient', $patient['name'] . ' (walk-in)');
     } elseif (empty($patient['primary_dentist'])) {
@@ -289,7 +294,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
     $twin = same_person_active_booking($pdo, $patient['name'], $pdob->fetchColumn(), [$patient['id']]);
     $twinNote = $twin ? ' ⚠️ Note: another patient record with the same name and birthday already has a booking on '
                        . date('M j, Y', strtotime($twin['appointment_date'])) . ' — please check it is not the same person.' : '';
-    set_flash('Appointment booked for ' . $patient['name'] . ' — ' . date('M j, Y', strtotime($date)) . " at $time with $dentist." . $mailNote . $twinNote);
+    set_flash('Appointment booked for ' . $patient['name'] . ' — ' . date('M j, Y', strtotime($date)) . " at $time with $dentist." . $mailNote . $twinNote . ($sameNameNote ?? ''));
     header($back); exit;
 }
 
@@ -1016,6 +1021,7 @@ $active = 'appointments';
           <div class="row g-2">
             <div class="col-md-6"><label class="field-label">First name *</label><input name="first_name" class="form-control"></div>
             <div class="col-md-6"><label class="field-label">Last name *</label><input name="last_name" class="form-control"></div>
+            <div class="col-12"><?= middle_name_input('middle_name', '', false, ['id' => 'sb-middle']) ?></div>
             <div class="col-md-4"><label class="field-label">Phone *</label><input name="phone" class="form-control" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>></div>
             <div class="col-md-4"><label class="field-label">Date of birth</label><input type="date" name="dob" class="form-control" min="1900-01-01" max="<?= birth_date_max() ?>"></div>
             <div class="col-md-4"><label class="field-label">Email <span class="text-muted2">(optional)</span></label><input type="email" name="email" class="form-control" placeholder="for reminders"></div>

@@ -194,6 +194,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim("$first $last");
+        // The middle name is typed once, in full; after that only the clinic changes it.
+        $middle = middle_name_known($me) ? null : posted_middle_name();
+        if ($middle !== null && ($mErr = middle_name_problem($middle, true)) !== '') {
+            set_flash($mErr, 'error');
+            header("Location: portal?view=profile&section=info"); exit;
+        }
 
         // Date of birth and age are NOT saved here — only admin / staff may change them.
         $pdo->prepare("UPDATE patients SET name=?, phone=?, blood_type=?,
@@ -211,7 +217,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE users SET name=? WHERE id=?")->execute([$name, $_SESSION['user_id']]);
         save_name_parts($pdo, 'patients', $pid, $first, $last);
         save_name_parts($pdo, 'users', $_SESSION['user_id'], $first, $last);
+        save_middle_name($pdo, 'patients', $pid, $middle);
+        save_middle_name($pdo, 'users', $_SESSION['user_id'], $middle);
         $_SESSION['name'] = $name;
+        identity_check_patient($pdo, $pid);      // same full name as another patient? -> asked to visit the clinic
 
         log_activity($pdo, 'Updated profile', 'Own profile');
         set_flash('Your profile has been updated.');
@@ -1097,9 +1106,11 @@ include 'includes/head.php';
                         <form method="POST">
                             <input type="hidden" name="action" value="save_profile">
                             <div class="row g-3">
-                                <div class="col-md-6"><label class="field-label">First Name</label>
+                                <div class="col-md-4"><label class="field-label">First Name</label>
                                     <input name="first_name" class="form-control" value="<?= e(name_parts_of($me)[0]) ?>" required></div>
-                                <div class="col-md-6"><label class="field-label">Last Name</label>
+                                <!-- Only the initial is shown; it is typed in full once (the clinic changes it after that) -->
+                                <div class="col-md-4"><?= middle_name_profile_field('middle_name', $me, ['tick' => 'I have no middle name']) ?></div>
+                                <div class="col-md-4"><label class="field-label">Last Name</label>
                                     <input name="last_name" class="form-control" value="<?= e(name_parts_of($me)[1]) ?>"></div>
 
                                 <div class="col-md-6"><label class="field-label">Email (cannot be changed here)</label>
@@ -1141,6 +1152,7 @@ include 'includes/head.php';
                     <!-- Account status (beside the form only on a wide screen; under it otherwise) -->
                     <div class="card-box mb-3">
                         <h5 class="mb-3">🔎 Account Status</h5>
+                        <div class="flex-between py-2 border-bottom"><span>Name</span><strong><?= e(name_with_initial($me)) ?></strong></div>
                         <div class="flex-between py-2 border-bottom"><span>Email address</span><strong><?= e($account['email']) ?></strong></div>
                         <div class="flex-between py-2 border-bottom"><span>Email verified</span>
                             <?php if (!empty($account['email_verified'])): ?>

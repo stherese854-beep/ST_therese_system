@@ -32,7 +32,10 @@ if ($mode === 'existing') {
     $first = trim($_POST['first_name'] ?? ''); $last = trim($_POST['last_name'] ?? '');
     [$phone, $phoneErr] = validate_phone($_POST['phone'] ?? '');
     $dob = trim($_POST['dob'] ?? '');
+    $middle = posted_middle_name();                       // in full, or "No middle name" (includes/identity.php)
+    if ($middle) $middle[0] = ucwords($middle[0]);
     if ($first === '' || $last === '')               $err = "Please enter the patient's first and last name.";
+    elseif (($mErr = middle_name_problem($middle)) !== '') $err = $mErr;
     elseif ($phoneErr !== '')                       $err = $phoneErr;
     elseif (($dobErr = birth_date_error($dob)) !== '') $err = $dobErr;
 }
@@ -65,8 +68,9 @@ if ($mode === 'new') {
             ->execute([$name, $phone, $dob ?: null, $dob !== '' ? age_from_dob($dob) : null, $dentist]);
         $patient = ['id' => (int)$pdo->lastInsertId(), 'name' => $name, 'primary_dentist' => $dentist];
         save_name_parts($pdo, 'patients', $patient['id'], ucwords($first), ucwords($last));
+        save_middle_name($pdo, 'patients', $patient['id'], $middle);
         log_activity($pdo, 'Added patient', $name . ' (walk-in)');
-        $note = '';
+        $note = identity_staff_note(identity_check_patient($pdo, $patient['id'], false));   // same full name as another patient?
     }
 }
 $pid = (int)$patient['id'];

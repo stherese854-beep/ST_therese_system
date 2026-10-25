@@ -81,6 +81,12 @@ try {
             if ($r['c'] > 0) $tbAdd('missed', $r['m'], '📋', "{$r['c']} missed appointment" . ($r['c'] > 1 ? 's' : '') . " to review", 'noshow?tab=review');
         } catch (Throwable $e) {}
 
+        // Patients with the same full name as another patient, waiting for an ID check (includes/identity.php).
+        try {
+            $r = $pdo->query("SELECT COUNT(*) c, MAX(id) m FROM identity_checks WHERE status='open'")->fetch();
+            if ($r['c'] > 0) $tbAdd('samename', $r['m'], '👥', "{$r['c']} patient" . ($r['c'] > 1 ? 's' : '') . " with the same full name as another — check ID", 'patients?namecheck=1#same-name');
+        } catch (Throwable $e) {}
+
         // Patients paused for frequent cancellations, waiting for a review.
         try {
             if (!function_exists('patient_cancel_count')) require_once __DIR__ . '/noshow_check.php';
@@ -135,6 +141,12 @@ try {
             $q->execute($famIds);
             $r = $q->fetch();
             if ($r['c'] > 0) $tbAdd('confirmed', $r['m'], '✅', "{$r['c']} confirmed appointment" . ($r['c'] > 1 ? 's' : ''), 'portal?view=appointments');
+            // Same full name as another patient: please visit the clinic with a valid ID.
+            try {
+                $q = $pdo->prepare("SELECT MAX(id) FROM identity_checks WHERE status='open' AND patient_id IN (" . in_placeholders($famIds) . ")");
+                $q->execute($famIds);
+                if ($m = $q->fetchColumn()) $tbAdd('samename', $m, '⚠️', 'Please visit the clinic with a valid ID — online booking is paused', 'book');
+            } catch (Throwable $e) {}
         }
     }
 

@@ -52,12 +52,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim(preg_replace('/\s+/', ' ', "$first $last"));
+        $middle = posted_middle_name();                      // in full, or "I have no middle name" (includes/identity.php)
         [$phone, $phoneError] = validate_phone($_POST['contact'] ?? '');
         $dob   = trim($_POST['dob'] ?? '');
         $birth = DateTimeImmutable::createFromFormat('!Y-m-d', $dob);
         $age   = ($birth && $birth->format('Y-m-d') === $dob) ? (int)$birth->diff(new DateTimeImmutable('today'))->y : null;
 
         if ($first === '' || $last === '')               $error = 'Please enter your first and last name.';
+        elseif (($mErr = middle_name_problem($middle, true)) !== '') $error = $mErr;
         elseif ($phoneError !== '')                      $error = $phoneError;
         elseif ($dob === '')                             $error = 'Please enter your date of birth.';
         elseif ($age === null || $dob > date('Y-m-d'))   $error = 'Please enter a valid date of birth.';
@@ -78,11 +80,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
                     ->execute([$name, $gp['email'], $randomPass, $gp['gid'], $phone]);
                 $newId = $pdo->lastInsertId();
                 save_name_parts($pdo, 'users', $newId, $first, $last);
+                save_middle_name($pdo, 'users', $newId, $middle);
                 $assignedDentist = pick_dentist_for_new_patient($pdo);
                 $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,patient_type,status,primary_dentist,date_of_birth,age)
                                VALUES (?,?,?,?,'New','Active',?,?,?)")
                     ->execute([$newId, $name, $gp['email'], $phone, $assignedDentist, $dob, $age]);
-                save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $first, $last);
+                $newPid = (int)$pdo->lastInsertId();
+                save_name_parts($pdo, 'patients', $newPid, $first, $last);
+                save_middle_name($pdo, 'patients', $newPid, $middle);
 
                 unset($_SESSION['google_pending']);
                 session_regenerate_id(true);   // fresh session ID on sign-in
@@ -93,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
                 $_SESSION['just_registered']    = true;
                 $_SESSION['show_welcome_popup'] = true;
                 log_activity($pdo, 'Created account', $name . ' (patient, Google sign-up)');
+                identity_check_patient($pdo, $newPid);   // same full name as another patient? -> pop-up: please visit the clinic
                 set_flash('Account created with Google — welcome, ' . $name . '!');
                 header("Location: portal");
                 exit;
@@ -206,6 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim($first . ' ' . $last);
+        $middle = posted_middle_name();                      // in full, or "I have no middle name" (includes/identity.php)
         $email = trim($_POST['email'] ?? '');
         [$phone, $phoneError] = validate_phone($_POST['contact'] ?? '');   // real PH mobile, stored as 09XXXXXXXXX
         $pass  = $_POST['password'] ?? '';
@@ -231,6 +238,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             $error = $pwp;
         } elseif ($phoneError !== '') {
             $error = $phoneError;
+        } elseif (($mErr = middle_name_problem($middle, true)) !== '') {
+            $error = $mErr;
         }
 
         // ---- AGE CHECK: account holders must be 18 or older ----
@@ -279,6 +288,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
                 'name'  => $name,
                 'first' => $first,
                 'last'  => $last,
+                'middle' => $middle,
                 'email' => $email,
                 'phone' => $phone,
                 'hash'  => password_hash($pass, PASSWORD_DEFAULT),
@@ -330,13 +340,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
                 ->execute([$p['name'], $p['email'], $p['hash'], $p['phone'] ?? null]);
             $newId = $pdo->lastInsertId();
             save_name_parts($pdo, 'users', $newId, $p['first'] ?? null, $p['last'] ?? null);
+            save_middle_name($pdo, 'users', $newId, $p['middle'] ?? null);
 
             // Also create a matching patient record + auto-assign a dentist.
             $assignedDentist = pick_dentist_for_new_patient($pdo);
             $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,patient_type,status,primary_dentist,date_of_birth,age) VALUES (?,?,?,?,'New','Active',?,?,?)")
                 ->execute([$newId, $p['name'], $p['email'], $p['phone'] ?? null, $assignedDentist,
                            $p['dob'] ?: null, $p['age'] ?? null]);
-            save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $p['first'] ?? null, $p['last'] ?? null);
+            $newPid = (int)$pdo->lastInsertId();
+            save_name_parts($pdo, 'patients', $newPid, $p['first'] ?? null, $p['last'] ?? null);
+            save_middle_name($pdo, 'patients', $newPid, $p['middle'] ?? null);
 
             unset($_SESSION['pending']);
             session_regenerate_id(true);   // fresh session ID on sign-in
@@ -347,6 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             $_SESSION['just_registered']    = true;   // portal greets them differently, once
             $_SESSION['show_welcome_popup'] = true;   // portal shows a one-time pop-up greeting
             log_activity($pdo, 'Created account', $p['name'] . ' (patient, self-registered)');
+            identity_check_patient($pdo, $newPid);   // same full name as another patient? -> pop-up: please visit the clinic
             set_flash('Email verified — welcome, ' . $p['name'] . '!');
             header("Location: portal");
             exit;
@@ -419,6 +433,8 @@ include 'includes/head.php';
                             <input name="last_name" class="form-control mb-3" required maxlength="60"
                                    value="<?= e($_POST['last_name'] ?? $gp['last']) ?>"></div>
                     </div>
+                    <div class="mb-3"><?= middle_name_input('middle_name', $_POST['middle_name'] ?? '', !empty($_POST['no_middle_name']),
+                                                            ['required' => true, 'tick' => 'I have no middle name']) ?></div>
                     <label class="field-label">Email address</label>
                     <input class="form-control mb-3" value="<?= e($gp['email']) ?>" readonly disabled style="background:#eef3f3;">
                     <label class="field-label">Phone number</label>
@@ -542,6 +558,8 @@ include 'includes/head.php';
                         <div class="col"><label class="field-label">Last Name</label>
                             <input type="text" name="last_name" class="form-control mb-3" placeholder="dela Cruz" value="<?= e($_POST['last_name'] ?? '') ?>" required></div>
                     </div>
+                    <div class="mb-3"><?= middle_name_input('middle_name', $_POST['middle_name'] ?? '', !empty($_POST['no_middle_name']),
+                                                            ['required' => true, 'tick' => 'I have no middle name']) ?></div>
 
                     <label class="field-label">Email Address</label>
                     <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com" value="<?= ($emailTaken || ($_POST['action'] ?? '') !== 'register') ? '' : e($_POST['email'] ?? '') ?>" <?= $emailTaken ? 'autofocus' : '' ?> required>

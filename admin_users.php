@@ -44,9 +44,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $first = trim($_POST['first_name'] ?? '');
         $last  = trim($_POST['last_name'] ?? '');
         $name  = trim(preg_replace('/\s+/', ' ', "$title $first $last"));
+        $middle = posted_middle_name();                       // in full, or "No middle name" (includes/identity.php)
 
         if ($first === '' || $last === '') {
             set_flash('Please enter both a first name and a last name.', 'error');
+            header("Location: $usersBack"); exit;
+        }
+        if (($mErr = middle_name_problem($middle)) !== '') {
+            set_flash($mErr, 'error');
             header("Location: $usersBack"); exit;
         }
 
@@ -69,6 +74,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE users SET name=?,email=?,role=?,specialty=?,contact=?,status=? WHERE id=?")
                 ->execute([$name,$email,$role,$spec,$contact,$status,$id]);
             save_name_parts($pdo, 'users', $id, $first, $last);
+            save_middle_name($pdo, 'users', $id, $middle);
+            if ($role === 'patient') {                         // their patient record has the same middle name
+                $ppq = $pdo->prepare("SELECT id FROM patients WHERE user_id = ?");
+                $ppq->execute([$id]);
+                if ($ppid = (int)$ppq->fetchColumn()) {
+                    save_middle_name($pdo, 'patients', $ppid, $middle);
+                    identity_check_patient($pdo, $ppid, false);
+                }
+            }
             if (($was['role'] ?? '') === 'dentist' && $role === 'dentist') rename_dentist_links($pdo, $was['name'] ?? '', $name);
             $chg = change_list($was, ['name' => $name, 'email' => $email, 'role' => $role, 'specialty' => $spec, 'contact' => $contact, 'status' => $status],
                                ['name' => 'Name', 'email' => 'Email', 'role' => 'Role', 'specialty' => 'Specialty', 'contact' => 'Phone', 'status' => 'Status']);
@@ -80,7 +94,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hash = password_hash($tempPass, PASSWORD_DEFAULT);
             $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status) VALUES (?,?,?,?,?,?,?)")
                 ->execute([$name,$email,$hash,$role,$spec,$contact,$status]);
-            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);
+            $newUid = (int)$pdo->lastInsertId();
+            save_name_parts($pdo, 'users', $newUid, $first, $last);
+            save_middle_name($pdo, 'users', $newUid, $middle);
 
             // Email them their login details — useful, and it proves the address works.
             $note = '';
@@ -235,7 +251,7 @@ $active = 'users';
                             <td class="no-print">
                                 <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
                                 <?php // only what the form needs (never the password hash or tokens) ?>
-                                <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode(array_intersect_key($u, array_flip(['id', 'name', 'first_name', 'last_name', 'email', 'role', 'specialty', 'position', 'contact', 'status'])), JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode(array_intersect_key($u, array_flip(['id', 'name', 'first_name', 'middle_name', 'no_middle_name', 'last_name', 'email', 'role', 'specialty', 'position', 'contact', 'status'])), JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
                                 <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')"
                                       <?php if (!empty($famByUser[(int)$u['id']])): ?>data-family='<?= e(json_encode($famByUser[(int)$u['id']])) ?>' data-who="<?= e($u['name']) ?>"<?php endif; ?>>
                                     <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $u['id'] ?>">
@@ -275,6 +291,7 @@ $active = 'users';
                     <input name="first_name" id="u-first" class="form-control mb-3" placeholder="Juan" required>
                 </div>
             </div>
+            <div class="mb-3"><?= middle_name_input('middle_name', '', false, ['id' => 'u-middle']) ?></div>
             <label class="field-label">Last Name</label>
             <input name="last_name" id="u-last" class="form-control mb-3" placeholder="Dela Cruz" required>
 
@@ -304,6 +321,7 @@ function openAddUser(role){
     var label = {staff: 'Staff', dentist: 'Dentist', admin: 'Admin'}[role] || 'User';
     document.getElementById('u-title').textContent = 'Add ' + label; document.getElementById('u-id').value = '';
     ['u-first','u-last','u-email','u-spec','u-contact'].forEach(id=>document.getElementById(id).value='');
+    midSet('u-middle', '', 0);
     document.getElementById('u-title-sel').value='';
     document.getElementById('u-role').value = role || 'dentist'; document.getElementById('u-status').value = 'active';
 }
@@ -329,6 +347,7 @@ function openEditUser(u){
     document.getElementById('u-title-sel').value = n.title;
     document.getElementById('u-first').value = n.first;
     document.getElementById('u-last').value  = n.last;
+    midSet('u-middle', u.middle_name, u.no_middle_name);
     document.getElementById('u-email').value=u.email;
     document.getElementById('u-role').value=u.role;
     document.getElementById('u-spec').value=u.specialty||u.position||'';
