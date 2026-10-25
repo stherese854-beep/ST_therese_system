@@ -6,6 +6,8 @@
 //  patients (with families), appointments over the last 3 months
 //  and the next 2 weeks, treatment records, walk-ins, dental charts,
 //  follow-up plans (braces…), notes — plus 2 patient-portal logins.
+//  Everyone has a middle name (one has none), and one walk-in has the
+//  same full name as an older patient: Patients → 👥 Same full name.
 //  Another button removes all of it again.
 //
 //  Every row it adds is listed in `demo_records`, so "Remove" deletes
@@ -171,6 +173,20 @@ function demo_add($pdo, $by) {
             $patients[$mid] = ['name' => $mName, 'dentist' => $dentist, 'account' => $name, 'rel' => $rel];
             $pIds[] = $mid;
         }
+    }
+
+    // ---------- Same full name (includes/identity.php) ----------
+    // A new walk-in with the same full name as an older patient, another birthday:
+    // waiting in Patients → 👥 Same full name for the clinic to check an ID.
+    $ramon = 0;
+    foreach ($patients as $rid => $rp) if ($rp['name'] === 'Ramon Aquino') $ramon = $rid;
+    if ($ramon) {
+        $d = $dob(24);
+        $twin = $ins('patients', ['name' => 'Ramon Aquino', 'phone' => $phone(), 'age' => $age($d), 'date_of_birth' => $d,
+                                  'patient_type' => 'New', 'status' => 'Active', 'primary_dentist' => $dentists[0],
+                                  'created_at' => date('Y-m-d H:i:s', strtotime('-2 days'))]);
+        $ins('identity_checks', ['patient_id' => $twin, 'match_id' => $ramon, 'pair_key' => identity_pair_key($twin, $ramon),
+                                 'status' => 'open', 'found_at' => date('Y-m-d H:i:s', strtotime('-2 days'))]);
     }
 
     // ---------- Appointments ----------
@@ -372,9 +388,28 @@ function demo_add($pdo, $by) {
                                                  'Brushes too hard; showed soft brushing.', 'Recommended a night guard for grinding.'])]);
     }
 
-    // First / last name next to each full name.
+    // First / last name next to each full name, and the middle name (in full; '' = no middle name).
     foreach ($added['patients'] ?? [] as $id) save_name_parts($pdo, 'patients', $id);
     foreach ($added['users'] ?? [] as $id) save_name_parts($pdo, 'users', $id);
+    $middles = [
+        'Jose Rizal Dela Cruz' => 'Mercado', 'Maria Clara Reyes' => 'Santos', 'Antonio Bautista' => 'Villareal',
+        'Rosalinda Garcia' => 'Manalo', 'Mark Anthony Santos' => 'Rivera', 'Kristine Joy Ramos' => 'Aguilar',
+        'Ramon Aquino' => 'Reyes', 'Lorna Fernandez' => 'Castro', 'Paolo Castillo' => 'Dizon', 'Jennifer Navarro' => 'Pineda',
+        'Ernesto Mercado' => 'Lacson', 'Angelica Torres' => 'Bernardo', 'Rogelio Flores' => 'Medina', 'Bea Santiago' => 'Cortez',
+        'Christian Domingo' => 'Javier', 'Teresita Lim' => 'Go', 'Noel Pascual' => 'Sarmiento', 'Grace Valdez' => 'Ilagan',
+        'Francis Gonzales' => 'Padilla', 'Michelle Tan' => 'Sy', 'Danilo Robles' => 'Esguerra', 'Patricia Morales' => 'Quiambao',
+        'Jerome Salazar' => 'Velasco', 'Cecilia Ocampo' => 'Tolentino', 'Vincent Cruz' => 'Magbanua', 'Analyn Soriano' => '',
+        'Andrea Villanueva' => 'Lopez', 'Miguel Villanueva' => 'Lopez', 'Sofia Villanueva' => 'Lopez', 'Rosario Villanueva' => 'Dizon',
+        'Carlo Mendoza' => 'Reyes', 'Liza Mendoza' => 'Ramos', 'Gabriel Mendoza' => 'Ramos',
+    ];
+    foreach (['patients', 'users'] as $t) {
+        if (empty($added[$t])) continue;
+        foreach ($pdo->query("SELECT id, name FROM `$t` WHERE id IN (" . implode(',', array_map('intval', $added[$t])) . ")") as $r) {
+            if (array_key_exists($r['name'], $middles)) {
+                save_middle_name($pdo, $t, $r['id'], [$middles[$r['name']], $middles[$r['name']] === '']);
+            }
+        }
+    }
 
     // Remember every row, then the patients' last visit / New–Returning.
     $rec = $pdo->prepare("INSERT IGNORE INTO demo_records (tbl, row_id) VALUES (?, ?)");
@@ -426,6 +461,10 @@ function demo_remove($pdo) {
             if ($t === 'odontogram' && !empty($tracked['chart_sessions'])) $sql .= " OR session_id IN (" . $in($tracked['chart_sessions']) . ")";
             if (in_array($t, ['reviews', 'email_changes'], true) && $uids) $sql .= " OR user_id IN (" . $in($uids) . ")";
             $n += $pdo->exec($sql);
+        }
+        if ($pdo->query("SHOW TABLES LIKE 'identity_checks'")->rowCount()) {      // same-full-name pairs
+            $n += $pdo->exec("DELETE FROM identity_checks WHERE patient_id IN (" . $in($pids) . ") OR match_id IN (" . $in($pids) . ")"
+                             . (!empty($tracked['identity_checks']) ? " OR id IN (" . $in($tracked['identity_checks']) . ")" : ''));
         }
         if ($pdo->query("SHOW TABLES LIKE 'account_invites'")->rowCount()) {
             $n += $pdo->exec("DELETE FROM account_invites WHERE patient_id IN (" . $in($pids) . ") OR guardian_patient_id IN (" . $in($pids) . ")");

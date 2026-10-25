@@ -209,6 +209,10 @@ function identity_check_patient($pdo, $pid, $notify = true) {
         $me = $q->fetch();
         if (!$me || ($me['status'] ?? '') === 'Archived' || ($key = full_name_key($me)) === null) return 0;
         $holder = (int)($me['guardian_patient_id'] ?: $me['id']);
+        // The sample data (System → Sample data) is made up: never paired with a real record.
+        $sample = [];
+        try { $sample = array_flip(array_map('intval', $pdo->query("SELECT row_id FROM demo_records WHERE tbl = 'patients'")->fetchAll(PDO::FETCH_COLUMN))); }
+        catch (Throwable $e) {}
         // only records whose middle name is known can match
         $c = $pdo->prepare("SELECT * FROM patients WHERE id <> ? AND status <> 'Archived'
                               AND (no_middle_name = 1 OR (middle_name IS NOT NULL AND middle_name <> ''))");
@@ -218,6 +222,7 @@ function identity_check_patient($pdo, $pid, $notify = true) {
         foreach ($c->fetchAll() as $o) {
             if (full_name_key($o) !== $key) continue;
             if ((int)($o['guardian_patient_id'] ?: $o['id']) === $holder) continue;     // the same family
+            if (isset($sample[$pid]) !== isset($sample[(int)$o['id']])) continue;        // sample vs real
             $ins->execute([$pid, (int)$o['id'], identity_pair_key($pid, $o['id'])]);    // a pair checked before is not added again
             if ($ins->rowCount()) { $new++; $with[] = '#' . (int)$o['id']; }
         }

@@ -532,7 +532,8 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                 </form>
             <?php else: ?>
                 <ul class="mb-3 ps-3" style="font-size:.88rem;">
-                    <li><b>About 35 patients</b> — with phone numbers, ages, some allergies and medical alerts, and 2 families</li>
+                    <li><b>About 35 patients</b> — with phone numbers, ages, middle names, some allergies and medical alerts, and 2 families
+                        (one walk-in has the same full name as another patient, to try <b>Patients → 👥 Same full name</b>)</li>
                     <li><b>Appointments</b> over the last 3 months and the next 2 weeks — completed, cancelled, no-shows, today's visits and pending requests</li>
                     <li><b>Treatment records, walk-ins, dental charts and notes</b> for the completed visits</li>
                     <li><b>Follow-up plans</b> — braces (session 4 of 12), a root canal and a 6-month cleaning</li>
