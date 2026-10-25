@@ -366,7 +366,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_p
 // ---------- Arrived / undo (today's confirmed appointments) ----------
 // Marks that the patient is physically here. The no-show scan then treats
 // the visit as attended for certain, instead of guessing from records.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['arrived','undo_arrived'], true)) {
+// A late patient (past the grace period — includes/late.php) can also be moved to a
+// later free time today, or marked as a no-show straight away.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['arrived','undo_arrived','move_today','late_noshow'], true)) {
     $aid = (int)($_POST['id'] ?? 0);
     $q = $pdo->prepare("SELECT a.*, p.primary_dentist FROM appointments a LEFT JOIN patients p ON p.id = a.patient_id WHERE a.id = ?");
     $q->execute([$aid]); $ap = $q->fetch();
@@ -383,17 +385,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
         } else {
             // Arrived: out of the patient's upcoming list and booking limits;
             // becomes Completed when treatment is recorded (or the next day).
-            $pdo->prepare("UPDATE appointments SET status = 'Arrived', arrived_at = NOW(), arrived_by = ? WHERE id = ?")->execute([$_SESSION['name'] ?? '', $aid]);
-            log_activity($pdo, 'Marked arrived', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
-            set_flash($ap['patient_name'] . ' marked as arrived. It becomes Completed once treatment is recorded.');
+            // Past the grace period: how late they were is kept (No-Show Report → Late Arrivals).
+            $lateM = minutes_past_appointment($ap);
+            $lateM = ($lateM !== null && $lateM >= late_grace_minutes($pdo)) ? $lateM : null;
+            $pdo->prepare("UPDATE appointments SET status = 'Arrived', arrived_at = NOW(), arrived_by = ?, late_minutes = ? WHERE id = ?")
+                ->execute([$_SESSION['name'] ?? '', $lateM, $aid]);
+            log_activity($pdo, 'Marked arrived', $ap['patient_name'] . ' — ' . $ap['appointment_time'] . ($lateM ? " ($lateM min late)" : ''));
+            set_flash($ap['patient_name'] . ' marked as arrived' . ($lateM ? " — $lateM minutes late" : '') . '. It becomes Completed once treatment is recorded.');
             // From the dentist's dashboard: go straight to the patient's dental chart.
             if (($_POST['goto'] ?? '') === 'chart' && current_role() === 'dentist') {
                 set_flash($ap['patient_name'] . ' is here. Check the teeth, then click Next for the treatment record.');
                 header("Location: odontogram?patient=" . (int)$ap['patient_id']); exit;
             }
         }
+    } elseif ($_POST['action'] === 'move_today') {
+        // Late: a later free time today with the same dentist.
+        $newTime = trim($_POST['new_time'] ?? '');
+        if ($ap['status'] !== 'Confirmed' || $ap['appointment_date'] !== date('Y-m-d') || !empty($ap['arrived_at'])) {
+            set_flash('Only today\'s confirmed appointments (not yet arrived) can be moved here.', 'error');
+        } elseif (!in_array($newTime, free_times_later_today($pdo, $ap), true)) {
+            set_flash('That time is no longer free. Please pick another one.', 'error');
+        } else {
+            $from = date('M j, Y', strtotime($ap['appointment_date'])) . ' ' . $ap['appointment_time'];
+            $pdo->prepare("UPDATE appointments SET appointment_time = ?, rescheduled_at = NOW(), rescheduled_from = ?, reschedule_reason = ? WHERE id = ?")
+                ->execute([$newTime, $from, 'Arrived late — moved to a later time today', $aid]);
+            log_activity($pdo, 'Moved late appointment', $ap['patient_name'] . ' — ' . $ap['appointment_time'] . ' → ' . $newTime . ' today');
+            set_flash($ap['patient_name'] . ' was moved to ' . $newTime . ' today (with ' . $ap['dentist'] . '). Please let them know.');
+        }
+    } elseif ($_POST['action'] === 'late_noshow') {
+        // Late and not coming: a no-show now, instead of waiting for tomorrow's review.
+        if (!minutes_late($pdo, $ap)) {
+            set_flash('Only a patient past the ' . late_grace_minutes($pdo) . '-minute grace period can be marked as a no-show now.', 'error');
+        } else {
+            $pastM = minutes_past_appointment($ap);
+            [$nm, $note] = confirm_noshow($pdo, $aid);
+            log_activity($pdo, 'Confirmed no-show', $nm . ' — ' . $ap['appointment_time'] . " (not here $pastM min after the time)");
+            set_flash($nm . ' marked as a no-show.' . $note, 'danger');
+        }
     } else {
-        $pdo->prepare("UPDATE appointments SET arrived_at = NULL, arrived_by = NULL,
+        $pdo->prepare("UPDATE appointments SET arrived_at = NULL, arrived_by = NULL, late_minutes = NULL,
                                                status = IF(status = 'Arrived', 'Confirmed', status) WHERE id = ?")->execute([$aid]);
         log_activity($pdo, 'Undid arrival', $ap['patient_name'] . ' — ' . $ap['appointment_time']);
         set_flash('Arrival undone for ' . $ap['patient_name'] . '.', 'info');
@@ -676,7 +706,8 @@ $active = 'appointments';
                                         <em><?= e($a['cancel_reason']) ?></em></small>
                                 <?php endif; ?>
                             </td>
-                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span>
+                            <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span><?= late_styles() ?><?= late_badge($pdo, $a) ?>
+                                <?php if (!empty($a['late_minutes'])): ?><br><small style="color:#c0392b;">arrived <?= (int)$a['late_minutes'] ?> min late</small><?php endif; ?>
                                 <?php if (!empty($a['arrived_at'])): ?>
                                     <br><small style="color:#138a4e;font-weight:600;" title="Marked by <?= e($a['arrived_by']) ?>">🟢 Arrived <?= date('g:i A', strtotime($a['arrived_at'])) ?></small>
                                 <?php elseif (!empty($a['patient_confirmed_at']) && in_array($a['status'], ['Pending','Confirmed'], true)): ?>
@@ -735,11 +766,12 @@ $active = 'appointments';
                                         <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
                                         <input type="hidden" name="filter" value="<?= e($filter) ?>">
                                         <?php if (empty($a['arrived_at'])): ?>
-                                            <button class="btn btn-sm" style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here">✓ Arrived</button>
+                                            <button class="btn btn-sm" style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="The patient is here"><?= minutes_late($pdo, $a) ? '✓ Arrived (late)' : '✓ Arrived' ?></button>
                                         <?php else: ?>
                                             <button class="btn btn-sm btn-light" style="font-size:.72rem;white-space:nowrap;" title="Undo the arrival mark">Undo</button>
                                         <?php endif; ?>
                                     </form>
+                                    <?= late_actions_html($pdo, $a, 'appointments') ?>
                                 <?php endif; ?>
                                 <?php if (in_array(current_role(), ['dentist','admin'], true) && !empty($a['arrived_at'])
                                           && in_array($a['status'], ['Arrived','Completed'], true) && $a['appointment_date'] === date('Y-m-d')): ?>

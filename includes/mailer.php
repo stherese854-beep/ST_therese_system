@@ -486,6 +486,10 @@ function tpl_fill($text, $vars) {
 function tpl_message($pdo, $kind, $defSubject, $defBody, $vars) {
     $subject = tpl_fill(tpl($pdo, $kind, 'subject', $defSubject), $vars);
     $bodyRaw = tpl_fill(tpl($pdo, $kind, 'body',    $defBody),    $vars);
+    // Booking received / appointment confirmed: the late-arrival rule (includes/late.php).
+    if (in_array($kind, ['confirmation', 'appointment_confirmed'], true) && function_exists('late_rule_text')) {
+        $bodyRaw .= "\n\n" . late_rule_text($pdo);
+    }
     return [$subject, mail_template($subject, nl2br($bodyRaw))];
 }
 

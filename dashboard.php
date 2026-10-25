@@ -23,10 +23,16 @@ if (isset($_GET['day']) || isset($_GET['month'])) {
     $scopeSql = $isDentist ? " AND dentist = ?" : "";
     $scopePrm = $isDentist ? [$myName] : [];
     if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['day'] ?? '')) {
-        $q = $pdo->prepare("SELECT id, patient_id, patient_name, appointment_date, appointment_time, treatment, status, arrived_at FROM appointments
+        $q = $pdo->prepare("SELECT id, patient_id, patient_name, dentist, appointment_date, appointment_time, treatment, status, arrived_at, late_minutes FROM appointments
                              WHERE appointment_date = ?$scopeSql ORDER BY " . DASH_TIME_ORDER . ", id");
         $q->execute(array_merge([$_GET['day']], $scopePrm));
-        echo json_encode($q->fetchAll(PDO::FETCH_ASSOC));
+        $dayRows = $q->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($dayRows as &$dr) {                      // the same buttons / late badge as the page draws
+            $dr['action_html'] = dash_visit_action($dr);
+            $dr['late_html']   = late_badge($pdo, $dr);
+        }
+        unset($dr);
+        echo json_encode($dayRows);
     } elseif (preg_match('/^\d{4}-\d{2}$/', $_GET['month'] ?? '')) {
         $q = $pdo->prepare("SELECT appointment_date d, COUNT(*) c FROM appointments
                              WHERE DATE_FORMAT(appointment_date, '%Y-%m') = ?$scopeSql
@@ -78,6 +84,7 @@ $treatmentsDone = $pdo->query("SELECT COUNT(*) FROM treatments WHERE status='Com
 //   ✓ Arrived                  -> marks the patient as here and stays on the Dashboard
 //   🟢 Arrived 10:32 AM + Undo  -> already marked (Undo while not yet Completed)
 function dash_visit_action($a) {
+    global $pdo;
     if ($a['appointment_date'] !== date('Y-m-d')) return '';
     $front = current_role() !== 'dentist';
     $form = function ($action, $goto, $button) use ($a) {
@@ -95,9 +102,12 @@ function dash_visit_action($a) {
              . '</span>';
     }
     if ($a['status'] !== 'Confirmed') return '';
-    return $form('arrived', $front ? 'dashboard' : 'chart',
+    $late = minutes_late($pdo, $a);                       // past the grace period (includes/late.php)
+    return '<span class="d-inline-flex align-items-center gap-1" style="white-space:nowrap;">'
+         . $form('arrived', $front ? 'dashboard' : 'chart',
                  '<button class="btn btn-sm" data-keep-text style="background:#d7f5e3;color:#138a4e;font-weight:600;white-space:nowrap;" title="'
-                 . ($front ? 'The patient is here' : 'The patient is here — open their dental chart') . '">✓ Arrived</button>');
+                 . ($front ? 'The patient is here' : 'The patient is here — open their dental chart') . '">' . ($late ? '✓ Arrived (late)' : '✓ Arrived') . '</button>')
+         . late_actions_html($pdo, $a, 'dashboard') . '</span>';
 }
 
 // Today's appointment list (today only, earliest time first).
@@ -308,6 +318,7 @@ $active = 'dashboard';
             </div>
         </div>
 
+        <?= late_styles()   /* "⏰ late" badge + the late menu (includes/late.php) */ ?>
         <!-- ===== Clinic announcements (dentists & staff; the admin writes them
              on the Announcements page, so they are not repeated here).
              Same card as the patient portal, with Hide / Show. ===== -->
@@ -346,7 +357,8 @@ $active = 'dashboard';
                                         <td><?= e($a['appointment_date']) ?></td>
                                         <td class="date-blue"><?= e($a['appointment_time']) ?></td>
                                         <td><?= e($a['treatment']) ?></td>
-                                        <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span></td>
+                                        <td><span class="badge-pill b-<?= strtolower($a['status']) ?>"><?= e(status_label($a['status'])) ?></span><?= late_badge($pdo, $a) ?>
+                                            <?php if (!empty($a['late_minutes'])): ?><br><small style="color:#c0392b;">arrived <?= (int)$a['late_minutes'] ?> min late</small><?php endif; ?></td>
                                         <td class="text-end"><?= dash_visit_action($a) ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -514,11 +526,14 @@ $active = 'dashboard';
                     + '<div style="font-size:2.2rem;margin-bottom:6px;">📭</div>No appointments on ' + dashEsc(nice) + '.</td></tr>';
                 return;
             }
+            var tok = document.querySelector('meta[name="csrf-token"]'), tokField = '<input type="hidden" name="csrf_token" value="' + dashEsc(tok ? tok.content : '') + '">';
+            var withToken = function (html) { return String(html).replace(/(<form\b[^>]*>)/gi, '$1' + tokField); };
             rows.innerHTML = list.map(function (a) {
                 return '<tr><td><strong>' + dashEsc(a.patient_name) + '</strong></td><td>' + dashEsc(a.appointment_date) + '</td>'
                      + '<td class="date-blue">' + dashEsc(a.appointment_time) + '</td><td>' + dashEsc(a.treatment) + '</td>'
-                     + '<td><span class="badge-pill b-' + dashEsc(String(a.status).toLowerCase()) + '">' + dashEsc(a.status === 'Confirmed' ? 'Approved' : a.status) + '</span></td>'
-                     + (DASH_ACTIONS ? '<td class="text-end">' + dashAction(a) + '</td>' : '') + '</tr>';
+                     + '<td><span class="badge-pill b-' + dashEsc(String(a.status).toLowerCase()) + '">' + dashEsc(a.status === 'Confirmed' ? 'Approved' : a.status) + '</span>'
+                     + (a.late_html || '') + (a.late_minutes ? '<br><small style="color:#c0392b;">arrived ' + Number(a.late_minutes) + ' min late</small>' : '') + '</td>'
+                     + (DASH_ACTIONS ? '<td class="text-end">' + (a.action_html !== undefined ? withToken(a.action_html) : dashAction(a)) + '</td>' : '') + '</tr>';
             }).join('');
         }).catch(function () { rows.innerHTML = '<tr><td colspan="' + DASH_COLS + '" class="text-center text-danger py-4">Could not load that day. Please try again.</td></tr>'; });
     };

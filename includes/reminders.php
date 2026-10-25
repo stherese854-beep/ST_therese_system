@@ -104,6 +104,7 @@ function send_due_reminders($pdo) {
         ];
         $subject = tpl_fill(tpl($pdo, 'reminder', 'subject', $cat['subject']), $vars);
         $bodyTxt = tpl_fill(tpl($pdo, 'reminder', 'body', $cat['body']), $vars);
+        if (function_exists('late_rule_text')) $bodyTxt .= "\n\n" . late_rule_text($pdo);   // the late-arrival rule
         if (($a['booked_for'] ?? '') === 'Someone else') {
             $bodyTxt = "Patient: " . $a['patient_name'] . ($a['relationship'] ? ' (' . relationship_phrase($a['relationship']) . ')' : '')
                      . "\n\n" . $bodyTxt;

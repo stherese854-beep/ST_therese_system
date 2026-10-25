@@ -44,6 +44,7 @@ require_once __DIR__ . '/../includes/assign.php';   // patient -> dentist auto-b
 require_once __DIR__ . '/../includes/relationships.php';   // "Raquel is your Child" — the words, age checks
 require_once __DIR__ . '/../includes/chart_access.php';    // staff open a chart with a dentist's approval PIN
 require_once __DIR__ . '/../includes/security.php';        // account lockout, two-step sign-in, upload checks, record audit
+require_once __DIR__ . '/../includes/late.php';            // late arrivals: grace period, "⏰ late", move / no-show
 
 // ---- Self-healing database (new tables / columns) ----
 // These checks only need to run once after each update of the system, not on
@@ -87,6 +88,7 @@ if (!$__schemaOk) {
     ensure_login_security_schema($pdo);             // account lockout columns + patient ID on Activity Log entries
     ensure_name_parts_schema($pdo);                 // first_name / last_name next to the full name (patients, users)
     ensure_announcement_columns($pdo);              // announcements: pinned + when / to how many it was emailed
+    ensure_late_schema($pdo);                       // appointments.late_minutes (arrived after the grace period)
     ensure_indexes($pdo);                           // last: indexes on the tables above, so pages stay fast as records grow
     try { save_setting($pdo, 'schema_ok', $__schemaKey); } catch (Throwable $e) {}
 }

@@ -587,6 +587,7 @@ include 'includes/head.php';
                 </div>
                 <input type="hidden" name="time" id="sel-time" required>
                 <div id="slot-warn" class="text-danger small mb-2" style="display:none;">Please select a time slot.</div>
+                <div class="text-muted2 mb-2" style="font-size:.78rem;">⏰ <?= e(late_rule_text($pdo)) ?></div>
                 <div class="text-end">
                     <button type="button" class="btn btn-teal" id="schedule-continue-btn" onclick="validateSchedule()" disabled>Continue →</button>
                 </div>
@@ -760,6 +761,7 @@ include 'includes/head.php';
 
         <div id="policy-body-policy">
           <?= policy_html(policy_text($pdo, 'terms'), 'h6') ?>
+          <h6>Late arrival</h6><p><?= e(late_rule_text($pdo)) ?></p>   <!-- from System → Clinic Hours (includes/late.php) -->
         </div>
 
         <div id="policy-body-privacy" style="display:none;">

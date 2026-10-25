@@ -105,7 +105,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'clinic_open_days',  $days);
         save_setting($pdo, 'clinic_open_time',  $_POST['open_time']);
         save_setting($pdo, 'clinic_close_time', $_POST['close_time']);
-        log_activity($pdo, 'Updated clinic hours', "Open: $days, $_POST[open_time]-$_POST[close_time]");
+        $grace = max(5, min(60, (int)($_POST['late_grace'] ?? LATE_GRACE_DEFAULT)));   // late after this many minutes
+        save_setting($pdo, 'late_grace_minutes', (string)$grace);
+        log_activity($pdo, 'Updated clinic hours', "Open: $days, $_POST[open_time]-$_POST[close_time] · late after $grace min");
         set_flash('Settings saved.'); header("Location: settings"); exit;
     }
 
@@ -473,6 +475,16 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                     <div class="col">
                         <label class="field-label">Closing Time</label>
                         <input type="time" name="close_time" class="form-control mb-3" value="<?= e(cfg($cfg,'clinic_close_time','17:00')) ?>">
+                    </div>
+                </div>
+
+                <div style="max-width:420px;">
+                    <label class="field-label">Late after (minutes)</label>
+                    <input type="number" name="late_grace" class="form-control mb-1" min="5" max="60" step="1" value="<?= (int)late_grace_minutes($pdo) ?>">
+                    <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                        A confirmed patient this many minutes past their time (and not marked arrived) shows as <b>⏰ late</b>:
+                        you may see the patients already waiting, move them to a later time today, or mark a no-show.
+                        Patients are told this rule when they book and in the confirmation and reminder emails.
                     </div>
                 </div>
 

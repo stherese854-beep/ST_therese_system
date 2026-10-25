@@ -32,52 +32,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($id && $action === 'confirm_noshow') {
-        $pdo->prepare("UPDATE appointments SET status='No-show' WHERE id=?")->execute([$id]);
-
-        // Look up the patient so we can email them.
-        $q = $pdo->prepare(
-            "SELECT a.patient_name, a.appointment_date, a.appointment_time, a.treatment,
-                    p.id AS pid, COALESCE(NULLIF(p.email,''), g.email) AS email
-               FROM appointments a
-          LEFT JOIN patients p ON a.patient_id = p.id
-          LEFT JOIN patients g ON g.id = p.guardian_patient_id
-              WHERE a.id = ?"
-        );
-        $q->execute([$id]);
-        $row = $q->fetch();
-
-        // The patient sees a pop-up warning ("missed X of 3") the next time they open
-        // the portal. Only the 3rd — when online booking is blocked — is also emailed.
-        // Counted over the whole account, the same way booking.php pauses booking.
-        $note = '';
-        if ($row && !empty($row['pid'])) {
-            require_once 'includes/patient_notices.php';
-            $holderId = account_holder_id($pdo, $row['pid']);
-            $missed   = account_noshow_total($pdo, $holderId);
-            $whenTxt  = date('F j, Y', strtotime($row['appointment_date'])) . ' at ' . $row['appointment_time'];
-            $isSelf   = ($holderId === (int)$row['pid']);
-            $n = noshow_notice($missed, $isSelf ? 'You' : $row['patient_name'], $whenTxt);
-            add_patient_notice($pdo, $holderId, 'noshow', $n['level'], $n['title'], $n['body']);
-            $note = " They will see a warning ($missed of 3) when they open their portal.";
-
-            if ($missed === 3 && !empty($row['email']) && mail_is_ready($pdo)) {
-                $cat = message_catalogue()['noshow_final'];
-                [$subject, $bodyHtml] = tpl_message($pdo, 'noshow_final', $cat['subject'], $cat['body'], [
-                    'patient'   => $row['patient_name'],
-                    'date'      => date('l, F j, Y', strtotime($row['appointment_date'])),
-                    'time'      => $row['appointment_time'],
-                    'treatment' => $row['treatment'],
-                    'missed'    => $missed,
-                    'clinic'    => clinic_name($pdo),
-                ]);
-                $err = '';
-                $note .= send_mail($pdo, $row['email'], $subject, $bodyHtml, $err, 'noshow_final')
-                       ? ' Online booking is now blocked and they were emailed.'
-                       : " Online booking is now blocked (the email could not be sent — $err).";
-            }
-        }
-        log_activity($pdo, 'Confirmed no-show', ($row['patient_name'] ?? ('Appointment #' . $id)));
-        set_flash(($row['patient_name'] ?? 'Appointment') . ' marked as a no-show.' . $note, 'danger');   // red: it counts against the patient
+        // Status, the patient's portal warning, and on the 3rd miss the email (includes/late.php).
+        [$nsName, $note] = confirm_noshow($pdo, $id);
+        log_activity($pdo, 'Confirmed no-show', $nsName);
+        set_flash($nsName . ' marked as a no-show.' . $note, 'danger');   // red: it counts against the patient
         header("Location: noshow?tab=review"); exit;
     }
 
@@ -230,6 +188,21 @@ if ($tab === 'repeat') {
 }
 if ($tab === 'expired') $rows = array_filter($missed, fn($m) => $m['status'] === 'Expired');
 
+// ---------- Late arrivals: came after the grace period (includes/late.php) ----------
+$lateConds = ["late_minutes IS NOT NULL"]; $lateParams = [];
+if ($pS) { $lateConds[] = "appointment_date BETWEEN ? AND ?"; array_push($lateParams, $pS, $pE); }
+if ($filterDentist !== '') { $ldp = []; $lateConds[] = dentist_match_sql('dentist', $filterDentist, $ldp); $lateParams = array_merge($lateParams, $ldp); }
+if ($searchName !== '') { $lateConds[] = "patient_name LIKE ?"; $lateParams[] = '%' . $searchName . '%'; }
+$lateRows = [];
+try {
+    $lq = $pdo->prepare("SELECT * FROM appointments WHERE " . implode(' AND ', $lateConds) . " ORDER BY appointment_date DESC, id DESC");
+    $lq->execute($lateParams);
+    $lateRows = $lq->fetchAll();
+} catch (Throwable $e) {}
+$countLate = count($lateRows);
+$latePerPatient = [];                                // "often late": 3 or more in this period
+foreach ($lateRows as $lr) $latePerPatient[(int)$lr['patient_id']] = ($latePerPatient[(int)$lr['patient_id']] ?? 0) + 1;
+
 $page_title = "No-Show Report";
 include 'includes/head.php';
 $active = 'noshow';
@@ -286,11 +259,12 @@ $nsLists = [
     'repeat'    => ['Repeat Offenders', count($repeatIds)],
     'expired'   => ['Expired',          $countExpired],
     'cancels'   => ['Frequent Cancels', count($cancelReview)],
+    'late'      => ['Late Arrivals',    $countLate],
 ];
 $nsKeep = '&' . $periodQS;                       // period + filters stay the same on the printed list
 foreach (['dentist','status','q'] as $kp) if (!empty($_GET[$kp])) $nsKeep .= '&' . $kp . '=' . urlencode($_GET[$kp]);
 $nsListName  = $nsLists[$tab][0] ?? 'No-Show Report';
-$nsPrintRows = $tab === 'cancels' ? count($cancelReview) : count($rows);
+$nsPrintRows = $tab === 'cancels' ? count($cancelReview) : ($tab === 'late' ? $countLate : count($rows));
 
 // helper for the filter tab links
 function tabLink($key, $label, $count, $current, $tip = '') {
@@ -457,6 +431,7 @@ function tabLink($key, $label, $count, $current, $tip = '') {
                 tabLink('repeat',    'Repeat Offenders', count($repeatIds),      $tab, 'Patients who missed more than once');
                 tabLink('expired',   'Expired',          $countExpired,          $tab, 'Booked but never confirmed before the date passed');
                 tabLink('cancels',   'Frequent Cancels', count($cancelReview),   $tab, 'Patients who cancel often');
+                tabLink('late',      'Late Arrivals',    $countLate,             $tab, 'Came more than ' . late_grace_minutes($pdo) . ' minutes after their time');
             ?>
         </nav>
         <style>
@@ -532,6 +507,38 @@ function tabLink($key, $label, $count, $current, $tip = '') {
                         </table>
                     </div>
                 </div>
+                <?php elseif ($tab === 'late'): ?>
+                <!-- ===== Late arrivals: arrived after the grace period ===== -->
+                <div class="card-box">
+                    <div class="text-muted2 mb-2" style="font-size:.85rem;">
+                        Patients marked as arrived more than <?= late_grace_minutes($pdo) ?> minutes after their appointment time
+                        (System → Clinic Hours). <b>Often late</b> = 3 or more times in this period.
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data">
+                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Arrived</th><th>Late by</th><th>Dentist</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($lateRows as $lr): $often = ($latePerPatient[(int)$lr['patient_id']] ?? 0) >= 3; ?>
+                                <tr>
+                                    <td><strong><?= e($lr['patient_name']) ?></strong>
+                                        <?php if ($often): ?><br><span class="badge-pill b-cancelled" style="font-size:.66rem;">🔁 Often late (<?= (int)$latePerPatient[(int)$lr['patient_id']] ?>×)</span><?php endif; ?></td>
+                                    <td><?= date('M j', strtotime($lr['appointment_date'])) ?></td>
+                                    <td><?= e($lr['appointment_time']) ?></td>
+                                    <td><?= $lr['arrived_at'] ? date('g:i A', strtotime($lr['arrived_at'])) : '–' ?></td>
+                                    <td><span class="badge-pill" style="background:#fde8e4;color:#c0392b;"><?= (int)$lr['late_minutes'] ?> min</span></td>
+                                    <td><?= e($lr['dentist']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (!$lateRows): ?>
+                                <tr><td colspan="6" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
+                                    <div style="font-size:2rem;margin-bottom:6px;">⏰</div>
+                                    No late arrivals in this period.
+                                </td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
                 <?php else: ?>
                 <div class="card-box">
                     <div class="table-responsive">
@@ -599,7 +606,8 @@ function tabLink($key, $label, $count, $current, $tip = '') {
                     <div class="flex-between py-2 border-bottom"><span>🔴 No-show</span><strong><?= $countNoshow ?></strong></div>
                     <div class="flex-between py-2 border-bottom"><span>🟠 Cancelled</span><strong><?= $countCancelled ?></strong></div>
                     <div class="flex-between py-2 border-bottom"><span title="Cancelled less than 24 hours before the appointment">🔵 Late Cancel</span><strong><?= $countLateCancel ?></strong></div>
-                    <div class="flex-between py-2"><span>🟢 Rescheduled</span><strong><?= $countRescheduled ?></strong></div>
+                    <div class="flex-between py-2 border-bottom"><span>🟢 Rescheduled</span><strong><?= $countRescheduled ?></strong></div>
+                    <div class="flex-between py-2"><span title="Arrived more than <?= late_grace_minutes($pdo) ?> minutes after their time">⏰ Late arrival</span><strong><?= $countLate ?></strong></div>
                 </div>
             </div>
         </div>
