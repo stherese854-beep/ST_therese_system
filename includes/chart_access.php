@@ -129,10 +129,36 @@ function chart_access_post($pdo, $pid) {
     return ['success', 'Unlocked by ' . $d['name'] . '. Everything you record goes under their name.'];
 }
 
+/**
+ * The dentist the PIN form starts on: the dentist of the patient's appointment today
+ * (else their next / latest one), else their primary dentist. Staff may still pick
+ * another dentist — who then approves with their own PIN.
+ */
+function chart_access_default_dentist($pdo, $pid, array $list) {
+    $names = [];
+    try {
+        $q = $pdo->prepare("SELECT dentist FROM appointments WHERE patient_id = ? AND status IN ('Confirmed','Arrived','Pending','Completed')
+                             ORDER BY appointment_date = CURDATE() DESC, appointment_date >= CURDATE() DESC, ABS(DATEDIFF(appointment_date, CURDATE())) LIMIT 1");
+        $q->execute([(int)$pid]);
+        if ($d = $q->fetchColumn()) $names[] = $d;
+        $q = $pdo->prepare("SELECT primary_dentist FROM patients WHERE id = ?");
+        $q->execute([(int)$pid]);
+        if ($d = $q->fetchColumn()) $names[] = $d;
+    } catch (Throwable $e) {}
+    foreach ($names as $n) {
+        foreach ($list as $id => $d) {
+            $usable = !empty($d['approval_pin']) && !($d['pin_locked_until'] && strtotime($d['pin_locked_until']) > time());
+            if ($usable && in_array($n, dentist_name_variants($d['name']), true)) return (int)$id;
+        }
+    }
+    return null;
+}
+
 /** The lock card shown to staff instead of the chart / records. */
 function chart_access_card($pdo, $pid, $patientName) {
     $list  = chart_access_dentists($pdo, $pid);
     $ended = (int)($_SESSION['chart_access_ended'] ?? 0) === (int)$pid;
+    $prefer = chart_access_default_dentist($pdo, $pid, $list);   // the patient's own dentist, already chosen
     ob_start(); ?>
     <div class="card-box mb-3" style="max-width:560px;border-top:4px solid var(--teal-mid);">
         <h5 class="mb-1">🔒 <?= e($patientName) ?>'s chart and records</h5>
@@ -151,7 +177,7 @@ function chart_access_card($pdo, $pid, $patientName) {
                 <select name="dentist_id" class="form-select" required>
                     <?php foreach ($list as $id => $d):
                         $locked = $d['pin_locked_until'] && strtotime($d['pin_locked_until']) > time(); ?>
-                        <option value="<?= (int)$id ?>" <?= empty($d['approval_pin']) || $locked ? 'disabled' : '' ?>>
+                        <option value="<?= (int)$id ?>" <?= empty($d['approval_pin']) || $locked ? 'disabled' : '' ?> <?= $prefer === (int)$id ? 'selected' : '' ?>>
                             <?= e($d['name']) ?><?= empty($d['approval_pin']) ? ' — no PIN set up yet' : ($locked ? ' — PIN locked for now' : '') ?></option>
                     <?php endforeach; ?>
                 </select>
@@ -164,6 +190,7 @@ function chart_access_card($pdo, $pid, $patientName) {
             <div class="col-sm-3"><button class="btn btn-teal w-100" data-keep-text>🔓 Unlock</button></div>
         </form>
         <div class="text-muted2 mt-2" style="font-size:.78rem;">
+            <?php if ($prefer): ?>Set to <?= e($list[$prefer]['name']) ?>, the patient's dentist — choose another dentist only if they approve, with their own PIN.<br><?php endif; ?>
             Lasts until you close it, or <?= CHART_ACCESS_MINUTES ?> minutes without activity. Dentists create their PIN in Profile &amp; Settings.
         </div>
     </div>
@@ -183,7 +210,8 @@ function chart_access_prompt($pdo) {
     $list = chart_access_dentists($pdo, $pid);
     $ready = array_filter($list, fn($d) => !empty($d['approval_pin']) && !($d['pin_locked_until'] && strtotime($d['pin_locked_until']) > time()));
     $prefer = null;                                        // the appointment's own dentist first
-    foreach ($ready as $id => $d) if ($d['name'] === ($p['dentist'] ?? '')) $prefer = $id;
+    foreach ($ready as $id => $d) if (in_array($p['dentist'] ?? '', dentist_name_variants($d['name']), true)) $prefer = (int)$id;
+    if ($prefer === null) $prefer = chart_access_default_dentist($pdo, $pid, $list);
     ob_start(); ?>
     <div class="cap-overlay" id="capOverlay" role="dialog" aria-modal="true" aria-labelledby="capTitle">
         <div class="cap-box">
@@ -198,7 +226,7 @@ function chart_access_prompt($pdo) {
                     <select name="dentist_id" class="form-select mb-2" required>
                         <?php foreach ($list as $id => $d):
                             $ok = isset($ready[$id]); ?>
-                            <option value="<?= (int)$id ?>" <?= $ok ? '' : 'disabled' ?> <?= $prefer === $id ? 'selected' : '' ?>>
+                            <option value="<?= (int)$id ?>" <?= $ok ? '' : 'disabled' ?> <?= $prefer === (int)$id ? 'selected' : '' ?>>
                                 <?= e($d['name']) ?><?= $ok ? '' : (empty($d['approval_pin']) ? ' — no PIN set up yet' : ' — PIN locked for now') ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -214,7 +242,8 @@ function chart_access_prompt($pdo) {
                 <div class="alert alert-warning py-2 mb-3" style="font-size:.85rem;">No dentist can approve right now (no PIN set up, or locked).</div>
                 <div class="text-end"><button type="button" class="btn btn-light" onclick="capClose()" data-keep-text>Close</button></div>
             <?php endif; ?>
-            <div class="cap-note">Not now? The patient stays marked as arrived — open the chart later from Odontogram.</div>
+            <div class="cap-note"><?php if ($prefer): ?>Set to <?= e($list[$prefer]['name']) ?>, the patient's dentist — another dentist approves with their own PIN.<br><?php endif; ?>
+                Not now? The patient stays marked as arrived — open the chart later from Odontogram.</div>
         </div>
     </div>
     <style>
