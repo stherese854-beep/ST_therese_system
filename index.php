@@ -173,9 +173,10 @@ section{scroll-margin-top:88px}
 .about-visual::after{content:"";position:absolute;width:260px;height:260px;border-radius:50%;background:rgba(255,255,255,.12);bottom:-90px;right:-70px}
 .about-visual h3{font-size:1.5rem;font-weight:700;margin-bottom:12px;position:relative}
 .about-visual p{color:rgba(255,255,255,.9);position:relative}
-.mini-stats{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px;position:relative}
-.mini-stats .s{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:16px;padding:16px}
-.mini-stats .s b{font-family:'Poppins';font-size:1.7rem;font-weight:700;display:block}
+.mini-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:26px;position:relative}
+.mini-stats .s{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:16px;padding:16px;min-width:0}
+/* the big word shrinks with the screen, so "Walk-in" / "Orthodontics" always fit inside the box */
+.mini-stats .s b{font-family:'Poppins';font-size:clamp(1.05rem,5vw,1.7rem);line-height:1.2;font-weight:700;display:block;overflow-wrap:break-word}
 .mini-stats .s span{font-size:.82rem;color:rgba(255,255,255,.85)}
 .about-txt h2{font-size:clamp(1.7rem,3.4vw,2.5rem);font-weight:700;margin:16px 0 16px}
 .about-txt p{color:var(--muted);margin-bottom:16px}
@@ -358,8 +359,19 @@ section{scroll-margin-top:88px}
   .g4,.g3,.g2,.steps{grid-template-columns:1fr}
   .foot-grid{grid-template-columns:1fr}
   .cta-band,.about-visual{padding:36px 24px}
+  .about-visual{padding:28px 20px}
+  .about-visual h3{font-size:1.25rem}
+  .mini-stats{gap:10px;margin-top:20px}
+  .mini-stats .s{padding:12px;border-radius:14px}
+  .mini-stats .s span{font-size:.76rem}
   .pad{padding:64px 0}
   .hero{padding:48px 0 70px}
+}
+@media(max-width:360px){
+  /* very small phones: a bit smaller still, so "Mon-Sat" stays on one line */
+  .mini-stats{gap:8px}
+  .mini-stats .s{padding:10px}
+  .mini-stats .s b{font-size:1rem}
 }
 /* ===== HMO / accredited providers ===== */
 .hmo-grid{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
@@ -493,9 +505,6 @@ section{scroll-margin-top:88px}
       <h1><?= h(lc('land_hero_title','Making Dental Appointments')) ?> <span class="grad-text"><?= h(lc('land_hero_highlight','Simple, Fast & Convenient')) ?></span></h1>
       <p class="lead"><?= h(lc('land_hero_subtitle','Our Dental Appointment System lets patients easily schedule appointments online, manage upcoming visits, and receive confirmations — all in one place.')) ?></p>
       <div class="hero-cta">
-        <a href="book" class="btn btn-primary">Book Appointment
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </a>
         <a href="login?mode=signin" class="btn btn-ghost">Login</a>
       </div>
       <div class="hero-trust">
