@@ -275,7 +275,7 @@ $active = 'backup';
                             <label class="d-flex gap-2 align-items-start" style="cursor:pointer;">
                                 <input type="radio" name="kind" value="zip" class="form-check-input mt-1">
                                 <span><b>Database + uploaded files</b> <span class="text-muted2">(.zip)</span><br>
-                                    <small class="text-muted2">Adds the X-ray images and photos. Open it with any unzip tool.</small></span>
+                                    <small class="text-muted2">Adds the panoramic X-ray images and photos. Open it with any unzip tool.</small></span>
                             </label>
                         </div>
                         <label class="field-label">Note <span class="text-muted2">(optional)</span></label>

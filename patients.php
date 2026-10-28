@@ -1120,7 +1120,7 @@ function validatePauseBooking(){
         </div>
         <div class="alert" style="background:#eef7f6;border:1px solid #cfe0dd;color:#3f5350;font-size:.82rem;">
           An invite link is emailed to them (it works for <?= INVITE_HOURS ?> hours). When they set a password, this same record
-          becomes their own account — appointments, dental chart, records and X-rays stay with it, so no duplicate
+          becomes their own account — appointments, dental chart, records and panoramic X-rays stay with it, so no duplicate
           record is made. If someone was booking for them, that person no longer sees them. Only for ages <?= MIN_ACCOUNT_AGE ?>+.
         </div>
         <div id="oi-age-warn" class="alert alert-danger py-2" style="font-size:.82rem;display:none;"></div>
@@ -1148,7 +1148,7 @@ function validatePauseBooking(){
       <div class="modal-body">
         <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.82rem;">
           Use this when one person has two records — for example, they were booked by a relative and later signed up on
-          their own. Everything on the second record (appointments, dental chart, treatments, notes, X-rays, reviews) moves
+          their own. Everything on the second record (appointments, dental chart, treatments, notes, panoramic X-rays, reviews) moves
           onto the record you keep, and the second record goes to the Archive. If only the second record has a login,
           the login moves too. Records that <b>both</b> have a login cannot be merged.
         </div>

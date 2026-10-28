@@ -299,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $xrConfirmed = !empty($_POST['xray_confirm']);
         $xrProblem = $upErr === '' ? xray_image_problem(xray_image_stats($_FILES['xray']['tmp_name'])) : '';
         if ($upErr === '' && $xrProblem !== '' && !$xrConfirmed) {
-            $upErr = $xrProblem . ' Please choose the X-ray image. If it really is an X-ray, tick "It is an X-ray — upload anyway".';
+            $upErr = $xrProblem . ' Please choose the panoramic X-ray. If it really is one, tick "It is a panoramic X-ray — upload anyway".';
         }
         if ($upErr !== '') {
             set_flash($upErr, 'error');
@@ -310,9 +310,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO xrays (patient_id,image_file,caption,xray_date,uploaded_by) VALUES (?,?,?,?,?)")
                     ->execute([$pid, $fname, trim($_POST['caption'] ?? ''), ($_POST['xray_date'] ?: null), $_SESSION['name'] ?? '']);
                 complete_arrived_visit($pdo, $pid);
-                log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid)
-                             . ($xrConfirmed ? ' — the X-ray check flagged it; the uploader confirmed it is an X-ray' : ''));
-                set_flash('X-ray uploaded.');
+                log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid) . ' — panoramic X-ray (Panorex)'
+                             . ($xrConfirmed ? '; the X-ray check flagged it, the uploader confirmed it is a panoramic X-ray' : ''));
+                set_flash('Panoramic X-ray uploaded.');
             } else {
                 set_flash('Could not save the image. Check the uploads/xrays folder permissions.', 'error');
             }
@@ -328,7 +328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (archive_record($pdo, 'xray', $xid, ['patient_id' => $pid])) $done++;
         }
         if ($done) log_activity($pdo, 'Archived X-ray', $xrPatientName . ($done > 1 ? " ($done images)" : ''));
-        set_flash(($done === 1 ? 'X-ray' : "$done X-rays") . ' moved to the Archive.', 'info');
+        set_flash(($done === 1 ? 'Panoramic X-ray' : "$done panoramic X-rays") . ' moved to the Archive.', 'info');
         header("Location: records?patient=$pid&tab=xrays"); exit;
     }
 
@@ -396,7 +396,7 @@ $active = 'records';
     <?php include 'includes/sidebar.php'; ?>
     <main class="main">
         <div class="page-head">
-            <div><h1>Clinical Records</h1><div class="sub">Treatments, X-rays, and notes for each patient</div></div>
+            <div><h1>Clinical Records</h1><div class="sub">Treatments, panoramic X-rays, and notes for each patient</div></div>
             <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
         </div>
 
@@ -440,7 +440,7 @@ $active = 'records';
         <?php if ($pid): ?>
         <div class="mb-3 d-flex gap-2 flex-wrap rec-tabs" data-keep-text>
             <?php
-            $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 X-rays','notes'=>'📝 Notes',
+            $recTabs = ['overview'=>'📋 Overview','treatments'=>'🦷 Treatments','xrays'=>'📷 Panoramic X-rays','notes'=>'📝 Notes',
                         'health'=>'🩺 Health form','chart'=>'🗂 Dental chart'];
             foreach ($recTabs as $k=>$label): ?>
                 <a href="records?patient=<?= $pid ?>&tab=<?= $k ?>" class="btn btn-sm <?= $tab===$k?'btn-dark-navy':'btn-light' ?>"><?= $label ?></a>
@@ -1027,12 +1027,13 @@ $active = 'records';
         <?php elseif ($tab === 'xrays'): ?>
             <!-- ===== X-RAYS ===== -->
             <div class="card-box mb-3">
-                <h6 class="mb-3">📷 Upload X-ray</h6>
+                <h6 class="mb-1">📷 Upload Panoramic X-ray (Panorex)</h6>
+                <div class="text-muted2 mb-3" style="font-size:.8rem;">The wide X-ray that shows all the teeth and both jaws in one picture.</div>
                 <form method="POST" enctype="multipart/form-data" id="xray-upload">
                     <input type="hidden" name="action" value="add_xray">
                     <input type="hidden" name="patient_id" value="<?= $pid ?>">
                     <div class="row g-2">
-                        <div class="col-md-5"><label class="field-label">X-ray image</label>
+                        <div class="col-md-5"><label class="field-label">Panoramic X-ray image</label>
                             <!-- accept="image/*" + capture lets phones open the camera -->
                             <input type="file" name="xray" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" capture="environment" required>
                             <div class="text-muted2" style="font-size:.75rem;margin-top:3px;"><?= image_upload_hint() ?></div>
@@ -1040,17 +1041,18 @@ $active = 'records';
                             <div class="xr-check" hidden></div>
                             <label class="xr-confirm d-flex gap-2 align-items-start mt-1" hidden style="font-size:.8rem;cursor:pointer;">
                                 <input type="checkbox" name="xray_confirm" value="1" class="form-check-input mt-1 flex-shrink-0">
-                                <span>It is an X-ray — upload anyway <span class="text-muted2">(noted in the Activity Log)</span></span>
+                                <span>It is a panoramic X-ray — upload anyway <span class="text-muted2">(noted in the Activity Log)</span></span>
                             </label>
-                            <div class="xr-need text-danger" hidden style="font-size:.8rem;">Choose the X-ray image, or tick the box if this really is one.</div></div>
+                            <div class="xr-need text-danger" hidden style="font-size:.8rem;">Choose the panoramic X-ray, or tick the box if this really is one.</div></div>
                         <div class="col-md-4"><label class="field-label">Caption</label>
-                            <input name="caption" class="form-control" placeholder="e.g. Upper molar, panoramic"></div>
+                            <input name="caption" class="form-control" placeholder="e.g. Before braces, after extraction"></div>
                         <div class="col-md-3"><label class="field-label">Date taken</label>
                             <input type="date" name="xray_date" class="form-control" value="<?= date('Y-m-d') ?>"></div>
                     </div>
-                    <button class="btn btn-teal mt-3">Upload X-ray</button>
-                    <div class="text-muted2 mt-2" style="font-size:.8rem;">On a phone this can open the camera. On a computer, choose an image file.
-                        Only X-ray images are accepted: colour photos, documents and blank pictures are stopped.</div>
+                    <button class="btn btn-teal mt-3">Upload Panoramic X-ray</button>
+                    <div class="text-muted2 mt-2" style="font-size:.8rem;">On a phone this can open the camera (hold it sideways). On a computer, choose an image file.
+                        Only panoramic X-rays are accepted: colour photos, documents, blank pictures and upright or square X-rays
+                        (chest, hand, single tooth) are stopped.</div>
                 </form>
                 <?php require_once 'includes/xray_check.php'; echo xray_check_script('#xray-upload'); ?>
                 <style>
@@ -1061,18 +1063,19 @@ $active = 'records';
             </div>
 
             <div class="card-box">
-                <h6 class="mb-3">X-ray Images <span class="text-muted2" style="font-size:.85rem;">(<?= count($xrays) ?>)</span></h6>
-                <?= bulk_bar('bulk-xray', 'delete_xray', 'X-rays', ['patient_id' => $pid], '🗑 Move selected to Archive', $ARCH_NOTE, 'Archive') ?>
+                <h6 class="mb-3">Panoramic X-rays (Panorex) <span class="text-muted2" style="font-size:.85rem;">(<?= count($xrays) ?>)</span></h6>
+                <?= bulk_bar('bulk-xray', 'delete_xray', 'panoramic X-rays', ['patient_id' => $pid], '🗑 Move selected to Archive', $ARCH_NOTE, 'Archive') ?>
                 <div class="d-flex flex-wrap gap-3">
                     <?php foreach ($xrays as $xr): ?>
-                        <div style="width:180px;border:1px solid #e3e9ee;border-radius:10px;overflow:hidden;">
+                        <!-- wide cards: a panoramic X-ray is about twice as wide as it is tall, shown whole -->
+                        <div style="width:280px;max-width:100%;border:1px solid #e3e9ee;border-radius:10px;overflow:hidden;">
                             <a href="xray?id=<?= (int)$xr['id'] ?>" target="_blank">
-                                <img src="xray?id=<?= (int)$xr['id'] ?>" alt="X-ray" style="width:100%;height:130px;object-fit:cover;background:#000;">
+                                <img src="xray?id=<?= (int)$xr['id'] ?>" alt="Panoramic X-ray" style="width:100%;height:140px;object-fit:contain;background:#000;">
                             </a>
                             <div style="padding:8px;">
-                                <div class="d-flex align-items-center gap-2" style="font-size:.82rem;font-weight:600;"><?= bulk_pick('bulk-xray', $xr['id']) ?><span><?= $xr['caption'] ? e($xr['caption']) : 'X-ray' ?></span></div>
+                                <div class="d-flex align-items-center gap-2" style="font-size:.82rem;font-weight:600;"><?= bulk_pick('bulk-xray', $xr['id']) ?><span><?= $xr['caption'] ? e($xr['caption']) : 'Panoramic X-ray' ?></span></div>
                                 <div class="text-muted2" style="font-size:.72rem;"><?= e($xr['xray_date'] ?: date('M j, Y', strtotime($xr['created_at']))) ?></div>
-                                <form method="POST" onsubmit="return confirm('Move this X-ray to the Archive?\n\n<?= $ARCH_NOTE ?>')" class="mt-1">
+                                <form method="POST" onsubmit="return confirm('Move this panoramic X-ray to the Archive?\n\n<?= $ARCH_NOTE ?>')" class="mt-1">
                                     <input type="hidden" name="action" value="delete_xray">
                                     <input type="hidden" name="patient_id" value="<?= $pid ?>">
                                     <input type="hidden" name="id" value="<?= $xr['id'] ?>">
@@ -1082,7 +1085,7 @@ $active = 'records';
                         </div>
                     <?php endforeach; ?>
                 </div>
-                <?php if (!$xrays): ?><p class="text-muted2 text-center py-4">No X-rays uploaded yet for this patient.</p><?php endif; ?>
+                <?php if (!$xrays): ?><p class="text-muted2 text-center py-4">No panoramic X-rays uploaded yet for this patient.</p><?php endif; ?>
             </div>
 
         <?php else: /* notes */ ?>

@@ -15,7 +15,7 @@
 // item type => [table, label shown in the Archive]
 const RECORD_ARCHIVE_TYPES = [
     'treatment'   => ['treatments',     'Treatment record'],
-    'xray'        => ['xrays',          'X-ray'],
+    'xray'        => ['xrays',          'Panoramic X-ray'],
     'note'        => ['clinical_notes', 'Clinical note'],
     'appointment' => ['appointments',   'Appointment'],
     'walkin'      => ['walk_in_visits', 'Walk-in visit'],
@@ -46,7 +46,7 @@ function record_archive_summary($type, $r) {
                  . (!empty($r['tooth']) ? ' · tooth ' . $r['tooth'] : '')
                  . (!empty($r['treatment_date']) ? ' · ' . $d($r['treatment_date']) : ''));
         case 'xray':
-            return trim(($r['caption'] ?: 'X-ray image') . (!empty($r['xray_date']) ? ' · ' . $d($r['xray_date']) : ''));
+            return trim(($r['caption'] ?: 'Panoramic X-ray') . (!empty($r['xray_date']) ? ' · ' . $d($r['xray_date']) : ''));
         case 'note':
             $n = trim(preg_replace('/\s+/', ' ', (string)($r['note'] ?? '')));
             return mb_strlen($n) > 90 ? mb_substr($n, 0, 90) . '…' : $n;

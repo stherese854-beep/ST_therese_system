@@ -240,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         require_once 'includes/xray_check.php';
         [$xrExt, $xrError] = check_image_upload($xrFile);
         if ($xrError === '' && !$xrConfirmed && ($xp = xray_image_problem(xray_image_stats($xrFile['tmp_name']))) !== '') $xrError = $xp;
-        if ($xrError !== '') $xrError = 'X-ray: ' . $xrError . ' Please choose the X-ray again in Service (step 3), or leave it empty.';
+        if ($xrError !== '') $xrError = 'Panoramic X-ray: ' . $xrError . ' Please choose the panoramic X-ray again in Service (step 3), or leave it empty.';
     }
     $xrDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['xray_date'] ?? '') && $_POST['xray_date'] <= date('Y-m-d') ? $_POST['xray_date'] : null;
 
@@ -326,7 +326,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
             $bookingNotes = $bookingNotes === '' ? $dobNote : ($dobNote . ' — ' . $bookingNotes);
         }
         if ($xrGiven) {                                     // so the dentist knows to look at it
-            $bookingNotes .= ($bookingNotes === '' ? '' : ' — ') . 'Patient attached an X-ray (Records → X-rays)';
+            $bookingNotes .= ($bookingNotes === '' ? '' : ' — ') . 'Patient attached a panoramic X-ray (Records → Panoramic X-rays)';
         }
 
         // Booking for someone else: they get (or already have) their own patient
@@ -381,8 +381,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
                         ->execute([$apptPatientId, $xrName, 'Sent by the patient with the booking for ' . date('M j, Y', strtotime($_POST['date'])),
                                    $xrDate, ($me['name'] ?? $patientName) . ' (patient)']);
                     $xrSaved = true;
-                    log_activity($pdo, 'Uploaded X-ray', $patientName . ' — attached to an online booking'
-                                 . ($xrConfirmed ? '; the X-ray check flagged it, the patient confirmed it is an X-ray' : ''));
+                    log_activity($pdo, 'Uploaded X-ray', $patientName . ' — panoramic X-ray (Panorex) attached to an online booking'
+                                 . ($xrConfirmed ? '; the X-ray check flagged it, the patient confirmed it is a panoramic X-ray' : ''));
                 }
             }
 
@@ -531,9 +531,9 @@ include 'includes/head.php';
             <div class="flex-between py-1"><span>When</span><b><?= date('M j, Y', strtotime($confirm['date'])) ?> · <?= e($confirm['time']) ?></b></div>
             <div class="flex-between py-1"><span>Dentist</span><b><?= e($confirm['dentist'] ?? '') ?></b></div>
             <?php if (($confirm['xray'] ?? '') === 'saved'): ?>
-                <div class="flex-between py-1"><span>X-ray</span><b>📷 Attached — the dentist will see it</b></div>
+                <div class="flex-between py-1"><span>Panoramic X-ray</span><b>📷 Attached — the dentist will see it</b></div>
             <?php elseif (($confirm['xray'] ?? '') === 'failed'): ?>
-                <div class="flex-between py-1"><span>X-ray</span><b style="color:#c0392b;">Could not be saved — please bring it to your visit</b></div>
+                <div class="flex-between py-1"><span>Panoramic X-ray</span><b style="color:#c0392b;">Could not be saved — please bring it to your visit</b></div>
             <?php endif; ?>
         </div>
 
@@ -681,8 +681,8 @@ include 'includes/head.php';
                 <!-- Optional: an X-ray the patient already has (saved to their X-rays when the booking is made).
                      The same "is it really an X-ray?" check as Records (includes/xray_check.php). -->
                 <div class="bk-xray mb-3">
-                    <div class="field-label mb-1">📷 X-ray <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— optional</span></div>
-                    <div class="text-muted2 mb-2" style="font-size:.8rem;">Have a recent dental X-ray? Attach it so the dentist can see it before your visit.</div>
+                    <div class="field-label mb-1">📷 Panoramic X-ray (Panorex) <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— optional</span></div>
+                    <div class="text-muted2 mb-2" style="font-size:.8rem;">Have a recent panoramic X-ray — the wide X-ray of all your teeth? Attach it so the dentist can see it before your visit.</div>
                     <div class="row g-2">
                         <div class="col-md-7">
                             <input type="file" name="xray" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>">
@@ -690,12 +690,12 @@ include 'includes/head.php';
                             <div class="xr-check" hidden></div>
                             <label class="xr-confirm d-flex gap-2 align-items-start mt-1" hidden style="font-size:.8rem;cursor:pointer;">
                                 <input type="checkbox" name="xray_confirm" value="1" class="form-check-input mt-1 flex-shrink-0">
-                                <span>It is an X-ray — attach it anyway</span>
+                                <span>It is a panoramic X-ray — attach it anyway</span>
                             </label>
-                            <div class="xr-need text-danger" hidden style="font-size:.8rem;">Please choose your X-ray image, remove this file, or tick the box if it really is an X-ray.</div>
+                            <div class="xr-need text-danger" hidden style="font-size:.8rem;">Please choose your panoramic X-ray, remove this file, or tick the box if it really is one.</div>
                         </div>
                         <div class="col-md-5">
-                            <input type="date" name="xray_date" class="form-control" max="<?= date('Y-m-d') ?>" title="When the X-ray was taken (optional)">
+                            <input type="date" name="xray_date" class="form-control" max="<?= date('Y-m-d') ?>" title="When the panoramic X-ray was taken (optional)">
                             <div class="text-muted2" style="font-size:.74rem;margin-top:3px;">When it was taken (if you know)</div>
                         </div>
                     </div>
@@ -816,7 +816,7 @@ include 'includes/head.php';
                 </div>
                 <div class="card-box" style="background:#fdfaf4;">
                     <small class="text-muted2">APPOINTMENT</small>
-                    <p class="mb-0">🦷 <span id="rev-treat"></span><br>📅 <span id="rev-date"></span><br>🕐 <span id="rev-time"></span><br>👨‍⚕️ <span id="rev-dentist"></span><span id="rev-xray-line" style="display:none;"><br>📷 X-ray attached: <span id="rev-xray"></span></span></p>
+                    <p class="mb-0">🦷 <span id="rev-treat"></span><br>📅 <span id="rev-date"></span><br>🕐 <span id="rev-time"></span><br>👨‍⚕️ <span id="rev-dentist"></span><span id="rev-xray-line" style="display:none;"><br>📷 Panoramic X-ray attached: <span id="rev-xray"></span></span></p>
                 </div>
 
                 <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.85rem;">

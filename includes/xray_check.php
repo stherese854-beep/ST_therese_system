@@ -1,30 +1,49 @@
 <?php
 // ============================================================
-//  "IS THIS REALLY AN X-RAY?"  (includes/xray_check.php)
+//  "IS THIS REALLY A PANORAMIC X-RAY?"  (includes/xray_check.php)
 // ============================================================
-//  A computer cannot prove a picture is an X-ray, but X-rays have
-//  plain signs a wrong picture does not. So the upload is stopped when:
+//  The clinic keeps PANORAMIC dental X-rays (Panorex): one wide picture
+//  of all the teeth and both jaws. A computer cannot prove a picture is
+//  one, but a panoramic X-ray has plain signs a wrong picture does not.
+//  So the upload is stopped when:
 //    - it is a COLOUR picture (a selfie, a photo of the mouth, a
 //      screenshot) — X-rays are black-and-white. A tint over the whole
 //      picture (a bluish film photographed on a light box) is fine.
 //    - it is mostly WHITE paper (a document, a form, a receipt)
 //    - it is BLANK (almost one shade: a black / white / covered photo)
+//    - it is NOT WIDE: a panoramic X-ray is about twice as wide as it is
+//      tall. A chest, hand or single-tooth X-ray (upright or square), or a
+//      photo of the film held upright, is stopped.
 //
 //  It runs twice with the same rules: in the browser as soon as a file
 //  is picked (xray_check_script), and on the server when PHP's GD module
-//  is there (xray_image_problem). A real X-ray that is stopped by mistake
-//  can still be uploaded: the uploader ticks "It is an X-ray — upload
-//  anyway", and that is noted in the Activity Log.
+//  is there (xray_image_problem). A real one that is stopped by mistake
+//  can still be uploaded: the uploader ticks "It is a panoramic X-ray —
+//  upload anyway", and that is noted in the Activity Log.
 // ============================================================
 
+const XRAY_NAME        = 'Panoramic X-ray (Panorex)';   // what the clinic calls it everywhere
 const XRAY_SAMPLE      = 96;     // the picture is looked at in at most 96 x 96 points
 const XRAY_COLOUR_DIFF = 28;     // a point this far from grey (after removing the overall tint) is "coloured"
 const XRAY_MAX_COLOUR  = 0.12;   // more than 12% coloured points -> a colour picture
 const XRAY_MAX_WHITE   = 0.55;   // more than 55% near-white points -> paper / a document
 const XRAY_MIN_SPREAD  = 10;     // light-to-dark spread below this -> blank
+const XRAY_MIN_WIDE    = 1.3;    // width ÷ height below this -> not a panoramic (they are ~2, a phone photo of one ~1.33+)
+
+/** What is wrong, in words for the uploader (the browser shows the same words). */
+function xray_messages() {
+    return [
+        'colour' => 'This looks like a colour photo, not a panoramic X-ray (X-rays are black-and-white).',
+        'blank'  => 'This picture is almost blank (nearly one shade), not a panoramic X-ray.',
+        'white'  => 'This looks like a document, a drawing or a mostly white picture, not a panoramic X-ray.',
+        'shape'  => 'This does not look like a panoramic X-ray: a panoramic (Panorex) shows all the teeth in one wide picture, '
+                  . 'about twice as wide as it is tall. A chest, hand or single-tooth X-ray is not accepted. '
+                  . 'If it is a photo of the film, take it sideways so the X-ray fills the picture.',
+    ];
+}
 
 /**
- * Light, colour and spread of the picture at $path, measured with GD.
+ * Light, colour, spread and shape of the picture at $path, measured with GD.
  * null when GD is missing or the picture cannot be read (then only the browser checks).
  */
 function xray_image_stats($path) {
@@ -33,6 +52,16 @@ function xray_image_stats($path) {
     $img  = $data !== false ? @imagecreatefromstring($data) : false;
     if (!$img) return null;
     $w = imagesx($img); $h = imagesy($img);
+    // A phone photo is often stored on its side with a "turn it" note (EXIF); the browser
+    // follows it, so the server does too. Without the EXIF module a JPEG's turn is unknown,
+    // so only its long side counts (the browser check still sees the real shape).
+    $wide = $w / max(1, $h);
+    $isJpeg = substr($data, 0, 2) === "\xFF\xD8";
+    if ($isJpeg) {
+        $o = function_exists('exif_read_data') ? (int)(@exif_read_data($path)['Orientation'] ?? 1) : 0;
+        if ($o >= 5 && $o <= 8) $wide = $h / max(1, $w);            // turned 90°
+        elseif ($o === 0)       $wide = max($w, $h) / max(1, min($w, $h));
+    }
     $scale = min(1, XRAY_SAMPLE / max($w, $h));
     $sw = max(1, (int)round($w * $scale)); $sh = max(1, (int)round($h * $scale));
     $small = imagecreatetruecolor($sw, $sh);
@@ -44,7 +73,9 @@ function xray_image_stats($path) {
         $px[] = [($c >> 16) & 255, ($c >> 8) & 255, $c & 255];
     }
     imagedestroy($small);
-    return xray_stats_of($px);
+    $st = xray_stats_of($px);
+    if ($st) $st['wide'] = $wide;
+    return $st;
 }
 
 /** The numbers, from a list of [r, g, b] points (the browser does the same sums). */
@@ -70,12 +101,14 @@ function xray_stats_of(array $px) {
     return ['colour' => $coloured / $n, 'white' => $white / $n, 'spread' => sqrt($var / $n)];
 }
 
-/** '' when it can be an X-ray, else what is wrong with it (shown to the uploader). */
+/** '' when it can be a panoramic X-ray, else what is wrong with it (shown to the uploader). */
 function xray_image_problem($stats) {
     if (!$stats) return '';
-    if ($stats['colour'] > XRAY_MAX_COLOUR) return 'This looks like a colour photo, not an X-ray (X-rays are black-and-white).';
-    if ($stats['spread'] < XRAY_MIN_SPREAD) return 'This picture is almost blank (nearly one shade), not an X-ray.';
-    if ($stats['white'] > XRAY_MAX_WHITE)   return 'This looks like a document, a drawing or a mostly white picture, not an X-ray.';
+    $m = xray_messages();
+    if ($stats['colour'] > XRAY_MAX_COLOUR) return $m['colour'];
+    if ($stats['spread'] < XRAY_MIN_SPREAD) return $m['blank'];
+    if ($stats['white'] > XRAY_MAX_WHITE)   return $m['white'];
+    if (isset($stats['wide']) && $stats['wide'] < XRAY_MIN_WIDE) return $m['shape'];
     return '';
 }
 
@@ -91,7 +124,9 @@ function xray_check_script($form) {
         if (!form) return;
         var file = form.querySelector('input[type=file]'), out = form.querySelector('.xr-check'),
             ok = form.querySelector('.xr-confirm'), tick = ok.querySelector('input'), problem = '';
-        var R = { size: <?= XRAY_SAMPLE ?>, diff: <?= XRAY_COLOUR_DIFF ?>, colour: <?= XRAY_MAX_COLOUR ?>, white: <?= XRAY_MAX_WHITE ?>, spread: <?= XRAY_MIN_SPREAD ?> };
+        var R = { size: <?= XRAY_SAMPLE ?>, diff: <?= XRAY_COLOUR_DIFF ?>, colour: <?= XRAY_MAX_COLOUR ?>, white: <?= XRAY_MAX_WHITE ?>,
+                  spread: <?= XRAY_MIN_SPREAD ?>, wide: <?= XRAY_MIN_WIDE ?> };
+        var M = <?= json_encode(xray_messages(), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
         function show(text, bad) {
             out.textContent = text; out.className = 'xr-check ' + (bad ? 'xr-bad' : 'xr-good'); out.hidden = !text;
             ok.hidden = !bad; if (!bad) tick.checked = false;
@@ -116,9 +151,10 @@ function xray_check_script($form) {
                 if (df > R.diff) col++; if (l > 235) white++; v += (l - mean) * (l - mean);
             }
             col /= n; white /= n; var spread = Math.sqrt(v / n);
-            if (col > R.colour) return 'This looks like a colour photo, not an X-ray (X-rays are black-and-white).';
-            if (spread < R.spread) return 'This picture is almost blank (nearly one shade), not an X-ray.';
-            if (white > R.white) return 'This looks like a document, a drawing or a mostly white picture, not an X-ray.';
+            if (col > R.colour) return M.colour;
+            if (spread < R.spread) return M.blank;
+            if (white > R.white) return M.white;
+            if (img.naturalWidth / img.naturalHeight < R.wide) return M.shape;   // the browser follows a phone photo's turn
             return '';
         }
         file.addEventListener('change', function () {
@@ -129,7 +165,7 @@ function xray_check_script($form) {
             img.onload = function () {
                 try { problem = judge(img); } catch (e) { problem = ''; }
                 URL.revokeObjectURL(url);
-                show(problem ? '⚠ ' + problem : '✓ Looks like an X-ray.', !!problem);
+                show(problem ? '⚠ ' + problem : '✓ Looks like a panoramic X-ray.', !!problem);
             };
             img.onerror = function () { URL.revokeObjectURL(url); };
             img.src = url;

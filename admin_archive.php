@@ -286,7 +286,7 @@ $active = 'archive';
         <!-- ===== Archived treatment records, X-rays, notes and appointments ===== -->
         <div class="card-box mt-3" id="records">
             <h5 class="mb-1">📋 Archived records &amp; appointments</h5>
-            <div class="text-muted2 mb-2" style="font-size:.8rem;">Treatment records, X-rays, clinical notes and appointments someone deleted. Restore puts them back exactly where they were.</div>
+            <div class="text-muted2 mb-2" style="font-size:.8rem;">Treatment records, panoramic X-rays, clinical notes and appointments someone deleted. Restore puts them back exactly where they were.</div>
             <div class="d-flex flex-wrap gap-2 mb-3">
                 <a href="admin_archive#records" class="btn btn-sm <?= $recType === '' ? 'btn-dark-navy' : 'btn-light' ?>" data-keep-text>All <span class="badge bg-secondary"><?= array_sum($recCounts) ?></span></a>
                 <?php foreach (RECORD_ARCHIVE_TYPES as $k => $info): ?>
@@ -297,7 +297,7 @@ $active = 'archive';
                 <div class="text-center text-muted2 py-3">Nothing archived here.</div>
             <?php else: ?>
             <div class="table-responsive">
-                <?= bulk_bar('bulk-records', 'purge_record', 'items permanently', [], '🗑 Delete selected permanently', 'They are removed for good (X-ray images too). This cannot be undone.') ?>
+                <?= bulk_bar('bulk-records', 'purge_record', 'items permanently', [], '🗑 Delete selected permanently', 'They are removed for good (panoramic X-ray images too). This cannot be undone.') ?>
                 <table class="data">
                     <thead><tr><th>Type</th><th>Patient</th><th>Details</th><th>Archived By</th><th>Archived On</th><th class="no-print">Actions</th></tr></thead>
                     <tbody>
