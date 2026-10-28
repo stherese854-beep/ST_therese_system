@@ -67,6 +67,9 @@ $filterDentist = $isDentistUser ? $myDentistName : trim($_GET['dentist'] ?? '');
 // Appointments List: optionally only one status (e.g. only Approved, only Cancelled).
 $reportStatuses = ['Confirmed','Pending','Arrived','Completed','Rescheduled','Cancelled','Disapproved','No-show','Expired','Needs Review'];
 $filterStatus   = in_array($_GET['status'] ?? '', $reportStatuses, true) ? $_GET['status'] : '';
+// Appointments List: walk-ins (visits without an appointment) in their own section
+// below the appointments (default), or combined with them in one list.
+$walkinView     = ($_GET['walkins'] ?? '') === 'combined' ? 'combined' : 'separate';
 
 // The list of dentists for the filter dropdown.
 $dentistOptions = $pdo->query(
@@ -155,6 +158,7 @@ function badge_for($status) {
         'Disapproved' => 'b-disapproved',
         'No-show'     => 'b-noshow',
         'Rescheduled' => 'b-progress',
+        'Walk-in'     => 'b-progress',
         'Active'      => 'b-active',
         'Inactive'    => 'b-inactive',
     ];
@@ -312,6 +316,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                     <form method="GET">
                         <input type="hidden" name="type" value="<?= e($type) ?>">
                         <?php if ($filterStatus !== ''): ?><input type="hidden" name="status" value="<?= e($filterStatus) ?>"><?php endif; ?>
+                        <?php if ($walkinView === 'combined'): ?><input type="hidden" name="walkins" value="combined"><?php endif; ?>
                         <label class="field-label">Dentist</label>
                         <select name="dentist" class="form-select mb-1" data-search="Search dentist…" data-search-combo onchange="this.form.submit()">
                             <option value="">All dentists</option>
@@ -330,6 +335,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                         <form method="GET">
                             <input type="hidden" name="type" value="appointments">
                             <input type="hidden" name="dentist" value="<?= e($filterDentist) ?>">
+                            <?php if ($walkinView === 'combined'): ?><input type="hidden" name="walkins" value="combined"><?php endif; ?>
                             <label class="field-label">Status</label>
                             <select name="status" class="form-select mb-1" data-search="Search status…" data-search-combo onchange="this.form.submit()">
                                 <option value="">All statuses</option>
@@ -339,6 +345,21 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             </select>
                             <div class="text-muted2 mb-3" style="font-size:.78rem;">
                                 Print only Approved, Pending, Cancelled, Rescheduled… appointments.
+                            </div>
+                        </form>
+                        <!-- Walk-in visits (no appointment): their own section, or in the same list -->
+                        <form method="GET">
+                            <input type="hidden" name="type" value="appointments">
+                            <input type="hidden" name="dentist" value="<?= e($filterDentist) ?>">
+                            <?php if ($filterStatus !== ''): ?><input type="hidden" name="status" value="<?= e($filterStatus) ?>"><?php endif; ?>
+                            <label class="field-label">Walk-in Visits</label>
+                            <select name="walkins" class="form-select mb-1" onchange="this.form.submit()">
+                                <option value="separate" <?= $walkinView === 'separate' ? 'selected' : '' ?>>Separate section below the appointments</option>
+                                <option value="combined" <?= $walkinView === 'combined' ? 'selected' : '' ?>>Combined with the appointments</option>
+                            </select>
+                            <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                                Patients who came in without an appointment. A walk-in already happened, so it shows with
+                                <b>All statuses</b> or <b>Completed</b>.
                             </div>
                         </form>
                     <?php endif; ?>
@@ -667,31 +688,91 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             $apStmt = $pdo->prepare($apSql . " ORDER BY appointment_date DESC, STR_TO_DATE(REPLACE(appointment_time, ' ', ''), '%h:%i%p')");
                             $apStmt->execute($apPrm);
                             $allAppts = $apStmt->fetchAll();
+
+                            // Walk-ins (no appointment), same dentist filter. A walk-in already
+                            // happened, so it only belongs with "All statuses" or "Completed".
+                            $walkinsShown = in_array($filterStatus, ['', 'Completed'], true);
+                            $allWalkins = [];
+                            if ($walkinsShown) {
+                                require_once 'includes/walkins.php';
+                                ensure_walkin_table($pdo);
+                                $wiSql = "SELECT * FROM walk_in_visits WHERE 1=1"; $wiPrm = [];
+                                if ($filterDentist !== '') $wiSql .= " AND " . dentist_match_sql('dentist', $filterDentist, $wiPrm);
+                                $wiStmt = $pdo->prepare($wiSql . " ORDER BY visit_date DESC, STR_TO_DATE(REPLACE(visit_time, ' ', ''), '%h:%i%p')");
+                                $wiStmt->execute($wiPrm);
+                                $allWalkins = $wiStmt->fetchAll();
+                            }
+
+                            // One row shape for both, so "Combined" can mix them in one list.
+                            $apRows = array_map(fn($ap) => ['patient' => $ap['patient_name'], 'dentist' => $ap['dentist'], 'date' => $ap['appointment_date'],
+                                                            'time' => $ap['appointment_time'], 'what' => $ap['treatment'], 'status' => $ap['status']], $allAppts);
+                            $wiRows = array_map(fn($w) => ['patient' => $w['patient_name'], 'dentist' => $w['dentist'], 'date' => $w['visit_date'],
+                                                           'time' => $w['visit_time'], 'what' => $w['services'], 'status' => 'Walk-in', 'note' => $w['notes']], $allWalkins);
+                            $combined = $walkinView === 'combined';
+                            if ($combined) {
+                                $mainRows = array_merge($apRows, $wiRows);
+                                // Newest day first, and within a day in time order (like the appointments alone).
+                                usort($mainRows, fn($a, $b) => strcmp((string)$b['date'], (string)$a['date'])
+                                                            ?: ((strtotime('2000-01-01 ' . $a['time']) ?: 0) <=> (strtotime('2000-01-01 ' . $b['time']) ?: 0)));
+                            } else {
+                                $mainRows = $apRows;
+                            }
+                            $plural = fn($n, $word) => $n . ' ' . $word . ($n === 1 ? '' : 's');
                             ?>
-                            <h6><?= $filterStatus !== '' ? e(status_label($filterStatus)) . ' Appointments' : 'All Appointments' ?></h6>
+                            <h6><?= $filterStatus !== '' ? e(status_label($filterStatus)) . ' Appointments' : 'All Appointments' ?><?= $combined && $walkinsShown ? ' and Walk-ins' : '' ?></h6>
                             <div style="font-size:.85rem;margin-bottom:8px;">
                                 <strong><?= $filterDentist !== '' ? 'Dentist: ' . e($filterDentist) : 'All dentists' ?></strong>
                                 · <?= $filterStatus !== '' ? e(status_label($filterStatus)) . ' only' : 'all statuses' ?>
-                                · <?= count($allAppts) ?> appointment<?= count($allAppts) === 1 ? '' : 's' ?>
+                                · <?= $plural(count($allAppts), 'appointment') ?>
+                                <?php if ($walkinsShown): ?>· <?= $plural(count($allWalkins), 'walk-in') ?><?php endif; ?>
                             </div>
                             <table class="data" style="font-size:.85rem;">
                                 <thead><tr><th>Patient</th><th>Dentist</th><th>Date</th><th>Time</th><th>Treatment</th><th>Status</th></tr></thead>
                                 <tbody>
-                                <?php foreach ($allAppts as $ap): ?>
+                                <?php foreach ($mainRows as $ap): ?>
                                     <tr>
-                                        <td><?= e($ap['patient_name']) ?></td>
+                                        <td><?= e($ap['patient']) ?></td>
                                         <td><?= e($ap['dentist']) ?></td>
-                                        <td class="nw"><?= e($ap['appointment_date']) ?></td>
-                                        <td class="nw"><?= e($ap['appointment_time']) ?></td>
-                                        <td><?= e($ap['treatment']) ?></td>
-                                        <td class="nw"><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e(status_label($ap['status'])) ?></span></td>
+                                        <td class="nw"><?= e($ap['date']) ?></td>
+                                        <td class="nw"><?= e($ap['time']) ?></td>
+                                        <td><?= e($ap['what']) ?></td>
+                                        <td class="nw"><span class="badge-pill <?= badge_for($ap['status']) ?>"><?= e($ap['status'] === 'Walk-in' ? 'Walk-in' : status_label($ap['status'])) ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
-                                <?php if (!$allAppts): ?>
-                                    <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No appointments match these choices.</td></tr>
+                                <?php if (!$mainRows): ?>
+                                    <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No appointments<?= $combined && $walkinsShown ? ' or walk-ins' : '' ?> match these choices.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
+
+                            <?php if (!$walkinsShown): ?>
+                                <div class="text-muted2 mt-2" style="font-size:.8rem;">Walk-in visits are not listed: they show with <b>All statuses</b> or <b>Completed</b>.</div>
+                            <?php elseif (!$combined): ?>
+                                <!-- ===== WALK-IN VISITS (no appointment) ===== -->
+                                <h6 class="mt-3">Walk-in Visits <small class="text-muted2">(no appointment)</small></h6>
+                                <div style="font-size:.85rem;margin-bottom:8px;">
+                                    <strong><?= $filterDentist !== '' ? 'Dentist: ' . e($filterDentist) : 'All dentists' ?></strong>
+                                    · <?= $plural(count($wiRows), 'walk-in') ?>
+                                </div>
+                                <table class="data" style="font-size:.85rem;">
+                                    <thead><tr><th>Patient</th><th>Dentist</th><th>Date</th><th>Time</th><th>Service</th><th>Note</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($wiRows as $w): ?>
+                                        <tr>
+                                            <td><?= e($w['patient']) ?></td>
+                                            <td><?= e($w['dentist']) ?></td>
+                                            <td class="nw"><?= e($w['date']) ?></td>
+                                            <td class="nw"><?= e($w['time']) ?></td>
+                                            <td><?= e($w['what']) ?></td>
+                                            <td><?= e($w['note'] ?: '–') ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    <?php if (!$wiRows): ?>
+                                        <tr><td colspan="6" style="text-align:center;padding:20px;color:#888;">No walk-in visits match these choices.</td></tr>
+                                    <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            <?php endif; ?>
 
                         <?php else: /* patients */ ?>
                             <!-- ===== LIST OF PATIENTS ===== -->
