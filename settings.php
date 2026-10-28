@@ -159,10 +159,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_flash($mErr, 'error');
         } elseif ($newName !== '' && current_role() === 'dentist' && ($dnErr = dentist_name_problem($pdo, $newName, $uid)) !== '') {
             set_flash($dnErr, 'error');
+        } elseif (current_role() === 'dentist' && mb_strlen(trim($_POST['my_specialty'] ?? '')) > 100) {
+            set_flash('Specialty is too long (at most 100 characters).', 'error');
         } elseif ($newName !== '') {
             if (current_role() === 'dentist') rename_dentist_links($pdo, (string)($_SESSION['name'] ?? ''), $newName);   // their patients follow
             $pdo->prepare("UPDATE users SET name=?, contact=? WHERE id=?")
                 ->execute([$newName, $newContact, $uid]);
+            // Dentists also keep their own specialty (shown on the landing page and to the admin)
+            if (current_role() === 'dentist') {
+                $pdo->prepare("UPDATE users SET specialty=? WHERE id=?")
+                    ->execute([trim($_POST['my_specialty'] ?? ''), $uid]);
+            }
             save_name_parts($pdo, 'users', $uid, $myFirst !== '' ? $myFirst : null, $myFirst !== '' ? $myLast : null);
             save_middle_name($pdo, 'users', $uid, $myMiddle);
             $_SESSION['name'] = $newName;   // keep the top-right widget in sync
@@ -267,7 +274,7 @@ require_once 'includes/profile_sections.php';
 $profSec = $profileView ? current_profile_section(current_role()) : '';
 
 // The logged-in user's own account (for the My Profile card).
-$meStmt = $pdo->prepare("SELECT name, first_name, middle_name, no_middle_name, last_name, email, contact, photo, role FROM users WHERE id=?");
+$meStmt = $pdo->prepare("SELECT name, first_name, middle_name, no_middle_name, last_name, email, contact, specialty, photo, role FROM users WHERE id=?");
 $meStmt->execute([$_SESSION['user_id'] ?? 0]);
 $meUser = $meStmt->fetch() ?: ['name'=>'','email'=>'','contact'=>'','photo'=>'','role'=>''];
 $myHasPhoto = !empty($meUser['photo']) && is_file(__DIR__ . '/' . $meUser['photo']);
@@ -344,6 +351,12 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                         <label class="field-label">Contact Number</label>
                         <input name="my_contact" class="form-control mb-3" value="<?= e($meUser['contact']) ?>" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?>>
                     </div>
+                    <?php if (current_role() === 'dentist'): ?>
+                    <div class="col-md-8">
+                        <label class="field-label">Specialty / Expertise</label>
+                        <input name="my_specialty" class="form-control mb-3" value="<?= e($meUser['specialty'] ?? '') ?>" maxlength="100" placeholder="e.g. Orthodontics, Oral Surgery">
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <label class="field-label">Email <span class="text-muted2">(read-only)</span></label>
                 <input class="form-control mb-1" value="<?= e($meUser['email']) ?>" readonly style="background:#eef7f6;color:var(--teal);">
