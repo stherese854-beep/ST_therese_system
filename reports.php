@@ -925,6 +925,25 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
 <script>
+// The options panel on the left ends where the Live Preview card ends, so there is
+// no empty space under it (each scrolls inside its own box). Side by side only —
+// on a phone the two are stacked and keep the usual sizes.
+(function () {
+    var left = document.querySelector('.rep-left'), area = document.getElementById('report-area');
+    if (!left || !area) return;
+    var right = area.closest('.card-box');
+    function match() {
+        if (window.innerWidth < 992) { left.style.height = ''; return; }
+        var h = right.getBoundingClientRect().bottom - left.getBoundingClientRect().top;
+        left.style.maxHeight = 'none';
+        left.style.height = Math.max(240, Math.round(h)) + 'px';
+    }
+    // After includes/head.php sizes the boxes (on load, then 400 ms later, and on resize).
+    match(); setTimeout(match, 450);
+    window.addEventListener('load', function () { setTimeout(match, 50); });
+    var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(match, 200); });
+})();
+
 // Fit a single-patient report on ONE printed page. Just before printing, lay the report
 // out at printed-page width, measure it, and scale it down if it would run
 // longer than a page. Sized for the smaller of A4 / Letter with 1 cm margins
