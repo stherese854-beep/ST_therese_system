@@ -7,12 +7,11 @@
 //     sign-in, a password reset or the admin's "Unlock" sets it back to 0.
 //     (config/auth.php also limits failed sign-ins per connection.)
 //  2. Two-step sign-in — when the admin turns it on (System → Security &
-//     Access), the roles the admin ticks (admins, dentists, staff, patients)
-//     get a 6-digit code by email after their password and are signed in
-//     only after typing it. The admin can also let a device be remembered
-//     for a number of days (table trusted_devices + a cookie per account):
-//     on that browser the code is not asked again until the days are up,
-//     the password changes, or the admin forgets all devices.
+//     Access), the roles they tick (admin, dentist, staff, patient) get a
+//     6-digit code by email after their password and are signed in only
+//     after typing it. "Ask again after N days": once a code is typed, that
+//     browser is remembered (trusted_devices + a cookie) and skips the code
+//     until N days have passed. 0 = a code at every sign-in.
 //  3. Image uploads — JPG / PNG only, checked by their content (finfo +
 //     getimagesize, not just the name), at most 5 MB, saved under a random
 //     file name.
@@ -26,12 +25,12 @@ const LOGIN_MAX_TRIES      = 5;
 const LOGIN_LOCK_MINUTES   = 15;
 const LOGIN_LOCKED_MESSAGE = 'Your account is locked. Try again after 15 minutes.';
 
-const TWO_STEP_ROLE_NAMES    = ['admin' => 'Admins', 'dentist' => 'Dentists', 'staff' => 'Staff', 'patient' => 'Patients'];
-const TWO_STEP_ROLES_DEFAULT = 'admin,dentist';   // before the admin picks roles (how it always worked)
+const TWO_STEP_ALL_ROLES     = ['admin', 'dentist', 'staff', 'patient'];
+const TWO_STEP_DEFAULT_ROLES = 'admin,dentist';   // who it was for before the roles could be picked
 const TWO_STEP_MINUTES = 10;     // a code works for 10 minutes
 const TWO_STEP_TRIES   = 5;      // wrong codes before signing in again
-const TWO_STEP_MAX_DAYS = 90;    // "remember this device" can be at most 90 days (0 = ask every sign-in)
-const TWO_STEP_COOKIE   = 'st_trust_';   // + user ID: one cookie per account, so a shared computer can remember several
+const TWO_STEP_MAX_DAYS = 90;    // "ask again after N days": at most 90
+const TWO_STEP_COOKIE   = 'st_trust_';   // + user ID: one remembered browser per account
 
 const UPLOAD_MAX_MB    = 5;
 
@@ -43,26 +42,24 @@ function ensure_login_security_schema($pdo) {
         }
     } catch (Throwable $e) {}
     try {
+        // Browsers that typed a sign-in code and may skip it for a while (only a hash of the cookie is kept).
+        $pdo->exec("CREATE TABLE IF NOT EXISTS trusted_devices (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NOT NULL,
+                        token_hash CHAR(64) NOT NULL,
+                        user_agent VARCHAR(255) NULL,
+                        ip VARCHAR(45) NULL,
+                        created_at DATETIME NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        UNIQUE KEY uq_trust_token (token_hash),
+                        INDEX idx_trust_user (user_id)
+                    )");
+    } catch (Throwable $e) {}
+    try {
         if (!$pdo->query("SHOW COLUMNS FROM activity_log LIKE 'patient_id'")->fetch()) {
             $pdo->exec("ALTER TABLE activity_log ADD COLUMN patient_id INT NULL DEFAULT NULL,
                                                  ADD INDEX idx_log_patient (patient_id, created_at)");
         }
-    } catch (Throwable $e) {}
-    try {
-        // Devices where the two-step code was typed and "remember" was ticked.
-        // Only a hash of the cookie's secret is kept; pw_tag ties it to the
-        // password at that time, so changing the password forgets the device.
-        $pdo->exec("CREATE TABLE IF NOT EXISTS trusted_devices (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        user_id INT NOT NULL,
-                        selector CHAR(16) NOT NULL,
-                        token_hash CHAR(64) NOT NULL,
-                        pw_tag CHAR(16) NOT NULL,
-                        device VARCHAR(255) NULL,
-                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE KEY uq_trusted_selector (selector),
-                        INDEX idx_trusted_user (user_id)
-                    )");
     } catch (Throwable $e) {}
 }
 
@@ -124,86 +121,78 @@ function complete_sign_in($pdo, array $user, $how = '') {
 
 // ---------- 2. Two-step sign-in (the roles the admin picks) ----------
 
-function two_step_setting($pdo, $key, $default) {
-    try {
-        $st = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
-        $st->execute([$key]);
-        $v = $st->fetchColumn();
-        return $v === false ? $default : (string)$v;
-    } catch (Throwable $e) { return $default; }
-}
-
 /** On when the admin turned it on AND email works (otherwise nobody could get a code). */
 function two_step_on($pdo) {
-    if (two_step_setting($pdo, 'sec_two_step', '0') !== '1') return false;
+    try {
+        if ($pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'sec_two_step'")->fetchColumn() !== '1') return false;
+    } catch (Throwable $e) { return false; }
     if (!function_exists('mail_is_ready')) require_once __DIR__ . '/mailer.php';
     return mail_is_ready($pdo);
 }
 
-/** The roles that get a code, e.g. ['admin', 'dentist', 'staff']. */
-function two_step_roles($pdo) {
-    $roles = array_map('trim', explode(',', two_step_setting($pdo, 'sec_two_step_roles', TWO_STEP_ROLES_DEFAULT)));
-    return array_values(array_intersect(array_keys(TWO_STEP_ROLE_NAMES), $roles));
+function two_step_setting($pdo, $key, $default) {
+    try {
+        $v = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+        $v->execute([$key]);
+        $v = $v->fetchColumn();
+        return $v === false ? $default : $v;
+    } catch (Throwable $e) { return $default; }
 }
 
-/** How many days a device is remembered after the code (0 = ask at every sign-in). */
+/** The roles that get a code (System → Security & Access). */
+function two_step_roles($pdo) {
+    $roles = array_map('trim', explode(',', (string)two_step_setting($pdo, 'sec_two_step_roles', TWO_STEP_DEFAULT_ROLES)));
+    return array_values(array_intersect(TWO_STEP_ALL_ROLES, $roles));
+}
+
+/** "Ask again after N days" — 0 means a code at every sign-in. */
 function two_step_days($pdo) {
     return max(0, min(TWO_STEP_MAX_DAYS, (int)two_step_setting($pdo, 'sec_two_step_days', '0')));
 }
 
+/** Needs a code now: their role is ticked, it is on, and this browser is not remembered. */
 function two_step_needed($pdo, array $user) {
-    return in_array($user['role'], two_step_roles($pdo), true) && two_step_on($pdo) && !two_step_device_trusted($pdo, $user);
+    return in_array($user['role'], two_step_roles($pdo), true) && two_step_on($pdo) && !device_trusted($pdo, $user);
 }
 
-/** Changes whenever the password changes, so a new password forgets every remembered device. */
-function two_step_pw_tag(array $user) {
-    return substr(hash('sha256', (string)$user['password']), 0, 16);
-}
-
-/**
- * This browser typed this account's code within the last N days (N = the
- * admin's setting today, so shortening it takes effect at once).
- */
-function two_step_device_trusted($pdo, array $user) {
-    $days = two_step_days($pdo);
-    $raw  = $_COOKIE[TWO_STEP_COOKIE . (int)$user['id']] ?? '';
-    if ($days === 0 || !preg_match('/^([a-f0-9]{16})\.([a-f0-9]{64})$/', $raw, $m)) return false;
+/** This browser typed a code for this account less than N days ago (N as it is set NOW). */
+function device_trusted($pdo, array $user) {
+    $days  = two_step_days($pdo);
+    $token = $_COOKIE[TWO_STEP_COOKIE . (int)$user['id']] ?? '';
+    if ($days < 1 || !is_string($token) || !preg_match('/^[a-f0-9]{64}$/', $token)) return false;
     try {
-        $st = $pdo->prepare("SELECT * FROM trusted_devices WHERE selector = ? AND user_id = ?");
-        $st->execute([$m[1], (int)$user['id']]);
-        $row = $st->fetch();
+        $st = $pdo->prepare("SELECT id FROM trusted_devices WHERE user_id = ? AND token_hash = ?
+                               AND expires_at > NOW() AND created_at > NOW() - INTERVAL ? DAY");
+        $st->execute([(int)$user['id'], hash('sha256', $token), $days]);
+        return (bool)$st->fetchColumn();
     } catch (Throwable $e) { return false; }
-    return $row
-        && hash_equals($row['token_hash'], hash('sha256', $m[2]))
-        && hash_equals($row['pw_tag'], two_step_pw_tag($user))
-        && strtotime($row['created_at']) + $days * 86400 > time();
 }
 
-/** After a right code with "remember this device" ticked: no code here for the next N days. */
-function two_step_remember_device($pdo, array $user) {
+/** After a right code: remember this browser for N days (nothing when N = 0). */
+function trust_device($pdo, array $user) {
     $days = two_step_days($pdo);
-    if ($days === 0) return;
-    $selector  = bin2hex(random_bytes(8));
-    $validator = bin2hex(random_bytes(32));
+    if ($days < 1) return;
+    $token = bin2hex(random_bytes(32));
     try {
-        $pdo->prepare("DELETE FROM trusted_devices WHERE created_at < ?")
-            ->execute([date('Y-m-d H:i:s', time() - TWO_STEP_MAX_DAYS * 86400)]);   // long-expired ones
-        $pdo->prepare("INSERT INTO trusted_devices (user_id, selector, token_hash, pw_tag, device, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-            ->execute([(int)$user['id'], $selector, hash('sha256', $validator), two_step_pw_tag($user),
-                       mb_substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255), date('Y-m-d H:i:s')]);
+        $pdo->prepare("DELETE FROM trusted_devices WHERE expires_at <= NOW()")->execute();
+        $pdo->prepare("INSERT INTO trusted_devices (user_id, token_hash, user_agent, ip, created_at, expires_at)
+                       VALUES (?, ?, ?, ?, NOW(), NOW() + INTERVAL ? DAY)")
+            ->execute([(int)$user['id'], hash('sha256', $token), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255), client_ip(), $days]);
     } catch (Throwable $e) { return; }
-    setcookie(TWO_STEP_COOKIE . (int)$user['id'], $selector . '.' . $validator, [
+    setcookie(TWO_STEP_COOKIE . (int)$user['id'], $token, [
         'expires'  => time() + $days * 86400,
         'path'     => '/',
         'httponly' => true,
         'samesite' => 'Lax',
-        'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
+        'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                      || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'),
     ]);
 }
 
-/** The admin's "Forget all remembered devices": everyone gets a code at their next sign-in. */
-function two_step_forget_all_devices($pdo) {
-    try { return $pdo->exec("DELETE FROM trusted_devices"); } catch (Throwable $e) { return 0; }
+/** A new password: every remembered browser must type a code again. */
+function forget_trusted_devices($pdo, $userId) {
+    try { $pdo->prepare("DELETE FROM trusted_devices WHERE user_id = ?")->execute([(int)$userId]); }
+    catch (Throwable $e) {}
 }
 
 /** "ma•••@gmail.com" — where the code went, without showing the whole address. */

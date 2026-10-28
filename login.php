@@ -153,15 +153,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             } else {
                 login_succeeded($pdo, $user['id']);                  // wrong-password count back to 0
                 if (two_step_needed($pdo, $user)) {
-                    // A role with two-step sign-in on (and this device not remembered): a 6-digit
-                    // code is emailed, and they are signed in only after typing it (action two_step_verify).
+                    // Their role has two-step sign-in on and this browser is not remembered:
+                    // a 6-digit code is emailed, and they are signed in only after typing it (action two_step_verify).
                     $error = two_step_send($pdo, $user);
                     if ($error === '') {
                         log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Sent sign-in code', 'Two-step sign-in: code emailed to ' . mask_email($email));
                         header("Location: login?mode=code"); exit;
                     }
                 } else {
-                    complete_sign_in($pdo, $user);                   // new session ID, then their home page
+                    // Two-step on for them but skipped: this browser typed a code within the last N days.
+                    $remembered = in_array($user['role'], two_step_roles($pdo), true) && two_step_on($pdo);
+                    complete_sign_in($pdo, $user, $remembered ? 'remembered device' : '');   // new session ID, then their home page
                 }
             }
         } elseif (!$user && $email !== '') {
@@ -204,9 +206,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
         $mode = 'code';
         [$tsUser, $error] = two_step_verify($pdo, $_POST['code'] ?? '');
         if ($tsUser) {
-            $remember = isset($_POST['remember_device']) && two_step_days($pdo) > 0;
-            if ($remember) two_step_remember_device($pdo, $tsUser);   // no code on this device for the next N days
-            complete_sign_in($pdo, $tsUser, 'two-step code' . ($remember ? ' · device remembered for ' . two_step_days($pdo) . ' days' : ''));
+            trust_device($pdo, $tsUser);                                // no code on this browser for the next N days (if set)
+            complete_sign_in($pdo, $tsUser, 'two-step code');
         }
         if (empty($_SESSION['two_step'])) $mode = 'signin';         // expired, locked or too many tries: sign in again
     }
@@ -509,25 +510,19 @@ function auth_password_fields() { ?>
                 </form>
                 <p class="text-center mt-3 muted"><a href="login?mode=cancel_google" style="color:var(--teal);">← Cancel</a></p>
 
-            <?php elseif ($mode === 'code'): $ts = $_SESSION['two_step'] ?? []; $trustDays = two_step_days($pdo); ?>
+            <?php elseif ($mode === 'code'): $ts = $_SESSION['two_step'] ?? []; ?>
                 <!-- ============ TWO-STEP SIGN-IN: the emailed code ============ -->
                 <h2>Check your email</h2>
                 <p class="muted">For your security, enter the 6-digit sign-in code we emailed to
                     <strong><?= e(mask_email($ts['email'] ?? '')) ?></strong>. It works for <?= TWO_STEP_MINUTES ?> minutes.</p>
+                <?php if (($tsDays = two_step_days($pdo)) > 0): ?>
+                    <p class="muted" style="font-size:.82rem;">This browser will not ask for a code again for <?= $tsDays ?> day<?= $tsDays === 1 ? '' : 's' ?>.</p>
+                <?php endif; ?>
                 <form method="POST" action="login?mode=code">
                     <input type="hidden" name="action" value="two_step_verify">
                     <label class="field-label">Sign-in code</label>
                     <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
                            data-digits autofocus required style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
-                    <?php if ($trustDays > 0): ?>
-                        <div class="form-check mb-3" style="font-size:.85rem;">
-                            <input class="form-check-input" type="checkbox" name="remember_device" id="rememberDevice" checked>
-                            <label class="form-check-label" for="rememberDevice">
-                                Don't ask for a code on this device for <?= $trustDays ?> day<?= $trustDays === 1 ? '' : 's' ?>
-                                <span class="muted d-block" style="font-size:.78rem;">Untick this on a shared or public computer.</span>
-                            </label>
-                        </div>
-                    <?php endif; ?>
                     <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Sign In →</button>
                 </form>
                 <form method="POST" action="login?mode=code" class="text-center mt-2">

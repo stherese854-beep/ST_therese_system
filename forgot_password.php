@@ -102,6 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reset
         // A new password also lifts a lockout (they proved they own the email).
         $pdo->prepare("UPDATE users SET password = ?, reset_code = NULL, reset_expires = NULL, failed_attempts = 0, locked_until = NULL WHERE email = ?")
             ->execute([$hash, $email]);
+        $rid = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+        $rid->execute([$email]);
+        if ($rid = $rid->fetchColumn()) forget_trusted_devices($pdo, $rid);   // remembered browsers type a sign-in code again
         unset($_SESSION['reset_email'], $_SESSION['reset_verified']);
         header("Location: login?toast=pwreset");
         exit;

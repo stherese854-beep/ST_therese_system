@@ -121,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($newpass !== '') {
                         $pdo->prepare("UPDATE users SET password=? WHERE id=?")
                             ->execute([password_hash($newpass, PASSWORD_DEFAULT), $uid]);
+                        forget_trusted_devices($pdo, $uid);
                     }
                 } catch (PDOException $ex) {
                     set_flash('Patient saved, but that email is already used by another account.', 'error');

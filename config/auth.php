@@ -939,6 +939,7 @@ function pw_change_finish($pdo, $code) {
         return 'Incorrect code. Please try again.';
     }
     $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([$pc['hash'], $_SESSION['user_id']]);
+    forget_trusted_devices($pdo, $_SESSION['user_id']);   // remembered browsers type a sign-in code again
     unset($_SESSION['pw_change']);
     log_activity($pdo, 'Changed password', 'Own account (confirmed with a code)');
     return '';
