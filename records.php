@@ -913,14 +913,14 @@ $active = 'records';
                                 : ($noteReader === 'holder' ? e($noteHolder) . ' sees it in their portal'
                                 : 'they have no account, so call or text them to remind them') ?>)</span>
                         </label>
-                        <div id="fu-book" class="row g-2 mt-1" style="display:none;">
-                            <div class="col-md-5"><label class="field-label">Date</label>
-                                <input type="date" name="book_date" class="form-control" min="<?= date('Y-m-d', strtotime('+1 day')) ?>"></div>
-                            <div class="col-md-4"><label class="field-label">Time</label>
-                                <select name="book_time" class="form-select"><?php foreach (clinic_time_slots($pdo) as $sl): ?><option><?= e($sl) ?></option><?php endforeach; ?></select></div>
+                        <!-- Only free days and times of the dentist the visit goes to can be picked -->
+                        <div id="fu-book" class="mt-2" style="display:none;">
+                            <?= followup_book_picker($pdo, 'fu-book-pick',
+                                    followup_booking_dentist($pdo, current_role() === 'staff' ? ($_SESSION['chart_access']['dentist_name'] ?? '') : ($_SESSION['name'] ?? ''),
+                                                             $patientRow['primary_dentist'] ?? '')) ?>
                         </div>
                     </div>
-                    <button class="btn btn-teal">Add Record</button>
+                    <button class="btn btn-teal" onclick="return bkReady(document.getElementById('fu-book-pick'))">Add Record</button>
                 </form>
             </div>
 
@@ -953,16 +953,18 @@ $active = 'records';
                         <?php if ($pl['status'] === 'Active'): ?>
                         <div class="d-flex gap-1 flex-wrap align-items-center" data-keep-text>
                             <?php $bkDefault = max((string)$pl['next_due'], date('Y-m-d', strtotime('+1 day'))); ?>
-                            <!-- 📅 Book next visit: creates the appointment (Approved); the patient sees it in their portal -->
-                            <form method="POST" class="d-flex gap-1 m-0 flex-wrap" title="Books a real appointment the patient sees in their portal">
-                                <input type="hidden" name="action" value="plan_book"><input type="hidden" name="patient_id" value="<?= $pid ?>">
-                                <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>">
-                                <input type="date" name="book_date" class="form-control form-control-sm" style="width:150px;" min="<?= date('Y-m-d', strtotime('+1 day')) ?>" value="<?= e($bkDefault) ?>" required>
-                                <select name="book_time" class="form-select form-select-sm" style="width:118px;" required>
-                                    <?php foreach (clinic_time_slots($pdo) as $sl): ?><option><?= e($sl) ?></option><?php endforeach; ?>
-                                </select>
-                                <button class="btn btn-sm btn-teal">📅 Book next visit</button>
-                            </form>
+                            <!-- 📅 Book next visit: creates the appointment (Approved); the patient sees it in their portal.
+                                 The calendar opens on the due date; only the dentist's free days and times can be picked. -->
+                            <details class="fu-book-next">
+                                <summary class="btn btn-sm btn-teal" title="Books a real appointment the patient sees in their portal">📅 Book next visit</summary>
+                                <form method="POST" class="m-0 mt-2" onsubmit="return bkReady(this.querySelector('.bk-pick'))">
+                                    <input type="hidden" name="action" value="plan_book"><input type="hidden" name="patient_id" value="<?= $pid ?>">
+                                    <input type="hidden" name="plan_id" value="<?= (int)$pl['id'] ?>">
+                                    <?= followup_book_picker($pdo, 'plan-book-' . (int)$pl['id'],
+                                                             followup_booking_dentist($pdo, $pl['dentist'] ?? '', $patientRow['primary_dentist'] ?? ''), $bkDefault) ?>
+                                    <button class="btn btn-sm btn-teal mt-2">✔ Book this visit</button>
+                                </form>
+                            </details>
                             <details class="fu-only-date">
                                 <summary class="text-muted2" style="font-size:.78rem;cursor:pointer;">Only change the due date</summary>
                                 <form method="POST" class="d-flex gap-1 m-0 mt-1">

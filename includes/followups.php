@@ -438,7 +438,7 @@ function book_followup_appointment($pdo, $plan, $date, $time, $by) {
     $pq->execute([(int)$plan['patient_id']]);
     $pt = $pq->fetch();
     if (!$pt) return [false, 'The patient could not be found.'];
-    $dentist = $plan['dentist'] ?: $pt['primary_dentist'];
+    $dentist = followup_booking_dentist($pdo, $plan['dentist'] ?? '', $pt['primary_dentist']);
     if (!$dentist) return [false, 'This patient has no dentist yet. Please assign one first.'];
     if (!appt_slot_is_open($pdo, $date, $time, $dentist)) {
         return [false, $dentist . ' is not free on ' . date('M j, Y', strtotime($date)) . " at $time (day off, clinic closed, or already booked). Please pick another time."];
@@ -471,4 +471,159 @@ function book_followup_appointment($pdo, $plan, $date, $time, $by) {
     }
     log_activity($pdo, 'Booked follow-up visit', $pt['name'] . ' — ' . $plan['treatment_name'] . " (session $session), $when with $dentist");
     return [true, 'Next ' . $plan['treatment_name'] . " visit booked: $when with $dentist. The patient can see it in their portal." . $mailNote];
+}
+
+// ============================================================
+//  BOOKING PICKER: only free days and times can be picked
+// ============================================================
+//  "📅 Also book the next session now" and "📅 Book next visit" show a
+//  small calendar for the dentist the visit goes to. Days the clinic is
+//  closed, the dentist's days off and fully booked days are greyed out and
+//  cannot be clicked; after a day is picked, only its free times show.
+//  book_followup_appointment() still checks again when it is saved.
+// ============================================================
+const FOLLOWUP_BOOK_DAYS = 180;          // how far ahead the calendar goes
+
+/** Who a follow-up visit is booked with: the plan's dentist when that is an active dentist, else the patient's own dentist. */
+function followup_booking_dentist($pdo, $planDentist, $primary) {
+    $planDentist = trim((string)$planDentist);
+    if ($planDentist !== '') {
+        if (!function_exists('dentist_name_variants')) require_once __DIR__ . '/assign.php';
+        foreach ($pdo->query("SELECT name FROM users WHERE role = 'dentist' AND status = 'active'")->fetchAll(PDO::FETCH_COLUMN) as $d) {
+            if ($d === $planDentist || in_array($planDentist, dentist_name_variants($d), true)) return $planDentist;
+        }
+    }
+    return trim((string)$primary) ?: ($planDentist ?: '');
+}
+
+/**
+ * The dentist's free times, day by day, from tomorrow: ['Y-m-d' => ['09:00 AM', …]].
+ * Closed days, the dentist's days off and fully booked days are left out —
+ * the same rules as appt_slot_is_open().
+ */
+function dentist_free_days($pdo, $dentist, $days = FOLLOWUP_BOOK_DAYS) {
+    static $cache = [];
+    if (isset($cache[$dentist])) return $cache[$dentist];
+    if (!function_exists('clinic_time_slots')) require_once __DIR__ . '/treatments.php';
+    if (!function_exists('slots_blocked_by')) require_once __DIR__ . '/assign.php';
+    $slots = clinic_time_slots($pdo);
+    $openDays = array_filter(array_map('trim', explode(',', (string)($pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'clinic_open_days'")->fetchColumn() ?: 'Mon,Tue,Wed,Thu,Fri,Sat'))));
+    $from = date('Y-m-d', strtotime('+1 day'));
+    $to   = date('Y-m-d', strtotime("+$days days"));
+
+    $off = [];
+    $p = [$from, $to];
+    $q = $pdo->prepare("SELECT off_date FROM dentist_daysoff WHERE off_date BETWEEN ? AND ? AND " . dentist_match_sql('dentist_name', $dentist, $p));
+    $q->execute($p);
+    foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $d) $off[$d] = true;
+
+    $busy = [];
+    $p = [$from, $to];
+    $q = $pdo->prepare("SELECT appointment_date, appointment_time FROM appointments
+                         WHERE appointment_date BETWEEN ? AND ? AND status IN ('Pending','Confirmed','Arrived') AND " . dentist_match_sql('dentist', $dentist, $p));
+    $q->execute($p);
+    foreach ($q->fetchAll() as $r) $busy[$r['appointment_date']][] = $r['appointment_time'];
+
+    $out = [];
+    for ($t = strtotime($from); $t <= strtotime($to); $t = strtotime('+1 day', $t)) {
+        $d = date('Y-m-d', $t);
+        if (($openDays && !in_array(date('D', $t), $openDays, true)) || isset($off[$d])) continue;
+        $free = array_values(array_diff($slots, slots_blocked_by($slots, $busy[$d] ?? [])));
+        if ($free) $out[$d] = $free;
+    }
+    return $cache[$dentist] = $out;
+}
+
+/**
+ * The calendar + free times. Sends book_date and book_time with the form.
+ * $want: the day to start on (e.g. the plan's due date) — the first free day from then is picked.
+ */
+function followup_book_picker($pdo, $id, $dentist, $want = '') {
+    $free = $dentist ? dentist_free_days($pdo, $dentist) : [];
+    ob_start();
+    static $assets = false;
+    if (!$assets): $assets = true; ?>
+    <style>
+    .bk-pick { background: #fff; border: 1px solid #dfe8e6; border-radius: 12px; padding: 10px 12px; max-width: 520px; }
+    .bk-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .bk-head b { font-size: .92rem; color: var(--teal-dark, #0d3b3b); }
+    .bk-head button { border: 0; background: #eef5f4; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; color: var(--teal-dark, #0d3b3b); }
+    .bk-head button:disabled { opacity: .35; cursor: default; }
+    .bk-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
+    .bk-grid .bk-wd { font-size: .7rem; font-weight: 700; color: #7b8c8a; padding: 2px 0; }
+    .bk-grid button { border: 0; border-radius: 8px; padding: 6px 0; font-size: .85rem; background: #e7f5f1; color: #0f5e57; font-weight: 600; cursor: pointer; }
+    .bk-grid button:hover:not(:disabled) { background: #cdebe3; }
+    .bk-grid button:disabled { background: #f3f4f5; color: #b7bfc0; font-weight: 400; cursor: not-allowed; text-decoration: line-through; }
+    .bk-grid button.bk-on { background: var(--teal, #0f766e); color: #fff; }
+    .bk-times { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .bk-times button { border: 1px solid #cfe0dd; background: #fff; border-radius: 8px; padding: 4px 10px; font-size: .82rem; cursor: pointer; }
+    .bk-times button.bk-on { background: var(--teal, #0f766e); color: #fff; border-color: var(--teal, #0f766e); }
+    .bk-note { font-size: .76rem; color: #7b8c8a; margin-top: 8px; }
+    .bk-warn { font-size: .8rem; color: #c0392b; margin-top: 6px; display: none; }
+    .fu-book-next > summary { list-style: none; }
+    .fu-book-next > summary::-webkit-details-marker { display: none; }
+    .fu-book-next[open] { flex-basis: 100%; order: 10; }          /* the open calendar takes its own row */
+    </style>
+    <script>
+    // One calendar per .bk-pick: only the days in data-free can be clicked, then only their free times.
+    function bkInit(box) {
+        var free = JSON.parse(box.dataset.free || '{}'), days = Object.keys(free).sort();
+        var dIn = box.querySelector('[name="book_date"]'), tIn = box.querySelector('[name="book_time"]');
+        var grid = box.querySelector('.bk-grid'), times = box.querySelector('.bk-times'), title = box.querySelector('.bk-head b');
+        var prev = box.querySelector('.bk-prev'), next = box.querySelector('.bk-next');
+        if (!days.length) { box.querySelector('.bk-cal').innerHTML = '<div class="bk-warn" style="display:block">No free day in the next months for this dentist.</div>'; return; }
+        var want = box.dataset.want || days[0], start = days.filter(function (d) { return d >= want; })[0] || days[0];
+        var ym = function (s) { return s.slice(0, 7); };
+        var month = ym(start), first = ym(days[0]), last = ym(days[days.length - 1]);
+        function pickDay(d) {
+            dIn.value = d; tIn.value = '';
+            times.innerHTML = '';
+            free[d].forEach(function (t, i) {
+                var b = document.createElement('button'); b.type = 'button'; b.textContent = t;
+                b.onclick = function () { tIn.value = t; [].forEach.call(times.children, function (x) { x.classList.toggle('bk-on', x === b); }); box.querySelector('.bk-warn').style.display = 'none'; };
+                times.appendChild(b);
+                if (i === 0) b.onclick();                       // the first free time, ready to change
+            });
+            draw();
+        }
+        function draw() {
+            var y = +month.slice(0, 4), m = +month.slice(5, 7) - 1, d1 = new Date(y, m, 1), n = new Date(y, m + 1, 0).getDate();
+            title.textContent = d1.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            prev.disabled = month <= first; next.disabled = month >= last;
+            var h = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(function (w) { return '<div class="bk-wd">' + w + '</div>'; }).join('');
+            for (var i = 0; i < d1.getDay(); i++) h += '<div></div>';
+            for (var day = 1; day <= n; day++) {
+                var ds = month + '-' + (day < 10 ? '0' : '') + day, ok = !!free[ds];
+                h += '<button type="button" data-d="' + ds + '"' + (ok ? '' : ' disabled title="Not available: clinic closed, day off or fully booked"')
+                   + (ds === dIn.value ? ' class="bk-on"' : '') + '>' + day + '</button>';
+            }
+            grid.innerHTML = h;
+            [].forEach.call(grid.querySelectorAll('button:not(:disabled)'), function (b) { b.onclick = function () { pickDay(b.dataset.d); }; });
+        }
+        function shift(k) { var y = +month.slice(0, 4), m = +month.slice(5, 7) - 1 + k, d = new Date(y, m, 1);
+            month = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2); draw(); }
+        prev.onclick = function () { shift(-1); }; next.onclick = function () { shift(1); };
+        pickDay(start);
+    }
+    /** Before sending: a day and a time must be picked (only when the picker is in use). */
+    function bkReady(box) {
+        if (!box || box.offsetParent === null) return true;   // hidden ("Also book" not ticked)
+        var ok = box.querySelector('[name="book_date"]').value && box.querySelector('[name="book_time"]').value;
+        if (!ok) { var w = box.querySelector('.bk-warn'); w.textContent = 'Please pick a free day and a time.'; w.style.display = 'block'; }
+        return !!ok;
+    }
+    document.addEventListener('DOMContentLoaded', function () { [].forEach.call(document.querySelectorAll('.bk-pick'), bkInit); });
+    </script>
+    <?php endif; ?>
+    <div class="bk-pick" id="<?= e($id) ?>" data-free="<?= e(json_encode((object)$free)) ?>" data-want="<?= e($want) ?>">
+        <input type="hidden" name="book_date" value=""><input type="hidden" name="book_time" value="">
+        <div class="bk-cal">
+            <div class="bk-head"><button type="button" class="bk-prev" aria-label="Previous month">‹</button><b></b><button type="button" class="bk-next" aria-label="Next month">›</button></div>
+            <div class="bk-grid"></div>
+        </div>
+        <div class="bk-times"></div>
+        <div class="bk-warn"></div>
+        <div class="bk-note">With <b><?= e($dentist ?: '—') ?></b> · greyed-out days are closed, a day off or fully booked; only free times are shown.</div>
+    </div>
+    <?php return ob_get_clean();
 }
