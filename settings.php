@@ -88,12 +88,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         save_setting($pdo, 'sec_login_audit',      isset($_POST['login_audit'])      ? '1' : '0');
         save_setting($pdo, 'sec_session_timeout',  isset($_POST['session_timeout'])  ? '1' : '0');
         save_setting($pdo, 'sec_password_expiry',  isset($_POST['password_expiry'])  ? '1' : '0');
-        // Two-step sign-in for admins and dentists (a 6-digit code by email — includes/security.php).
-        $twoWas = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'sec_two_step'")->fetchColumn() === '1';
-        $twoNow = isset($_POST['two_step']);
+        // Two-step sign-in (a 6-digit code by email — includes/security.php): on/off,
+        // which roles get it, and how many days a device is remembered after the code.
+        $twoWas   = two_step_setting($pdo, 'sec_two_step', '0') === '1';
+        $rolesWas = two_step_roles($pdo);
+        $daysWas  = two_step_days($pdo);
+        $twoNow   = isset($_POST['two_step']);
+        $rolesNow = array_values(array_intersect(array_keys(TWO_STEP_ROLE_NAMES), (array)($_POST['two_step_roles'] ?? [])));
+        $daysNow  = max(0, min(TWO_STEP_MAX_DAYS, (int)($_POST['two_step_days'] ?? 0)));
+        if ($twoNow && !$rolesNow) {
+            set_flash('Two-step sign-in: tick at least one group (Admins, Dentists, Staff or Patients), or turn it off.', 'error');
+            header("Location: settings"); exit;
+        }
         save_setting($pdo, 'sec_two_step', $twoNow ? '1' : '0');
-        if ($twoWas !== $twoNow) log_activity($pdo, 'Changed security settings', 'Two-step sign-in code for admins and dentists: ' . ($twoNow ? 'on' : 'off'));
-        set_flash('Settings saved.'); header("Location: settings"); exit;
+        if ($rolesNow) save_setting($pdo, 'sec_two_step_roles', implode(',', $rolesNow));
+        else $rolesNow = $rolesWas;                                   // off with nothing ticked: keep the last choice
+        save_setting($pdo, 'sec_two_step_days', (string)$daysNow);
+        $roleList = fn($r) => implode(', ', array_map(fn($k) => TWO_STEP_ROLE_NAMES[$k], $r));
+        $daysText = fn($d) => $d === 0 ? 'ask at every sign-in' : "remember a device for $d day" . ($d === 1 ? '' : 's');
+        $changes  = [];
+        if ($twoWas !== $twoNow)     $changes[] = 'Two-step sign-in: ' . ($twoNow ? 'on' : 'off');
+        if ($rolesWas !== $rolesNow) $changes[] = 'For: ' . $roleList($rolesWas) . ' → ' . $roleList($rolesNow);
+        if ($daysWas !== $daysNow)   $changes[] = 'Code: ' . $daysText($daysWas) . ' → ' . $daysText($daysNow);
+        $forgot = isset($_POST['forget_devices']) ? two_step_forget_all_devices($pdo) : null;
+        if ($forgot !== null)        $changes[] = 'Forgot all remembered devices (' . (int)$forgot . ')';
+        if ($changes) log_activity($pdo, 'Changed security settings', implode(' · ', $changes));
+        set_flash($forgot !== null ? 'Settings saved. Every remembered device was forgotten — everyone gets a code at their next sign-in.' : 'Settings saved.');
+        header("Location: settings"); exit;
     }
 
     // What patients see in their portal.
@@ -416,18 +437,52 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                             </div>
                         </div>
 
-                        <?php if (!function_exists('mail_is_ready')) require_once 'includes/mailer.php'; $mailOk = mail_is_ready($pdo); ?>
-                        <div class="flex-between py-2 mb-3 gap-3">
-                            <div>
-                                <strong>Two-step sign-in (admin &amp; dentists)</strong>
-                                <div class="text-muted2" style="font-size:.8rem;">After the password, a 6-digit code is emailed and must be typed to sign in.
-                                    Turn it on only when every admin and dentist account has a real email they can open.</div>
-                                <?php if (!$mailOk): ?>
-                                    <div style="font-size:.78rem;color:#b07d12;">⚠️ Email is not set up (Messaging Config), so no code can be sent — it stays off until email works.</div>
-                                <?php endif; ?>
+                        <?php if (!function_exists('mail_is_ready')) require_once 'includes/mailer.php'; $mailOk = mail_is_ready($pdo);
+                              $tsRoles = two_step_roles($pdo); $tsDays = two_step_days($pdo);
+                              try { $tsSt = $pdo->prepare("SELECT COUNT(*) FROM trusted_devices WHERE created_at > ?");   // still remembered today
+                                    $tsSt->execute([date('Y-m-d H:i:s', time() - $tsDays * 86400)]); $tsTrusted = (int)$tsSt->fetchColumn(); }
+                              catch (Throwable $e) { $tsTrusted = 0; } ?>
+                        <div class="py-2 mb-3">
+                            <div class="flex-between gap-3">
+                                <div>
+                                    <strong>Two-step sign-in</strong>
+                                    <div class="text-muted2" style="font-size:.8rem;">After the password, a 6-digit code is emailed and must be typed to sign in.
+                                        Turn it on only for groups whose accounts all have a real email they can open.</div>
+                                    <?php if (!$mailOk): ?>
+                                        <div style="font-size:.78rem;color:#b07d12;">⚠️ Email is not set up (Messaging Config), so no code can be sent — it stays off until email works.</div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="two_step" <?= cfg($cfg,'sec_two_step','0')==='1'?'checked':'' ?>>
+                                </div>
                             </div>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" name="two_step" <?= cfg($cfg,'sec_two_step','0')==='1'?'checked':'' ?>>
+
+                            <div class="mt-2" style="font-size:.85rem;">
+                                <div class="text-muted2 mb-1" style="font-size:.8rem;">Ask for a code from:</div>
+                                <?php foreach (TWO_STEP_ROLE_NAMES as $rk => $rn): ?>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" name="two_step_roles[]" value="<?= $rk ?>" id="ts_<?= $rk ?>" <?= in_array($rk, $tsRoles, true) ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="ts_<?= $rk ?>"><?= $rn ?></label>
+                                    </div>
+                                <?php endforeach; ?>
+                                <div class="text-muted2" style="font-size:.75rem;">Signing in with Google is not affected: Google already checks the person.</div>
+                            </div>
+
+                            <div class="mt-2 d-flex align-items-center flex-wrap gap-2" style="font-size:.85rem;">
+                                <label for="ts_days" class="mb-0">After the code, don't ask again on that device for</label>
+                                <input type="number" name="two_step_days" id="ts_days" class="form-control form-control-sm" style="width:80px;"
+                                       min="0" max="<?= TWO_STEP_MAX_DAYS ?>" value="<?= $tsDays ?>">
+                                <span>days</span>
+                            </div>
+                            <div class="text-muted2" style="font-size:.75rem;">
+                                0 = ask for a code at every sign-in. Up to <?= TWO_STEP_MAX_DAYS ?> days. The person can untick "remember" on a shared computer;
+                                changing their password also makes every device ask again.
+                            </div>
+
+                            <div class="form-check mt-2" style="font-size:.85rem;">
+                                <input class="form-check-input" type="checkbox" name="forget_devices" id="ts_forget">
+                                <label class="form-check-label" for="ts_forget">Forget all remembered devices now
+                                    <span class="text-muted2">(<?= $tsTrusted ?> remembered)</span> — everyone gets a code at their next sign-in</label>
                             </div>
                         </div>
 

@@ -153,8 +153,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             } else {
                 login_succeeded($pdo, $user['id']);                  // wrong-password count back to 0
                 if (two_step_needed($pdo, $user)) {
-                    // Admin / dentist with two-step sign-in on: a 6-digit code is emailed,
-                    // and they are signed in only after typing it (action two_step_verify).
+                    // A role with two-step sign-in on (and this device not remembered): a 6-digit
+                    // code is emailed, and they are signed in only after typing it (action two_step_verify).
                     $error = two_step_send($pdo, $user);
                     if ($error === '') {
                         log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Sent sign-in code', 'Two-step sign-in: code emailed to ' . mask_email($email));
@@ -199,11 +199,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
         }
     }
 
-    // ===== TWO-STEP SIGN-IN (admin / dentist): the emailed 6-digit code =====
+    // ===== TWO-STEP SIGN-IN: the emailed 6-digit code =====
     if (($_POST['action'] ?? '') === 'two_step_verify') {
         $mode = 'code';
         [$tsUser, $error] = two_step_verify($pdo, $_POST['code'] ?? '');
-        if ($tsUser) complete_sign_in($pdo, $tsUser, 'two-step code');
+        if ($tsUser) {
+            $remember = isset($_POST['remember_device']) && two_step_days($pdo) > 0;
+            if ($remember) two_step_remember_device($pdo, $tsUser);   // no code on this device for the next N days
+            complete_sign_in($pdo, $tsUser, 'two-step code' . ($remember ? ' · device remembered for ' . two_step_days($pdo) . ' days' : ''));
+        }
         if (empty($_SESSION['two_step'])) $mode = 'signin';         // expired, locked or too many tries: sign in again
     }
     if (($_POST['action'] ?? '') === 'two_step_resend') {
@@ -505,8 +509,8 @@ function auth_password_fields() { ?>
                 </form>
                 <p class="text-center mt-3 muted"><a href="login?mode=cancel_google" style="color:var(--teal);">← Cancel</a></p>
 
-            <?php elseif ($mode === 'code'): $ts = $_SESSION['two_step'] ?? []; ?>
-                <!-- ============ TWO-STEP SIGN-IN: the code emailed to an admin / dentist ============ -->
+            <?php elseif ($mode === 'code'): $ts = $_SESSION['two_step'] ?? []; $trustDays = two_step_days($pdo); ?>
+                <!-- ============ TWO-STEP SIGN-IN: the emailed code ============ -->
                 <h2>Check your email</h2>
                 <p class="muted">For your security, enter the 6-digit sign-in code we emailed to
                     <strong><?= e(mask_email($ts['email'] ?? '')) ?></strong>. It works for <?= TWO_STEP_MINUTES ?> minutes.</p>
@@ -515,6 +519,15 @@ function auth_password_fields() { ?>
                     <label class="field-label">Sign-in code</label>
                     <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
                            data-digits autofocus required style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
+                    <?php if ($trustDays > 0): ?>
+                        <div class="form-check mb-3" style="font-size:.85rem;">
+                            <input class="form-check-input" type="checkbox" name="remember_device" id="rememberDevice" checked>
+                            <label class="form-check-label" for="rememberDevice">
+                                Don't ask for a code on this device for <?= $trustDays ?> day<?= $trustDays === 1 ? '' : 's' ?>
+                                <span class="muted d-block" style="font-size:.78rem;">Untick this on a shared or public computer.</span>
+                            </label>
+                        </div>
+                    <?php endif; ?>
                     <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Sign In →</button>
                 </form>
                 <form method="POST" action="login?mode=code" class="text-center mt-2">
