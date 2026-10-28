@@ -293,6 +293,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // JPG / PNG only, judged by the file's content (not its name), at most 5 MB,
         // saved under a random name — includes/security.php
         [$ext, $upErr] = check_image_upload($_FILES['xray'] ?? null);
+        // Is it really an X-ray? (includes/xray_check.php) — a colour photo, a document
+        // or a blank picture is stopped, unless the uploader ticked "It is an X-ray".
+        require_once 'includes/xray_check.php';
+        $xrConfirmed = !empty($_POST['xray_confirm']);
+        $xrProblem = $upErr === '' ? xray_image_problem(xray_image_stats($_FILES['xray']['tmp_name'])) : '';
+        if ($upErr === '' && $xrProblem !== '' && !$xrConfirmed) {
+            $upErr = $xrProblem . ' Please choose the X-ray image. If it really is an X-ray, tick "It is an X-ray — upload anyway".';
+        }
         if ($upErr !== '') {
             set_flash($upErr, 'error');
         } else {
@@ -302,7 +310,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO xrays (patient_id,image_file,caption,xray_date,uploaded_by) VALUES (?,?,?,?,?)")
                     ->execute([$pid, $fname, trim($_POST['caption'] ?? ''), ($_POST['xray_date'] ?: null), $_SESSION['name'] ?? '']);
                 complete_arrived_visit($pdo, $pid);
-                log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid));
+                log_activity($pdo, 'Uploaded X-ray', patient_name_of($pdo, $pid)
+                             . ($xrConfirmed ? ' — the X-ray check flagged it; the uploader confirmed it is an X-ray' : ''));
                 set_flash('X-ray uploaded.');
             } else {
                 set_flash('Could not save the image. Check the uploads/xrays folder permissions.', 'error');
@@ -1019,22 +1028,36 @@ $active = 'records';
             <!-- ===== X-RAYS ===== -->
             <div class="card-box mb-3">
                 <h6 class="mb-3">📷 Upload X-ray</h6>
-                <form method="POST" enctype="multipart/form-data">
+                <form method="POST" enctype="multipart/form-data" id="xray-upload">
                     <input type="hidden" name="action" value="add_xray">
                     <input type="hidden" name="patient_id" value="<?= $pid ?>">
                     <div class="row g-2">
                         <div class="col-md-5"><label class="field-label">X-ray image</label>
                             <!-- accept="image/*" + capture lets phones open the camera -->
                             <input type="file" name="xray" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" capture="environment" required>
-                            <div class="text-muted2" style="font-size:.75rem;margin-top:3px;"><?= image_upload_hint() ?></div></div>
+                            <div class="text-muted2" style="font-size:.75rem;margin-top:3px;"><?= image_upload_hint() ?></div>
+                            <!-- Is it really an X-ray? Checked as soon as a file is picked (includes/xray_check.php) -->
+                            <div class="xr-check" hidden></div>
+                            <label class="xr-confirm d-flex gap-2 align-items-start mt-1" hidden style="font-size:.8rem;cursor:pointer;">
+                                <input type="checkbox" name="xray_confirm" value="1" class="form-check-input mt-1 flex-shrink-0">
+                                <span>It is an X-ray — upload anyway <span class="text-muted2">(noted in the Activity Log)</span></span>
+                            </label>
+                            <div class="xr-need text-danger" hidden style="font-size:.8rem;">Choose the X-ray image, or tick the box if this really is one.</div></div>
                         <div class="col-md-4"><label class="field-label">Caption</label>
                             <input name="caption" class="form-control" placeholder="e.g. Upper molar, panoramic"></div>
                         <div class="col-md-3"><label class="field-label">Date taken</label>
                             <input type="date" name="xray_date" class="form-control" value="<?= date('Y-m-d') ?>"></div>
                     </div>
                     <button class="btn btn-teal mt-3">Upload X-ray</button>
-                    <div class="text-muted2 mt-2" style="font-size:.8rem;">On a phone this can open the camera. On a computer, choose an image file.</div>
+                    <div class="text-muted2 mt-2" style="font-size:.8rem;">On a phone this can open the camera. On a computer, choose an image file.
+                        Only X-ray images are accepted: colour photos, documents and blank pictures are stopped.</div>
                 </form>
+                <?php require_once 'includes/xray_check.php'; echo xray_check_script('#xray-upload'); ?>
+                <style>
+                .xr-check { font-size: .8rem; margin-top: 4px; font-weight: 600; }
+                .xr-check.xr-good { color: #138a4e; }
+                .xr-check.xr-bad  { color: #b9802a; }
+                </style>
             </div>
 
             <div class="card-box">
