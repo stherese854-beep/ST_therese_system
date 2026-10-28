@@ -498,13 +498,8 @@ function auth_password_fields() { ?>
                     <label class="field-label">Date of birth</label>
                     <input type="date" name="dob" class="form-control mb-1" required value="<?= e($_POST['dob'] ?? '') ?>"
                            min="1900-01-01" max="<?= date('Y-m-d', strtotime('-18 years')) ?>">
-                    <div class="text-muted2 mb-3" style="font-size:.8rem;">You must be <strong>18 or older</strong> to create an account.
-                        Under 18? A parent or guardian can make the account and book for you.</div>
+                    <div class="text-muted2 mb-3" style="font-size:.8rem;">You must be <strong>18 or older</strong> to create an account.</div>
                     <!-- Their own password for this system: not the Gmail password (Google never shares that). -->
-                    <div class="alert py-2 mb-2" style="background:#eef7f6;border:1px solid #d3e8e5;color:#0f5e57;font-size:.8rem;">
-                        🔑 Set a password for your St. Therese account. This is <strong>not</strong> your Gmail password —
-                        with it you can also sign in using your email and password, without Google.
-                    </div>
                     <?php auth_password_fields(); ?>
                     <button type="submit" class="btn btn-teal w-100 py-2" onclick="return checkRegPass()">Create My Account →</button>
                 </form>
@@ -637,7 +632,6 @@ function auth_password_fields() { ?>
                            value="<?= e($_POST['dob'] ?? '') ?>">
                     <div class="muted mb-3" style="font-size:.78rem;">
                         You must be <strong>18 or older</strong> to create an account.
-                        Under 18? A parent or guardian can make the account and book for you.
                     </div>
 
                     <?php auth_password_fields(); ?>
