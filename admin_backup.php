@@ -5,8 +5,8 @@
 //  A MANUAL backup: nothing runs on a schedule. The admin clicks
 //  "Download backup", types their password again, and gets one
 //  .sql file with every table of the database (structure + rows).
-//  When the server has PHP's zip module, the uploaded files
-//  (X-rays, photos) can be added too, in one .zip.
+//  The uploaded files (X-rays, photos) can be added too, in one
+//  .zip (see backup_make_zip: no PHP zip module needed).
 //
 //  The file is made on the spot and sent straight to the admin's
 //  computer — it is never kept on the server. Each download is
@@ -102,6 +102,46 @@ function backup_write_sql($pdo, $fh, $by, $note) {
     return [count($tables), $rows];
 }
 
+/**
+ * Makes a .zip at $zipPath from $files [name inside the zip => file on disk].
+ * Uses PHP's zip module when the server has it; otherwise writes the zip
+ * itself (plain ZIP format, compressed with zlib when available), so the
+ * .zip backup works on every server — XAMPP and Railway included.
+ */
+function backup_make_zip($zipPath, array $files) {
+    if (class_exists('ZipArchive')) {
+        $zip = new ZipArchive();
+        if ($zip->open($zipPath, ZipArchive::OVERWRITE | ZipArchive::CREATE) === true) {
+            foreach ($files as $name => $path) $zip->addFile($path, $name);
+            if ($zip->close()) return;
+        }
+    }
+    $out = fopen($zipPath, 'wb');
+    $central = '';
+    $offset = 0;
+    foreach ($files as $name => $path) {
+        $data = (string)file_get_contents($path);
+        $crc  = crc32($data);
+        $size = strlen($data);
+        $packed = function_exists('gzdeflate') ? gzdeflate($data, 6) : false;
+        $method = ($packed !== false && strlen($packed) < $size) ? 8 : 0;   // 8 = deflate, 0 = stored as is
+        if ($method === 0) $packed = $data;
+        $t = getdate(filemtime($path) ?: time());                            // MS-DOS date and time
+        $dosTime = ($t['hours'] << 11) | ($t['minutes'] << 5) | intdiv($t['seconds'], 2);
+        $dosDate = ((max($t['year'], 1980) - 1980) << 9) | ($t['mon'] << 5) | $t['mday'];
+        $common = pack('vvvvvVVV', 20, 0x0800, $method, $dosTime, $dosDate, $crc, strlen($packed), $size)   // 0x0800: UTF-8 names
+                . pack('v', strlen($name));
+        fwrite($out, "PK\x03\x04" . $common . pack('v', 0) . $name);
+        fwrite($out, $packed);
+        $central .= "PK\x01\x02" . pack('v', 20) . $common . pack('vvvvVV', 0, 0, 0, 0, 0, $offset) . $name;
+        $offset += 30 + strlen($name) + strlen($packed);
+        unset($data, $packed);
+    }
+    fwrite($out, $central);
+    fwrite($out, "PK\x05\x06" . pack('vvvvVVv', 0, 0, count($files), count($files), strlen($central), $offset, 0));
+    fclose($out);
+}
+
 function backup_size_text($bytes) {
     if ($bytes === null) return '—';
     if ($bytes >= 1048576) return number_format($bytes / 1048576, 1) . ' MB';
@@ -110,12 +150,11 @@ function backup_size_text($bytes) {
 }
 
 ensure_backup_log($pdo);
-$zipReady = class_exists('ZipArchive');
 $error = '';
 
 // ---------- Download a backup (only when the admin asks for one) ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'backup') {
-    $kind = (($_POST['kind'] ?? 'sql') === 'zip' && $zipReady) ? 'zip' : 'sql';
+    $kind = ($_POST['kind'] ?? 'sql') === 'zip' ? 'zip' : 'sql';
     $note = mb_substr(trim($_POST['note'] ?? ''), 0, 200);
     $me   = $pdo->prepare("SELECT * FROM users WHERE id = ?");
     $me->execute([$_SESSION['user_id']]);
@@ -158,18 +197,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'backu
             $fh = fopen($sqlTmp, 'w');
             [$nTables, $nRows] = backup_write_sql($pdo, $fh, $by, $note);
             fclose($fh);
-            $zip = new ZipArchive();
-            $zip->open($zipTmp, ZipArchive::OVERWRITE);
-            $zip->addFile($sqlTmp, $base . '.sql');
+            $files = [$base . '.sql' => $sqlTmp];
             $up = realpath(__DIR__ . '/uploads');
             if ($up) {
                 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($up, FilesystemIterator::SKIP_DOTS));
                 foreach ($it as $f) {
                     if (!$f->isFile()) continue;
-                    $zip->addFile($f->getPathname(), 'uploads/' . str_replace('\\', '/', substr($f->getPathname(), strlen($up) + 1)));
+                    $files['uploads/' . str_replace('\\', '/', substr($f->getPathname(), strlen($up) + 1))] = $f->getPathname();
                 }
             }
-            $zip->close();
+            backup_make_zip($zipTmp, $files);
             $size = filesize($zipTmp);
             header('Content-Type: application/zip');
             header('Content-Disposition: attachment; filename="' . $fileName . '"');
@@ -235,10 +272,10 @@ $active = 'backup';
                                 <span><b>Database only</b> <span class="text-muted2">(.sql)</span><br>
                                     <small class="text-muted2">All the data. Opens in phpMyAdmin.</small></span>
                             </label>
-                            <label class="d-flex gap-2 align-items-start" style="cursor:<?= $zipReady ? 'pointer' : 'not-allowed' ?>;<?= $zipReady ? '' : 'opacity:.55;' ?>">
-                                <input type="radio" name="kind" value="zip" class="form-check-input mt-1" <?= $zipReady ? '' : 'disabled' ?>>
+                            <label class="d-flex gap-2 align-items-start" style="cursor:pointer;">
+                                <input type="radio" name="kind" value="zip" class="form-check-input mt-1">
                                 <span><b>Database + uploaded files</b> <span class="text-muted2">(.zip)</span><br>
-                                    <small class="text-muted2"><?= $zipReady ? 'Adds the X-ray images and photos.' : 'Not available: this server has no PHP zip module.' ?></small></span>
+                                    <small class="text-muted2">Adds the X-ray images and photos. Open it with any unzip tool.</small></span>
                             </label>
                         </div>
                         <label class="field-label">Note <span class="text-muted2">(optional)</span></label>
