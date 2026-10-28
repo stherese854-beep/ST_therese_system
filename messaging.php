@@ -13,6 +13,7 @@
 // ============================================================
 require_once 'config/auth.php';
 require_login(['admin']);
+require_owner_admin('Messaging Config');   // only the main admin (config/auth.php)
 require_once 'includes/mailer.php';   // real SMTP sending
 
 // save_setting() now lives in config/auth.php, shared by every page that needs it.

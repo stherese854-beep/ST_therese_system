@@ -9,7 +9,7 @@
 // ============================================================
 if (!function_exists('admin_system_pages')) {
     function admin_system_pages() {
-        return [
+        $pages = [
             'users'         => ['admin_users',    '👤', 'User Management'],
             'archive'       => ['admin_archive',  '🗄', 'Archive'],
             'activity'      => ['admin_activity', '📋', 'Activity Log'],
@@ -21,5 +21,8 @@ if (!function_exists('admin_system_pages')) {
             'backup'        => ['admin_backup',   '💾', 'Data Backup'],
             'settings'      => ['settings',       '⚙️', 'System'],
         ];
+        // Messaging Config is for the main admin account only (config/auth.php).
+        if (!is_owner_admin()) unset($pages['messaging']);
+        return $pages;
     }
 }

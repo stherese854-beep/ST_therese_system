@@ -187,7 +187,7 @@ include 'includes/head.php';
             <div class="d-flex gap-2 mb-4 mt-3 flex-wrap tpl-actions">
                 <button class="btn btn-teal">💾 Save all messages</button>
                 <button type="button" class="btn btn-light" onclick="resetAll()">↺ Restore everything</button>
-                <a href="messaging" class="btn btn-light">✉️ Email settings</a>
+                <?php if (is_owner_admin()): /* Messaging Config: main admin only */ ?><a href="messaging" class="btn btn-light">✉️ Email settings</a><?php endif; ?>
             </div>
         </form>
 

@@ -32,6 +32,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         set_flash('You do not have permission to change that.', 'error');
         header("Location: settings"); exit;
     }
+    // Google Sign-In keys and Sample data: the main admin account only (config/auth.php).
+    if (in_array($action, ['save_google', 'demo_add', 'demo_remove'], true) && !is_owner_admin()) {
+        log_activity($pdo, 'Access denied', ($action === 'save_google' ? 'Google Sign-In settings' : 'Sample data') . ' — main admin only');
+        set_flash('Only the main admin account can change that.', 'error');
+        header("Location: settings"); exit;
+    }
 
     // 🧪 Sample data: practice records for a demo or training, removable with one click.
     if ($action === 'demo_add' || $action === 'demo_remove') {
@@ -502,8 +508,8 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
             </form>
         </div>
 
-        <!-- ===== 🧪 Sample data: fill the system for a demo / training, remove it again ===== -->
-        <?php require_once 'includes/demo_data.php'; $demo = demo_status($pdo); ?>
+        <!-- ===== 🧪 Sample data: fill the system for a demo / training, remove it again (main admin only) ===== -->
+        <?php if (is_owner_admin()): require_once 'includes/demo_data.php'; $demo = demo_status($pdo); ?>
         <div class="card-box mt-3" id="sample-data">
             <h5 class="mb-1">🧪 Sample data</h5>
             <div class="text-muted2 mb-3" style="font-size:.85rem;">Practice records for a demo or for training staff — added and removed with one click.
@@ -556,9 +562,10 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
         .sd-chip b { font-weight: 700; }
         .sd-logins code { color: #0d3b3b; background: #f4f7f8; padding: 2px 6px; border-radius: 6px; }
         </style>
+        <?php endif; /* sample data: main admin */ ?>
         <?php endif; ?>
 
-        <?php if ($isAdmin && !$profileView):   /* a clinic-wide setting: System page only, not the admin's own profile */ ?>
+        <?php if ($isAdmin && !$profileView && is_owner_admin()):   /* clinic-wide, System page only, main admin only */ ?>
         <!-- ===== Google Sign-In ===== -->
         <?php
             $redirectUri = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')

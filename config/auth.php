@@ -156,6 +156,38 @@ function current_role() {
 }
 
 // ============================================================
+//  THE MAIN ADMIN (one account)
+// ============================================================
+//  Google Sign-In keys, Messaging Config (email / SMS settings and their
+//  passwords) and Sample data are for this ONE admin account only. Other
+//  admins don't see them, and the pages / actions refuse them.
+//  To hand this over, change the email here (it is matched without caring
+//  about capital letters).
+// ============================================================
+const OWNER_ADMIN_EMAIL = 'whenmarkm@gmail.com';
+
+function is_owner_admin() {
+    static $is = null;
+    if ($is !== null) return $is;
+    global $pdo;
+    if (current_role() !== 'admin' || empty($_SESSION['user_id']) || !isset($pdo)) return $is = false;
+    try {
+        $q = $pdo->prepare("SELECT email FROM users WHERE id = ? AND role = 'admin' AND status = 'active'");
+        $q->execute([(int)$_SESSION['user_id']]);
+        return $is = strcasecmp(trim((string)$q->fetchColumn()), OWNER_ADMIN_EMAIL) === 0;
+    } catch (Throwable $e) { return $is = false; }
+}
+
+/** Stops a page or action that is for the main admin only (logged as "Access denied"). */
+function require_owner_admin($what) {
+    if (is_owner_admin()) return;
+    global $pdo;
+    if (isset($pdo)) log_activity($pdo, 'Access denied', $what . ' — main admin only');
+    set_flash('Only the main admin account can open ' . $what . '.', 'error');
+    redirect_to(home_page());
+}
+
+// ============================================================
 //  ROUTE GUARD  (runs at the top of every page)
 // ============================================================
 //  Every page starts with ONE of these:
