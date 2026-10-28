@@ -230,6 +230,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     $relAgeError = (($_POST['for'] ?? 'myself') === 'other' && !$knownDependent)
                  ? relationship_age_problem($relationshipPosted, trim($_POST['patient_dob'] ?? ''), $me['date_of_birth'] ?? null, $patientName) : '';
 
+    // Optional X-ray the patient attached: a real JPG / PNG (includes/security.php) that looks
+    // like an X-ray (includes/xray_check.php), unless they ticked "It is an X-ray".
+    // A browser never keeps a chosen file after an error, so the message says to choose it again.
+    $xrFile = $_FILES['xray'] ?? null;
+    $xrGiven = is_array($xrFile) && (int)($xrFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE && !empty($xrFile['name']);
+    $xrExt = ''; $xrError = ''; $xrConfirmed = !empty($_POST['xray_confirm']);
+    if ($xrGiven) {
+        require_once 'includes/xray_check.php';
+        [$xrExt, $xrError] = check_image_upload($xrFile);
+        if ($xrError === '' && !$xrConfirmed && ($xp = xray_image_problem(xray_image_stats($xrFile['tmp_name']))) !== '') $xrError = $xp;
+        if ($xrError !== '') $xrError = 'X-ray: ' . $xrError . ' Please choose the X-ray again in Service (step 3), or leave it empty.';
+    }
+    $xrDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['xray_date'] ?? '') && $_POST['xray_date'] <= date('Y-m-d') ? $_POST['xray_date'] : null;
+
     if ($tooMany) {
         $bookError = "Too many booking attempts from this connection. Please wait a while and try again, or contact the clinic.";
     } elseif ($pauseMessage !== '') {
@@ -242,6 +256,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = $treatError;
     } elseif ($healthError !== '') {
         $bookError = $healthError;
+    } elseif ($xrError !== '') {
+        $bookError = e($xrError);
     } elseif (($_POST['date'] ?? '') < $minBookDate) {
         $bookError = "That date has already passed. Please pick today or a later date.";
     } elseif (($_POST['date'] ?? '') === $minBookDate && strtotime($minBookDate . ' ' . ($_POST['time'] ?? '')) <= time()) {
@@ -309,6 +325,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
             $dobNote = 'Patient DOB: ' . trim($_POST['patient_dob']);
             $bookingNotes = $bookingNotes === '' ? $dobNote : ($dobNote . ' — ' . $bookingNotes);
         }
+        if ($xrGiven) {                                     // so the dentist knows to look at it
+            $bookingNotes .= ($bookingNotes === '' ? '' : ' — ') . 'Patient attached an X-ray (Records → X-rays)';
+        }
 
         // Booking for someone else: they get (or already have) their own patient
         // record, linked to this account, and the appointment is filed under it.
@@ -350,6 +369,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
             // record when booking for someone else), where Records shows them.
             save_patient_health($pdo, $apptPatientId, $healthForm);
 
+            // The attached X-ray goes onto the patient's record (the family member's own record
+            // when booking for someone else), in Records → X-rays, like one the clinic uploads.
+            $xrSaved = false;
+            if ($xrGiven) {
+                $xrDir = __DIR__ . '/uploads/xrays';
+                if (!is_dir($xrDir)) @mkdir($xrDir, 0777, true);
+                $xrName = random_upload_name($xrExt, 'xray_');
+                if (@move_uploaded_file($xrFile['tmp_name'], "$xrDir/$xrName")) {
+                    $pdo->prepare("INSERT INTO xrays (patient_id,image_file,caption,xray_date,uploaded_by) VALUES (?,?,?,?,?)")
+                        ->execute([$apptPatientId, $xrName, 'Sent by the patient with the booking for ' . date('M j, Y', strtotime($_POST['date'])),
+                                   $xrDate, ($me['name'] ?? $patientName) . ' (patient)']);
+                    $xrSaved = true;
+                    log_activity($pdo, 'Uploaded X-ray', $patientName . ' — attached to an online booking'
+                                 . ($xrConfirmed ? '; the X-ray check flagged it, the patient confirmed it is an X-ray' : ''));
+                }
+            }
+
             // Email the patient a "request received" confirmation (if email is set up).
             if (!empty($me['email'])) {
                 $who = ($forWhom === 'Someone else')
@@ -377,6 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
             $confirm['dentist']      = $bookDentist;
             $confirm['booked_by']    = $bookedBy;
             $confirm['relationship'] = $relationship;
+            $confirm['xray']         = $xrGiven ? ($xrSaved ? 'saved' : 'failed') : '';
         }
     }
 }
@@ -493,6 +530,11 @@ include 'includes/head.php';
             <?php endif; ?>
             <div class="flex-between py-1"><span>When</span><b><?= date('M j, Y', strtotime($confirm['date'])) ?> · <?= e($confirm['time']) ?></b></div>
             <div class="flex-between py-1"><span>Dentist</span><b><?= e($confirm['dentist'] ?? '') ?></b></div>
+            <?php if (($confirm['xray'] ?? '') === 'saved'): ?>
+                <div class="flex-between py-1"><span>X-ray</span><b>📷 Attached — the dentist will see it</b></div>
+            <?php elseif (($confirm['xray'] ?? '') === 'failed'): ?>
+                <div class="flex-between py-1"><span>X-ray</span><b style="color:#c0392b;">Could not be saved — please bring it to your visit</b></div>
+            <?php endif; ?>
         </div>
 
         <p class="text-muted2 bk-done-note">
@@ -580,7 +622,7 @@ include 'includes/head.php';
             <div class="step"        id="ind-4"><div class="dot">4</div><small>Confirm</small></div>
         </div>
 
-        <form method="POST" id="bookForm">
+        <form method="POST" id="bookForm" enctype="multipart/form-data">
             <input type="hidden" name="action" value="book">
 
             <!-- STEP 1: Schedule (shown first) -->
@@ -635,6 +677,29 @@ include 'includes/head.php';
                 </div>
 
                 <input type="hidden" name="pref_dentist" value="">
+
+                <!-- Optional: an X-ray the patient already has (saved to their X-rays when the booking is made).
+                     The same "is it really an X-ray?" check as Records (includes/xray_check.php). -->
+                <div class="bk-xray mb-3">
+                    <div class="field-label mb-1">📷 X-ray <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— optional</span></div>
+                    <div class="text-muted2 mb-2" style="font-size:.8rem;">Have a recent dental X-ray? Attach it so the dentist can see it before your visit.</div>
+                    <div class="row g-2">
+                        <div class="col-md-7">
+                            <input type="file" name="xray" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>">
+                            <div class="text-muted2" style="font-size:.74rem;margin-top:3px;"><?= image_upload_hint() ?></div>
+                            <div class="xr-check" hidden></div>
+                            <label class="xr-confirm d-flex gap-2 align-items-start mt-1" hidden style="font-size:.8rem;cursor:pointer;">
+                                <input type="checkbox" name="xray_confirm" value="1" class="form-check-input mt-1 flex-shrink-0">
+                                <span>It is an X-ray — attach it anyway</span>
+                            </label>
+                            <div class="xr-need text-danger" hidden style="font-size:.8rem;">Please choose your X-ray image, remove this file, or tick the box if it really is an X-ray.</div>
+                        </div>
+                        <div class="col-md-5">
+                            <input type="date" name="xray_date" class="form-control" max="<?= date('Y-m-d') ?>" title="When the X-ray was taken (optional)">
+                            <div class="text-muted2" style="font-size:.74rem;margin-top:3px;">When it was taken (if you know)</div>
+                        </div>
+                    </div>
+                </div>
 
                 <?= health_form_styles() ?>
                 <div id="hf-person-note" class="text-muted2 mb-1" style="font-size:.82rem;"><?= ($_SERVER['REQUEST_METHOD'] !== 'POST' && $hfMine) ? 'These are your saved answers — please review and update them.' : '' ?></div>
@@ -751,7 +816,7 @@ include 'includes/head.php';
                 </div>
                 <div class="card-box" style="background:#fdfaf4;">
                     <small class="text-muted2">APPOINTMENT</small>
-                    <p class="mb-0">🦷 <span id="rev-treat"></span><br>📅 <span id="rev-date"></span><br>🕐 <span id="rev-time"></span><br>👨‍⚕️ <span id="rev-dentist"></span></p>
+                    <p class="mb-0">🦷 <span id="rev-treat"></span><br>📅 <span id="rev-date"></span><br>🕐 <span id="rev-time"></span><br>👨‍⚕️ <span id="rev-dentist"></span><span id="rev-xray-line" style="display:none;"><br>📷 X-ray attached: <span id="rev-xray"></span></span></p>
                 </div>
 
                 <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.85rem;">
@@ -776,6 +841,13 @@ include 'includes/head.php';
                 </div>
             </div>
         </form>
+        <?php require_once 'includes/xray_check.php'; echo xray_check_script('#bookForm'); ?>
+        <style>
+        .bk-xray { background: #f7fafa; border: 1px dashed #cfe0dd; border-radius: 10px; padding: 10px 12px; }
+        .xr-check { font-size: .8rem; margin-top: 4px; font-weight: 600; }
+        .xr-check.xr-good { color: #138a4e; }
+        .xr-check.xr-bad  { color: #b9802a; }
+        </style>
     </div>
 <?php endif; ?>
 
@@ -1040,6 +1112,9 @@ function validateStep2() {
     warn.style.display = bad ? 'block' : 'none';
 
     if (noTreat) { list.scrollIntoView({ block: 'center' }); return; }
+    // An attached picture that does not look like an X-ray (and is not confirmed) stops here.
+    var bf = document.getElementById('bookForm');
+    if (bf.xrayCheckOk && !bf.xrayCheckOk()) { document.querySelector('.bk-xray').scrollIntoView({ block: 'center' }); return; }
     if (bad) { bad.scrollIntoView({ block: 'center' }); return; }
     goStep(4);
 }
@@ -1336,6 +1411,10 @@ function fillReview() {
     if (forOtherRv && dobV) document.getElementById('rev-dob').textContent =
         new Date(dobV + 'T00:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) + ' (' + ageFrom(dobV) + ' yrs)';
     document.getElementById('rev-dentist').textContent = 'To be assigned by the clinic';
+    var xf = document.querySelector('#bookForm input[name="xray"]');
+    var xName = xf && xf.files && xf.files[0] ? xf.files[0].name : '';
+    document.getElementById('rev-xray-line').style.display = xName ? '' : 'none';
+    document.getElementById('rev-xray').textContent = xName;
 }
 
 function checkAgree() {

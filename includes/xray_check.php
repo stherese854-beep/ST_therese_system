@@ -135,9 +135,13 @@ function xray_check_script($form) {
             img.src = url;
         });
         tick.addEventListener('change', function () { form.querySelector('.xr-need').hidden = true; });
-        form.addEventListener('submit', function (e) {
-            if (problem && !tick.checked) { e.preventDefault(); form.querySelector('.xr-need').hidden = false; tick.focus(); }
-        });
+        // false (and the warning shown) while a flagged picture is not confirmed. A form
+        // in steps (online booking) calls it before moving on: form.xrayCheckOk().
+        form.xrayCheckOk = function () {
+            if (problem && !tick.checked) { form.querySelector('.xr-need').hidden = false; tick.focus(); return false; }
+            return true;
+        };
+        form.addEventListener('submit', function (e) { if (!form.xrayCheckOk()) e.preventDefault(); });
     })();
     </script>
     <?php return ob_get_clean();
