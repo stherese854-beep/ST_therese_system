@@ -3,9 +3,12 @@
 //  SAMPLE DATA  (System → 🧪 Sample data, admin only)
 // ============================================================
 //  One button fills the system with realistic practice data —
-//  patients (with families), appointments over the last 3 months
-//  and the next 2 weeks, treatment records, walk-ins, dental charts,
-//  follow-up plans (braces…), notes — plus 2 patient-portal logins.
+//  50 rows in each main table:
+//    patients (with 2 families), user logins (42 patient-portal
+//    accounts + 8 staff), appointments over the last 3 months and the
+//    next 2 weeks, walk-ins, treatment records, dental charts (one
+//    tooth entry each), clinical notes, follow-up plans (braces…) and
+//    their sessions.
 //  Everyone has a middle name (one has none), and one walk-in has the
 //  same full name as an older patient: Patients → 👥 Same full name.
 //  Another button removes all of it again.
@@ -18,8 +21,10 @@
 //  marked as already reminded, so no reminder email goes out for them.
 // ============================================================
 
-const DEMO_PASSWORD = 'Sample#2026';
-const DEMO_LOGINS   = ['demo1@sample.test', 'demo2@sample.test'];
+const DEMO_PASSWORD  = 'Sample#2026';
+const DEMO_LOGINS    = ['demo1@sample.test', 'demo2@sample.test'];   // the 2 family accounts (shown on System → Sample data)
+const DEMO_STAFF     = 'staff1@sample.test';                         // one of the 8 sample staff logins (shown there too)
+const DEMO_PER_TABLE = 50;                                           // rows in each main table
 
 // Tables that point at a patient — what "Remove" also clears for the sample patients.
 const DEMO_PATIENT_TABLES = ['appointments', 'treatments', 'walk_in_visits', 'chart_sessions', 'odontogram',
@@ -46,6 +51,18 @@ function demo_status($pdo) {
     } catch (Throwable $e) { return null; }
 }
 
+/** "Jose Rizal Dela Cruz" -> "jose.delacruz@sample.test" (made unique with a number when needed). */
+function demo_email($name, array &$used) {
+    $w = preg_split('/\s+/', strtolower(trim($name)));
+    $last = count($w) > 2 && in_array($w[count($w) - 2], ['dela', 'de', 'del', 'san', 'delos'], true)
+          ? $w[count($w) - 2] . $w[count($w) - 1] : end($w);
+    $base = preg_replace('/[^a-z]/', '', $w[0]) . '.' . preg_replace('/[^a-z]/', '', $last);
+    $email = $base . '@sample.test';
+    for ($n = 2; isset($used[$email]); $n++) $email = $base . $n . '@sample.test';
+    $used[$email] = true;
+    return $email;
+}
+
 /**
  * Adds the sample data. Returns [ok, message].
  */
@@ -54,16 +71,16 @@ function demo_add($pdo, $by) {
     if (demo_status($pdo)) return [false, 'Sample data is already in the system. Remove it first to add a fresh set.'];
     $dentists = $pdo->query("SELECT name FROM users WHERE role = 'dentist' AND status = 'active' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
     if (!$dentists) return [false, 'Add at least one dentist first (Admin → Dentists): sample appointments need a dentist.'];
-    $q = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email IN (?, ?)");
-    $q->execute(DEMO_LOGINS);
-    if ($q->fetchColumn()) return [false, 'An account with ' . implode(' or ', DEMO_LOGINS) . ' already exists. Remove it first.'];
-    $staff = $pdo->query("SELECT name FROM users WHERE role IN ('staff','admin') AND status = 'active' ORDER BY role = 'staff' DESC, id")->fetchAll(PDO::FETCH_COLUMN) ?: [$by];
+    if ($pdo->query("SELECT COUNT(*) FROM users WHERE email LIKE '%@sample.test'")->fetchColumn()) {
+        return [false, 'Accounts with a "@sample.test" email already exist (left from an earlier sample set). Remove them first in User Management.'];
+    }
 
     require_once __DIR__ . '/treatments.php';
     require_once __DIR__ . '/clinical.php';
     require_once __DIR__ . '/followups.php';
     ensure_plan_sessions_table($pdo);
 
+    $N = DEMO_PER_TABLE;
     $pdo->beginTransaction();                             // all of it, or nothing
     try {
     mt_srand(20261020);                                   // the same set every time
@@ -72,6 +89,10 @@ function demo_add($pdo, $by) {
     $slots = clinic_time_slots($pdo);
     $open  = array_filter(array_map('trim', explode(',', (string)($pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'clinic_open_days'")->fetchColumn() ?: 'Mon,Tue,Wed,Thu,Fri,Sat'))));
     $isOpen = fn($d) => in_array(date('D', strtotime($d)), $open, true);
+    $openBefore = function ($d) use ($isOpen) {           // the date itself, or the open day before it
+        for ($i = 0; $i < 7 && !$isOpen($d); $i++) $d = date('Y-m-d', strtotime("$d -1 day"));
+        return $d;
+    };
 
     // Times already taken (dentist + date + time), so samples never clash with real bookings.
     $taken = [];
@@ -103,9 +124,11 @@ function demo_add($pdo, $by) {
     $age = fn($dob) => (int)date_diff(date_create($dob), date_create($today))->y;
     $dob = fn($years) => date('Y-m-d', strtotime("-$years years -" . mt_rand(0, 360) . ' days'));
     $phone = fn() => '0917' . mt_rand(100, 999) . mt_rand(1000, 9999);
+    $hash = password_hash(DEMO_PASSWORD, PASSWORD_DEFAULT);
+    $usedEmails = array_fill_keys(array_merge(DEMO_LOGINS, [DEMO_STAFF]), true);
 
     // ---------- People ----------
-    // [name, age, sex hint, blood, allergies, conditions, medications, alert]
+    // [name, age, blood, allergies, conditions, medications, alert]. Adults (18+) get a patient-portal login.
     $people = [
         ['Jose Rizal Dela Cruz', 52, 'B+', 'Penicillin', 'Hypertension', 'Amlodipine 5 mg', 'Allergic to penicillin · high blood pressure'],
         ['Maria Clara Reyes', 28, 'O+', '', '', '', ''],
@@ -133,23 +156,48 @@ function demo_add($pdo, $by) {
         ['Cecilia Ocampo', 72, 'A+', '', 'Diabetes, hypertension', 'Insulin, Amlodipine', 'Diabetic and high blood pressure'],
         ['Vincent Cruz', 21, 'O+', '', '', '', ''],
         ['Analyn Soriano', 30, 'AB+', '', '', '', ''],
+        ['Eduardo Villareal', 44, 'O+', '', '', '', ''],
+        ['Marites Dizon', 50, 'A+', '', 'Hypertension', 'Amlodipine', 'High blood pressure'],
+        ['Ricardo Manalo', 36, 'B+', '', '', '', ''],
+        ['Josephine Aguilar', 29, 'O+', 'Codeine', '', '', 'Allergic to codeine'],
+        ['Benjamin Cortez', 62, 'A-', '', 'Type 2 diabetes', 'Metformin', 'Diabetic'],
+        ['Liezl Javier', 27, 'O+', '', '', '', ''],
+        ['Arnel Sarmiento', 41, 'B-', '', '', '', ''],
+        ['Rowena Ilagan', 33, 'AB+', '', 'Asthma', 'Salbutamol inhaler', 'Asthma — bring inhaler'],
+        ['Dennis Padilla', 48, 'O+', '', '', '', ''],
+        ['Charisse Sy', 23, 'A+', '', '', '', ''],
+        ['Ronaldo Esguerra', 55, 'O-', 'Penicillin', '', '', 'Allergic to penicillin'],
+        ['Hazel Quiambao', 31, 'B+', '', '', '', ''],
+        ['Gilbert Velasco', 39, 'O+', '', '', '', ''],
+        ['Divina Tolentino', 66, 'A+', '', 'Heart condition', 'Clopidogrel (blood thinner)', 'On blood thinner'],
+        ['Jayson Magbanua', 25, 'O+', '', '', '', ''],
+        ['Katrina Lacson', 37, 'B+', '', '', '', ''],
     ];
-    $patients = [];                                       // id => [name, age]
+    $patients = [];                                       // id => [name, dentist, account, rel, age]
     $pIds = [];
+    $adultIds = [];                                       // patients with their own login (they book for themselves)
     foreach ($people as $i => [$name, $years, $blood, $allergy, $cond, $meds, $alert]) {
         $d = $dob($years);
+        $since = date('Y-m-d H:i:s', strtotime('-' . mt_rand(95, 400) . ' days'));
+        $uid = null; $email = null;
+        if ($age($d) >= 18) {                             // adults: a patient-portal login
+            $email = demo_email($name, $usedEmails);
+            $uid = $ins('users', ['name' => $name, 'email' => $email, 'password' => $hash, 'role' => 'patient', 'status' => 'active',
+                                  'email_verified' => 1, 'contact' => $phone(), 'created_at' => $since]);
+        }
+        $dentist = $dentists[$i % count($dentists)];
         $id = $ins('patients', [
-            'name' => $name, 'phone' => $phone(), 'age' => $age($d), 'date_of_birth' => $d, 'blood_type' => $blood,
-            'patient_type' => 'New', 'status' => 'Active', 'primary_dentist' => $dentists[$i % count($dentists)],
+            'user_id' => $uid, 'name' => $name, 'email' => $email, 'phone' => $phone(), 'age' => $age($d), 'date_of_birth' => $d,
+            'blood_type' => $blood, 'patient_type' => 'New', 'status' => 'Active', 'primary_dentist' => $dentist,
             'medical_alert' => $alert ?: null, 'allergies' => $allergy ?: null, 'medical_conditions' => $cond ?: null,
-            'medications' => $meds ?: null, 'created_at' => date('Y-m-d H:i:s', strtotime('-' . mt_rand(95, 400) . ' days')),
+            'medications' => $meds ?: null, 'created_at' => $since,
         ]);
-        $patients[$id] = ['name' => $name, 'dentist' => $dentists[$i % count($dentists)], 'account' => null, 'rel' => null];
+        $patients[$id] = ['name' => $name, 'dentist' => $dentist, 'account' => null, 'rel' => null, 'age' => $age($d)];
         $pIds[] = $id;
+        if ($uid) $adultIds[] = $id;
     }
 
     // Two families with a portal login each: the account holder + the people they book for.
-    $hash = password_hash(DEMO_PASSWORD, PASSWORD_DEFAULT);
     $families = [
         [DEMO_LOGINS[0], 'Andrea Villanueva', 34, [['Miguel Villanueva', 9, 'Child'], ['Sofia Villanueva', 6, 'Child'], ['Rosario Villanueva', 63, 'Parent']]],
         [DEMO_LOGINS[1], 'Carlo Mendoza', 41, [['Liza Mendoza', 39, 'Spouse'], ['Gabriel Mendoza', 13, 'Child']]],
@@ -162,15 +210,16 @@ function demo_add($pdo, $by) {
         $hid = $ins('patients', ['user_id' => $uid, 'name' => $name, 'email' => $email, 'phone' => $phone(), 'age' => $age($d),
                                  'date_of_birth' => $d, 'patient_type' => 'New', 'status' => 'Active', 'primary_dentist' => $dentist,
                                  'created_at' => date('Y-m-d H:i:s', strtotime('-200 days'))]);
-        $patients[$hid] = ['name' => $name, 'dentist' => $dentist, 'account' => null, 'rel' => null];
+        $patients[$hid] = ['name' => $name, 'dentist' => $dentist, 'account' => null, 'rel' => null, 'age' => $age($d)];
         $pIds[] = $hid;
+        $adultIds[] = $hid;
         foreach ($members as [$mName, $mYears, $rel]) {
             $md = $dob($mYears);
             $mid = $ins('patients', ['name' => $mName, 'phone' => $phone(), 'age' => $age($md), 'date_of_birth' => $md,
                                      'patient_type' => 'New', 'status' => 'Active', 'primary_dentist' => $dentist,
                                      'guardian_patient_id' => $hid, 'relationship' => $rel,
                                      'created_at' => date('Y-m-d H:i:s', strtotime('-190 days'))]);
-            $patients[$mid] = ['name' => $mName, 'dentist' => $dentist, 'account' => $name, 'rel' => $rel];
+            $patients[$mid] = ['name' => $mName, 'dentist' => $dentist, 'account' => $name, 'rel' => $rel, 'age' => $age($md)];
             $pIds[] = $mid;
         }
     }
@@ -185,11 +234,28 @@ function demo_add($pdo, $by) {
         $twin = $ins('patients', ['name' => 'Ramon Aquino', 'phone' => $phone(), 'age' => $age($d), 'date_of_birth' => $d,
                                   'patient_type' => 'New', 'status' => 'Active', 'primary_dentist' => $dentists[0],
                                   'created_at' => date('Y-m-d H:i:s', strtotime('-2 days'))]);
+        $patients[$twin] = ['name' => 'Ramon Aquino', 'dentist' => $dentists[0], 'account' => null, 'rel' => null, 'age' => $age($d)];
+        $pIds[] = $twin;
         $ins('identity_checks', ['patient_id' => $twin, 'match_id' => $ramon, 'pair_key' => identity_pair_key($twin, $ramon),
                                  'status' => 'open', 'found_at' => date('Y-m-d H:i:s', strtotime('-2 days'))]);
     }
 
-    // ---------- Appointments ----------
+    // ---------- Staff logins: users fill up to 50 (receptionists, assistants…) ----------
+    $staffPeople = [['Joanna Rivera', 'Receptionist'], ['Mylene Bautista', 'Dental Assistant'], ['Arvin Santos', 'Dental Assistant'],
+                    ['Precious Cruz', 'Receptionist'], ['Kevin Ramos', 'Clinic Aide'], ['Lea Dominguez', 'Dental Assistant'],
+                    ['Ryan Mercado', 'Cashier'], ['Shiela Gomez', 'Records Officer']];
+    $staffNames = [];
+    foreach ($staffPeople as $k => [$sName, $pos]) {
+        if (count($added['users'] ?? []) >= $N) break;
+        $ins('users', ['name' => $sName, 'email' => $k === 0 ? DEMO_STAFF : 'staff' . ($k + 1) . '@sample.test', 'password' => $hash,
+                       'role' => 'staff', 'position' => $pos, 'status' => 'active', 'email_verified' => 1, 'contact' => $phone(),
+                       'created_at' => date('Y-m-d H:i:s', strtotime('-' . mt_rand(200, 500) . ' days'))]);
+        $staffNames[] = $sName;
+    }
+    $staff = array_merge($pdo->query("SELECT name FROM users WHERE role IN ('staff','admin') AND status = 'active' AND email NOT LIKE '%@sample.test' ORDER BY role = 'staff' DESC, id")->fetchAll(PDO::FETCH_COLUMN),
+                         $staffNames) ?: [$by];
+
+    // ---------- Appointments: 50 (past 3 months, today, the next 2 weeks) ----------
     $treatList = array_keys(clinic_treatments());
     $weights   = ['Consultation' => 5, 'Cleaning' => 7, 'Dental Filling' => 5, 'Tooth Extraction' => 3,
                   'Root Canal' => 2, 'Dental Crown' => 1, 'Braces / Orthodontics' => 1];
@@ -226,56 +292,12 @@ function demo_add($pdo, $by) {
         return $ins('appointments', array_merge($row, $extra));
     };
 
-    $treatIns = function ($pid, $date, $time, $dentist, $treat, $status = 'Completed', $note = null, $tooth = null)
-                use ($ins, $patients, $pick, $notesFor, $teethFor) {
-        if ($tooth === null) $tooth = isset($teethFor[$treat]) ? (string)$pick($teethFor[$treat]) : '';
-        return $ins('treatments', [
-            'patient_id' => $pid, 'patient_name' => $patients[$pid]['name'], 'treatment_name' => $treat, 'tooth' => $tooth,
-            'dentist' => $dentist, 'treatment_date' => $date, 'status' => $status,
-            'notes' => $note ?? $pick($notesFor[$treat] ?? ['Done.']),
-            'created_at' => date('Y-m-d H:i:s', strtotime("$date $time") + 40 * 60),
-        ]);
-    };
-
-    // Who misses visits (Repeat Offenders / Frequent Cancels) — a few patients, on purpose.
-    $noShowers = [$pIds[4], $pIds[8]];
-    $cancellers = [$pIds[11]];
-    $done = [];                                           // completed visits: [pid, date, time, dentist, treat]
+    // Who books online: adults with a login, and the family members (booked by their account holder).
+    $bookers = array_values(array_filter($pIds, fn($id) => $patients[$id]['account'] !== null || in_array($id, $adultIds, true)));
     $nApp = 0;
-    $needsReview = 0;
-    for ($back = 90; $back >= 1; $back--) {
-        $date = date('Y-m-d', strtotime("-$back days"));
-        if (!$isOpen($date)) continue;
-        for ($k = 0, $n = mt_rand(0, 2) === 0 ? 1 : 0; $k <= $n; $k++) {
-            $pid = $pick($pIds);
-            $dentist = $patients[$pid]['dentist'];
-            if (!($time = $freeSlot($dentist, $date))) continue;
-            $treat = $pick($pool);
-            $roll = mt_rand(1, 100);
-            if (in_array($pid, $noShowers, true) && $roll <= 60) $status = 'No-show';
-            elseif (in_array($pid, $cancellers, true) && $roll <= 70) $status = 'Cancelled';
-            elseif ($back <= 7 && $needsReview < 3 && $roll <= 85) { $status = 'Needs Review'; $needsReview++; }   // confirmed, not marked yet
-            elseif ($roll <= 74) $status = 'Completed';
-            elseif ($roll <= 86) $status = 'Cancelled';
-            elseif ($roll <= 95) $status = 'No-show';
-            else $status = 'Expired';                     // a request nobody confirmed
-            $extra = [];
-            if ($status === 'Cancelled') {
-                $extra = ['cancelled_at' => date('Y-m-d H:i:s', strtotime("$date -1 day 18:00")),
-                          'cancelled_by' => mt_rand(0, 1) ? $patients[$pid]['name'] : $pick($staff), 'cancel_reason' => $pick($cancelWhy)];
-            }
-            if ($status === 'Completed') {
-                $extra = ['arrived_at' => date('Y-m-d H:i:s', strtotime("$date $time") - mt_rand(5, 20) * 60), 'arrived_by' => $pick($staff)];
-                $done[] = [$pid, $date, $time, $dentist, $treat];
-            }
-            $apptIns($pid, $date, $time, $dentist, $treat, $status, $extra);
-            $nApp++;
-        }
-    }
     // Today: one already here, the rest later today.
     if ($isOpen($today)) {
-        $todays = array_slice($pIds, 14, 4);
-        foreach ($todays as $k => $pid) {
+        foreach (array_slice($bookers, 14, 4) as $k => $pid) {
             $dentist = $patients[$pid]['dentist'];
             if ($k === 0) {
                 if (!($time = $freeSlot($dentist, $today))) continue;
@@ -288,104 +310,127 @@ function demo_add($pdo, $by) {
             $nApp++;
         }
     }
-    // The next two weeks.
-    for ($ahead = 1; $ahead <= 14; $ahead++) {
-        $date = date('Y-m-d', strtotime("+$ahead days"));
-        if (!$isOpen($date)) continue;
-        for ($k = 0, $n = mt_rand(0, 3) ? 1 : 0; $k <= $n; $k++) {
-            $pid = $pick($pIds);
-            $dentist = $patients[$pid]['dentist'];
-            if (!($time = $freeSlot($dentist, $date))) continue;
-            $apptIns($pid, $date, $time, $dentist, $pick($pool), mt_rand(1, 100) <= 60 ? 'Confirmed' : 'Pending');
-            $nApp++;
+    // The next two weeks: 12 requests and confirmed visits.
+    $aheadDays = [];
+    for ($ahead = 1; $ahead <= 14; $ahead++) { $d = date('Y-m-d', strtotime("+$ahead days")); if ($isOpen($d)) $aheadDays[] = $d; }
+    for ($k = 0, $tries = 0; $aheadDays && $k < 12 && $tries < 200; $tries++) {
+        $date = $aheadDays[$tries % count($aheadDays)];
+        $pid = $pick($bookers);
+        $dentist = $patients[$pid]['dentist'];
+        if (!($time = $freeSlot($dentist, $date))) continue;
+        $apptIns($pid, $date, $time, $dentist, $pick($pool), mt_rand(1, 100) <= 60 ? 'Confirmed' : 'Pending');
+        $nApp++; $k++;
+    }
+    // The last 3 months: the rest, up to 50.
+    $pastDays = [];
+    for ($back = 90; $back >= 1; $back--) { $d = date('Y-m-d', strtotime("-$back days")); if ($isOpen($d)) $pastDays[] = $d; }
+    shuffle($pastDays);
+    $noShowers = [$pIds[4], $pIds[8]];                    // who misses visits (Repeat Offenders / Frequent Cancels), on purpose
+    $cancellers = [$pIds[11]];
+    $done = [];                                           // completed visits: [pid, date, time, dentist, treat]
+    $needsReview = 0;
+    for ($tries = 0; $pastDays && $nApp < $N && $tries < 2000; $tries++) {
+        $date = $pastDays[$tries % count($pastDays)];
+        $pid = $pick($bookers);
+        $dentist = $patients[$pid]['dentist'];
+        if (!($time = $freeSlot($dentist, $date))) continue;
+        $back = (int)round((strtotime($today) - strtotime($date)) / 86400);
+        $treat = $pick($pool);
+        $roll = mt_rand(1, 100);
+        if (in_array($pid, $noShowers, true) && $roll <= 60) $status = 'No-show';
+        elseif (in_array($pid, $cancellers, true) && $roll <= 70) $status = 'Cancelled';
+        elseif ($back <= 7 && $needsReview < 3 && $roll <= 85) { $status = 'Needs Review'; $needsReview++; }   // confirmed, not marked yet
+        elseif ($roll <= 70) $status = 'Completed';
+        elseif ($roll <= 84) $status = 'Cancelled';
+        elseif ($roll <= 94) $status = 'No-show';
+        else $status = 'Expired';                         // a request nobody confirmed
+        $extra = [];
+        if ($status === 'Cancelled') {
+            $extra = ['cancelled_at' => date('Y-m-d H:i:s', strtotime("$date -1 day 18:00")),
+                      'cancelled_by' => mt_rand(0, 1) ? ($patients[$pid]['account'] ?? $patients[$pid]['name']) : $pick($staff), 'cancel_reason' => $pick($cancelWhy)];
         }
+        if ($status === 'Completed') {
+            $extra = ['arrived_at' => date('Y-m-d H:i:s', strtotime("$date $time") - mt_rand(5, 20) * 60), 'arrived_by' => $pick($staff)];
+            $done[] = [$pid, $date, $time, $dentist, $treat];
+        }
+        $apptIns($pid, $date, $time, $dentist, $treat, $status, $extra);
+        $nApp++;
     }
 
-    // ---------- Treatment records for the completed visits ----------
-    foreach ($done as [$pid, $date, $time, $dentist, $treat]) {
-        if ($treat === 'Braces / Orthodontics') $treat = 'Consultation';     // braces get their own plan below
-        $treatIns($pid, $date, $time, $dentist, $treat, in_array($treat, ['Root Canal', 'Dental Crown'], true) ? 'In Progress' : 'Completed');
-    }
-
-    // ---------- Walk-ins (came in without an appointment) ----------
-    $walkPids = array_slice($pIds, 18, 8);
-    foreach ($walkPids as $k => $pid) {
-        $back = $k < 2 ? 0 : mt_rand(2, 60);
-        $date = date('Y-m-d', strtotime("-$back days"));
-        if (!$isOpen($date)) $date = date('Y-m-d', strtotime("$date -1 day"));
+    // ---------- Walk-ins: 50 (came in without an appointment) ----------
+    $walkDone = [];                                       // past walk-ins: [pid, date, time, dentist, service]
+    for ($k = 0; $k < $N; $k++) {
+        $pid = $pIds[$k % count($pIds)];
+        $back = ($k < 2 && $isOpen($today)) ? 0 : ($pid === ($twin ?? 0) ? 2 : mt_rand(1, 120));   // the new "Ramon Aquino" came 2 days ago
+        $date = $back === 0 ? $today : $openBefore(date('Y-m-d', strtotime("-$back days")));
         $dentist = $patients[$pid]['dentist'];
         $time = $back === 0 ? date('h:i A', max(strtotime("$today 09:00"), min($now, strtotime("$today 11:15")) - $k * 3600)) : $pick($slots);
-        $svc = $pick(['Cleaning', 'Consultation', 'Tooth Extraction', 'Dental Filling']);
+        $svc = $pick(['Cleaning', 'Consultation', 'Tooth Extraction', 'Dental Filling', 'Consultation', 'Cleaning']);
         $ins('walk_in_visits', ['patient_id' => $pid, 'patient_name' => $patients[$pid]['name'], 'visit_date' => $date, 'visit_time' => $time,
                                 'dentist' => $dentist, 'services' => $svc, 'notes' => $pick(['Came in with tooth pain', 'No appointment — had time today', '']),
                                 'created_by' => $pick($staff), 'created_at' => date('Y-m-d H:i:s', strtotime("$date $time"))]);
-        if ($back > 0) $treatIns($pid, $date, $time, $dentist, $svc);
+        if ($back > 0) $walkDone[] = [$pid, $date, $time, $dentist, $svc];
     }
 
-    // ---------- Follow-up plans: braces, a root canal, a check-up every 6 months ----------
-    $planDefs = [
-        [$pIds[13], 'Braces / Orthodontics', '', 30, 12, 4, 'Braces adjustment', 'In Progress'],       // Bea Santiago, 16
-        [$pIds[2],  'Root Canal',            '36', 7, 3, 2, 'Root Canal', 'In Progress'],
-        [$pIds[9],  'Cleaning',              '', 180, null, 1, 'Cleaning', 'Completed'],
-    ];
-    foreach ($planDefs as [$pid, $name, $tooth, $every, $total, $doneN, $label, $tStatus]) {
-        $dentist = $patients[$pid]['dentist'];
-        $last = date('Y-m-d', strtotime('-' . ($every >= 30 ? 20 : 5) . ' days'));
-        if (!$isOpen($last)) $last = date('Y-m-d', strtotime("$last -1 day"));
-        $dates = [];
-        for ($s = $doneN; $s >= 1; $s--) {
-            $d = date('Y-m-d', strtotime($last . ' -' . (($doneN - $s) * $every) . ' days'));
-            while (!$isOpen($d)) $d = date('Y-m-d', strtotime("$d -1 day"));
-            $dates[$s] = $d;
-        }
-        $planId = $ins('treatment_plans', [
-            'patient_id' => $pid, 'treatment_name' => $name, 'tooth' => $tooth ?: null, 'dentist' => $dentist,
-            'interval_days' => $every, 'total_sessions' => $total, 'sessions_done' => $doneN, 'last_session_date' => $last,
-            'next_due' => date('Y-m-d', strtotime("$last +$every days")), 'status' => 'Active', 'created_by' => $dentist,
-            'created_at' => date('Y-m-d H:i:s', strtotime($dates[1] . ' 11:00')),
-            'last_reminder_for' => date('Y-m-d', strtotime("$last +$every days")),           // no reminder email for samples
-        ]);
-        foreach ($dates as $s => $d) {
-            $time = $freeSlot($dentist, $d);
-            if ($time) {                                  // the visit itself
-                $apptIns($pid, $d, $time, $dentist, $name, 'Completed',
-                         ['arrived_at' => date('Y-m-d H:i:s', strtotime("$d $time") - 600), 'arrived_by' => $pick($staff)]);
-                $nApp++;
-            } else {
-                $time = $pick($slots);
-            }
-            $treatIns($pid, $d, $time, $dentist, $s === 1 && $name === 'Braces / Orthodontics' ? 'Braces / Orthodontics' : $label,
-                      $tStatus, $s === 1 && $name === 'Braces / Orthodontics' ? 'Braces placed on upper and lower teeth.' : null, $tooth);
-            $ins('treatment_plan_sessions', ['plan_id' => $planId, 'patient_id' => $pid, 'session_no' => $s, 'session_date' => $d,
-                                             'label' => $label, 'source' => 'treatment',
-                                             'created_at' => date('Y-m-d H:i:s', strtotime("$d $time") + 45 * 60)]);
-        }
-    }
-
-    // ---------- Dental charts (odontogram) ----------
+    // ---------- Treatment records: 50 — the completed appointments first, then walk-ins ----------
+    // Each of these visits also gets a dental chart (one tooth entry) and a clinical note.
+    $visits = array_slice(array_merge($done, $walkDone), 0, $N);
+    usort($visits, fn($a, $b) => strcmp($a[1] . $a[2], $b[1] . $b[2]));
     $charted = [];
-    foreach ($done as [$pid, $date, $time, $dentist, $treat]) {
-        if (isset($charted[$pid]) || count($charted) >= 15) continue;
-        $charted[$pid] = true;
-        $sid = $ins('chart_sessions', ['patient_id' => $pid, 'visit_date' => $date, 'title' => 'Initial Chart',
-                                       'notes' => $pick(['', 'Recheck the molars next visit.', 'Good oral hygiene overall.']) ?: null,
+    $chartStatus = ['Dental Filling' => 'Filled', 'Tooth Extraction' => 'Extracted', 'Root Canal' => 'Filled', 'Dental Crown' => 'Crowned'];
+    foreach ($visits as [$pid, $date, $time, $dentist, $treat]) {
+        $treat = $treat === 'Braces / Orthodontics' ? 'Consultation' : $treat;      // braces get their own plan below
+        $tooth = isset($teethFor[$treat]) ? (string)$pick($teethFor[$treat]) : '';
+        $ins('treatments', [
+            'patient_id' => $pid, 'patient_name' => $patients[$pid]['name'], 'treatment_name' => $treat, 'tooth' => $tooth,
+            'dentist' => $dentist, 'treatment_date' => $date,
+            'status' => in_array($treat, ['Root Canal', 'Dental Crown'], true) ? 'In Progress' : 'Completed',
+            'notes' => $pick($notesFor[$treat] ?? ['Done.']),
+            'created_at' => date('Y-m-d H:i:s', strtotime("$date $time") + 40 * 60),
+        ]);
+        // The dental chart of this visit: the tooth that was worked on, or one the dentist noted.
+        $sid = $ins('chart_sessions', ['patient_id' => $pid, 'visit_date' => $date,
+                                       'title' => isset($charted[$pid]) ? 'Follow-up' : 'Initial Chart',
+                                       'notes' => $pick(['', 'Recheck the molars next visit.', 'Good oral hygiene overall.', 'Watch the gums on the lower left.']) ?: null,
                                        'created_by' => $dentist, 'created_at' => date('Y-m-d H:i:s', strtotime("$date $time") + 30 * 60)]);
-        $teeth = [11, 12, 14, 16, 17, 21, 24, 26, 27, 36, 37, 38, 46, 47, 48];
-        shuffle($teeth);
-        foreach (array_slice($teeth, 0, mt_rand(3, 6)) as $k => $tooth) {
-            $st = $pick(['Healthy', 'Healthy', 'Decayed', 'Filled', 'Filled', 'Crowned', 'Missing', 'Impacted', 'Fractured', 'Other']);
-            $ins('odontogram', ['patient_id' => $pid, 'tooth_number' => $tooth, 'tooth_status' => $st,
-                                'condition_other' => $st === 'Other' ? $pick(['Sensitive to cold', 'Gum recession', 'Discolored']) : null,
-                                'notes' => mt_rand(0, 2) ? null : $pick(['Watch this tooth', 'Patient feels pain when chewing', 'Old filling, still fine']),
-                                'session_id' => $sid]);
-        }
+        $charted[$pid] = true;
+        $st = $chartStatus[$treat] ?? $pick(['Healthy', 'Decayed', 'Filled', 'Impacted', 'Fractured', 'Other']);
+        $ins('odontogram', ['patient_id' => $pid, 'tooth_number' => $tooth !== '' ? $tooth : (string)$pick([11, 12, 14, 16, 17, 21, 24, 26, 27, 36, 37, 38, 46, 47, 48]),
+                            'tooth_status' => $st, 'condition_other' => $st === 'Other' ? $pick(['Sensitive to cold', 'Gum recession', 'Discolored']) : null,
+                            'notes' => mt_rand(0, 2) ? null : $pick(['Watch this tooth', 'Patient feels pain when chewing', 'Old filling, still fine']),
+                            'session_id' => $sid]);
+        $ins('clinical_notes', ['patient_id' => $pid, 'author' => $dentist, 'created_at' => date('Y-m-d H:i:s', strtotime("$date $time") + 50 * 60),
+                                'note' => $pick(['Patient anxious — explain each step.', 'Prefers morning appointments.', 'Brushes too hard; showed soft brushing.',
+                                                 'Recommended a night guard for grinding.', 'Advised to cut down on sweet drinks.', 'Bleeding gums — showed flossing.',
+                                                 'Took the procedure well, no complaints.', 'Asked about whitening — discuss next visit.'])]);
     }
 
-    // ---------- A few clinical notes ----------
-    foreach (array_slice($done, 0, 6) as [$pid, $date, $time, $dentist]) {
-        $ins('clinical_notes', ['patient_id' => $pid, 'author' => $dentist, 'created_at' => date('Y-m-d H:i:s', strtotime("$date $time") + 50 * 60),
-                                'note' => $pick(['Patient anxious — explain each step.', 'Prefers morning appointments.',
-                                                 'Brushes too hard; showed soft brushing.', 'Recommended a night guard for grinding.'])]);
+    // ---------- Follow-up plans: 50, one per patient, each with its first session done ----------
+    // [treatment, teeth, every N days, total sessions, session label]
+    $planTypes = [
+        ['Braces / Orthodontics', null, 30, 12, 'Braces adjustment'],
+        ['Root Canal', [16, 26, 36, 46], 7, 3, 'Root Canal'],
+        ['Cleaning', null, 180, null, 'Cleaning'],
+        ['Dental Crown', [16, 26, 36, 46, 11, 21], 14, 2, 'Dental Crown'],
+        ['Consultation', null, 180, null, '6-month check-up'],
+        ['Dental Filling', [14, 15, 24, 25, 36, 46], 14, 2, 'Dental Filling'],
+    ];
+    foreach (array_slice($pIds, 0, $N) as $i => $pid) {
+        [$name, $teeth, $every, $total, $label] = ($patients[$pid]['age'] < 18 || $i % 10 === 0) ? $planTypes[0] : $planTypes[1 + $i % 5];
+        $dentist = $patients[$pid]['dentist'];
+        $tooth = $teeth ? (string)$pick($teeth) : null;
+        $last = $openBefore(date('Y-m-d', strtotime('-' . mt_rand(1, (int)round($every * 1.3)) . ' days')));   // some are overdue
+        $next = date('Y-m-d', strtotime("$last +$every days"));
+        $planId = $ins('treatment_plans', [
+            'patient_id' => $pid, 'treatment_name' => $name, 'tooth' => $tooth, 'dentist' => $dentist,
+            'interval_days' => $every, 'total_sessions' => $total, 'sessions_done' => 1, 'last_session_date' => $last,
+            'next_due' => $next, 'status' => 'Active', 'created_by' => $dentist,
+            'created_at' => date('Y-m-d H:i:s', strtotime("$last 11:00")),
+            'last_reminder_for' => $next,                 // no reminder email for samples
+        ]);
+        $ins('treatment_plan_sessions', ['plan_id' => $planId, 'patient_id' => $pid, 'session_no' => 1, 'session_date' => $last,
+                                         'label' => $name === 'Braces / Orthodontics' ? 'Braces placed' : $label, 'source' => 'earlier',
+                                         'created_at' => date('Y-m-d H:i:s', strtotime("$last 11:45"))]);
     }
 
     // First / last name next to each full name, and the middle name (in full; '' = no middle name).
@@ -399,8 +444,14 @@ function demo_add($pdo, $by) {
         'Christian Domingo' => 'Javier', 'Teresita Lim' => 'Go', 'Noel Pascual' => 'Sarmiento', 'Grace Valdez' => 'Ilagan',
         'Francis Gonzales' => 'Padilla', 'Michelle Tan' => 'Sy', 'Danilo Robles' => 'Esguerra', 'Patricia Morales' => 'Quiambao',
         'Jerome Salazar' => 'Velasco', 'Cecilia Ocampo' => 'Tolentino', 'Vincent Cruz' => 'Magbanua', 'Analyn Soriano' => '',
+        'Eduardo Villareal' => 'Ramos', 'Marites Dizon' => 'Cruz', 'Ricardo Manalo' => 'Bautista', 'Josephine Aguilar' => 'Navarro',
+        'Benjamin Cortez' => 'Flores', 'Liezl Javier' => 'Ocampo', 'Arnel Sarmiento' => 'Domingo', 'Rowena Ilagan' => 'Pascual',
+        'Dennis Padilla' => 'Robles', 'Charisse Sy' => 'Tan', 'Ronaldo Esguerra' => 'Mercado', 'Hazel Quiambao' => 'Garcia',
+        'Gilbert Velasco' => 'Torres', 'Divina Tolentino' => 'Reyes', 'Jayson Magbanua' => 'Castillo', 'Katrina Lacson' => 'Morales',
         'Andrea Villanueva' => 'Lopez', 'Miguel Villanueva' => 'Lopez', 'Sofia Villanueva' => 'Lopez', 'Rosario Villanueva' => 'Dizon',
         'Carlo Mendoza' => 'Reyes', 'Liza Mendoza' => 'Ramos', 'Gabriel Mendoza' => 'Ramos',
+        'Joanna Rivera' => 'Santos', 'Mylene Bautista' => 'Cruz', 'Arvin Santos' => 'Dela Paz', 'Precious Cruz' => 'Manalo',
+        'Kevin Ramos' => 'Garcia', 'Lea Dominguez' => 'Reyes', 'Ryan Mercado' => 'Flores', 'Shiela Gomez' => 'Aquino',
     ];
     foreach (['patients', 'users'] as $t) {
         if (empty($added[$t])) continue;
@@ -424,9 +475,10 @@ function demo_add($pdo, $by) {
     }
     mt_srand();
 
-    return [true, count($patients) . ' patients, ' . $nApp . ' appointments, ' . count($added['treatments'] ?? []) . ' treatment records, '
-                . count($added['walk_in_visits'] ?? []) . ' walk-ins, ' . count($added['chart_sessions'] ?? []) . ' dental charts and '
-                . count($added['treatment_plans'] ?? []) . ' follow-up plans'];
+    $c = fn($t) => count($added[$t] ?? []);
+    return [true, $c('patients') . ' patients, ' . $c('users') . ' logins, ' . $nApp . ' appointments, ' . $c('walk_in_visits') . ' walk-ins, '
+                . $c('treatments') . ' treatment records, ' . $c('chart_sessions') . ' dental charts, ' . $c('clinical_notes') . ' notes and '
+                . $c('treatment_plans') . ' follow-up plans'];
 }
 
 /**
@@ -473,7 +525,8 @@ function demo_remove($pdo) {
             $n += $pdo->exec("DELETE FROM patient_archive WHERE user_id IN (" . $in($uids) . ")");
         }
         $n += $pdo->exec("DELETE FROM patients WHERE id IN (" . $in($pids) . ")");
-        if ($uids) $n += $pdo->exec("DELETE FROM users WHERE id IN (" . $in($uids) . ") AND role = 'patient'");
+        // The sample patient-portal and staff logins (never an admin or dentist).
+        if ($uids) $n += $pdo->exec("DELETE FROM users WHERE id IN (" . $in($uids) . ") AND role IN ('patient','staff')");
         $pdo->exec("DELETE FROM demo_records");
         $pdo->exec("DELETE FROM settings WHERE setting_key = 'sample_data_info'");
         $pdo->commit();

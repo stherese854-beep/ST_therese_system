@@ -510,36 +510,41 @@ $active = ($isAdmin && $profileView) ? '' : 'settings';   // the profile page is
                 Real patients and records are never changed or removed.</div>
             <?php if ($demo):
                 $dc = $demo['counts'];
-                $chips = ['Patients' => $dc['patients'] ?? 0, 'Appointments' => $dc['appointments'] ?? 0, 'Treatment records' => $dc['treatments'] ?? 0,
-                          'Walk-ins' => $dc['walk_in_visits'] ?? 0, 'Dental charts' => $dc['chart_sessions'] ?? 0, 'Follow-up plans' => $dc['treatment_plans'] ?? 0]; ?>
+                $chips = ['Patients' => $dc['patients'] ?? 0, 'Logins' => $dc['users'] ?? 0, 'Appointments' => $dc['appointments'] ?? 0,
+                          'Walk-ins' => $dc['walk_in_visits'] ?? 0, 'Treatment records' => $dc['treatments'] ?? 0, 'Dental charts' => $dc['chart_sessions'] ?? 0,
+                          'Tooth entries' => $dc['odontogram'] ?? 0, 'Clinical notes' => $dc['clinical_notes'] ?? 0,
+                          'Follow-up plans' => $dc['treatment_plans'] ?? 0, 'Plan sessions' => $dc['treatment_plan_sessions'] ?? 0]; ?>
                 <div class="sd-on mb-2">✅ Sample data is in the system<?= $demo['at'] ? ' — added ' . date('M j, Y g:i A', strtotime($demo['at'])) . ($demo['by'] ? ' by ' . e($demo['by']) : '') : '' ?></div>
                 <div class="d-flex flex-wrap gap-2 mb-3">
                     <?php foreach ($chips as $cl => $cn): ?><span class="sd-chip"><b><?= (int)$cn ?></b> <?= $cl ?></span><?php endforeach; ?>
                 </div>
                 <div class="field-label mb-1">Sample patient-portal logins</div>
-                <div class="text-muted2 mb-2" style="font-size:.8rem;">Sign in with these on the login page to see what patients see (they book for their family too). These addresses have no real inbox, so no email is ever sent to them.</div>
+                <div class="text-muted2 mb-2" style="font-size:.8rem;">Sign in with these on the login page to see what patients (they book for their family too) and staff see.
+                    Every sample adult patient and staff member has a login ending in <code>@sample.test</code> with the same password (see User Management).
+                    These addresses have no real inbox, so no email is ever sent to them.</div>
                 <div class="table-responsive mb-3" style="max-width:520px;">
                     <table class="table table-sm mb-0 sd-logins">
-                        <thead><tr><th>Email</th><th>Password</th></tr></thead>
+                        <thead><tr><th>Email</th><th>Who</th><th>Password</th></tr></thead>
                         <tbody>
-                        <?php foreach (DEMO_LOGINS as $dl): ?><tr><td><code><?= e($dl) ?></code></td><td><code><?= e(DEMO_PASSWORD) ?></code></td></tr><?php endforeach; ?>
+                        <?php foreach (DEMO_LOGINS as $dl): ?><tr><td><code><?= e($dl) ?></code></td><td>Patient + family</td><td><code><?= e(DEMO_PASSWORD) ?></code></td></tr><?php endforeach; ?>
+                        <tr><td><code><?= e(DEMO_STAFF) ?></code></td><td>Staff</td><td><code><?= e(DEMO_PASSWORD) ?></code></td></tr>
                         </tbody>
                     </table>
                 </div>
-                <form method="POST" class="m-0" onsubmit="return confirm('Remove all sample data? Every sample patient, appointment, record and the 2 sample logins are deleted — including anything added to those sample patients since. Real records are not touched.')">
+                <form method="POST" class="m-0" onsubmit="return confirm('Remove all sample data? Every sample patient, appointment, record and every sample login (@sample.test) is deleted — including anything added to those sample patients since. Real records are not touched.')">
                     <input type="hidden" name="action" value="demo_remove">
                     <button class="btn btn-outline-danger" data-keep-text>🗑 Remove sample data</button>
                 </form>
             <?php else: ?>
                 <ul class="mb-3 ps-3" style="font-size:.88rem;">
-                    <li><b>About 35 patients</b> — with phone numbers, ages, middle names, some allergies and medical alerts, and 2 families
+                    <li><b>50 patients</b> — with phone numbers, ages, middle names, some allergies and medical alerts, and 2 families
                         (one walk-in has the same full name as another patient, to try <b>Patients → 👥 Same full name</b>)</li>
-                    <li><b>Appointments</b> over the last 3 months and the next 2 weeks — completed, cancelled, no-shows, today's visits and pending requests</li>
-                    <li><b>Treatment records, walk-ins, dental charts and notes</b> for the completed visits</li>
-                    <li><b>Follow-up plans</b> — braces (session 4 of 12), a root canal and a 6-month cleaning</li>
-                    <li><b>2 patient-portal logins</b> (their email and password are shown here once added)</li>
+                    <li><b>50 logins</b> — 42 patient-portal accounts and 8 staff (their password is shown here once added)</li>
+                    <li><b>50 appointments</b> over the last 3 months and the next 2 weeks — completed, cancelled, no-shows, today's visits and pending requests</li>
+                    <li><b>50 walk-ins</b>, and <b>50 treatment records</b>, dental charts and clinical notes for the visits</li>
+                    <li><b>50 follow-up plans</b> — braces, root canals, crowns, fillings, 6-month cleanings and check-ups</li>
                 </ul>
-                <form method="POST" class="m-0" onsubmit="return confirm('Add sample data? About 35 practice patients with their appointments and records are added. You can remove all of it here any time.')">
+                <form method="POST" class="m-0" onsubmit="return confirm('Add sample data? 50 practice patients, 50 logins and 50 rows in each of their tables (appointments, walk-ins, records…) are added. You can remove all of it here any time.')">
                     <input type="hidden" name="action" value="demo_add">
                     <button class="btn btn-teal" data-keep-text>🧪 Add sample data</button>
                 </form>

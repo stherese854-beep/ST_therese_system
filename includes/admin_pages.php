@@ -18,6 +18,7 @@ if (!function_exists('admin_system_pages')) {
             'landing_edit'  => ['landing_edit',   '🎨', 'Edit Landing Page'],
             'templates'     => ['templates',      '📝', 'Message Templates'],
             'messaging'     => ['messaging',      '✉️', 'Messaging Config'],
+            'backup'        => ['admin_backup',   '💾', 'Data Backup'],
             'settings'      => ['settings',       '⚙️', 'System'],
         ];
     }

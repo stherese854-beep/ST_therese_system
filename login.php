@@ -4,6 +4,7 @@
 // ============================================================
 require_once 'config/auth.php';
 require_once 'includes/mailer.php';   // to email the verification code
+require_once 'includes/policies.php'; // Terms & Conditions / Privacy Policy shown under Confirm Password
 
 // If already logged in, skip the login page.
 require_guest();   // already signed in -> straight to your own home page
@@ -57,6 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
         $dob   = trim($_POST['dob'] ?? '');
         $birth = DateTimeImmutable::createFromFormat('!Y-m-d', $dob);
         $age   = ($birth && $birth->format('Y-m-d') === $dob) ? (int)$birth->diff(new DateTimeImmutable('today'))->y : null;
+        // Their own password for this system — NOT their Gmail password (Google never shares that).
+        // With it they can also sign in with email + password, without Google.
+        $pass  = $_POST['password'] ?? '';
+        $pass2 = $_POST['confirm_password'] ?? '';
 
         if ($first === '' || $last === '')               $error = 'Please enter your first and last name.';
         elseif (($mErr = middle_name_problem($middle, true)) !== '') $error = $mErr;
@@ -65,6 +70,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
         elseif ($age === null || $dob > date('Y-m-d'))   $error = 'Please enter a valid date of birth.';
         elseif ($age < 18)                               $error = 'You must be at least 18 years old to create an account. '
                                                                  . 'If you are under 18, please ask a parent or guardian to make the account and book for you.';
+        elseif (($pwp = password_problem($pass)) !== '') $error = $pwp;
+        elseif ($pass !== $pass2)                        $error = 'The passwords do not match. Please re-type them.';
+        elseif (empty($_POST['agree']))                  $error = 'Please read and agree to the Terms & Conditions and Privacy Policy to create your account.';
         else {
             $taken = $pdo->prepare("SELECT id FROM users WHERE email = ?");
             $taken->execute([$gp['email']]);
@@ -73,11 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'googl
                 $error = 'An account with this email already exists. Please sign in.';
                 $mode  = 'signin';
             } else {
-                // No password (they sign in with Google) — a random one they never need.
-                $randomPass = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+                // The password they set here (hashed), so email + password works too.
                 $pdo->prepare("INSERT INTO users (name,email,password,role,status,email_verified,google_id,contact)
                                VALUES (?,?,?,'patient','active',1,?,?)")
-                    ->execute([$name, $gp['email'], $randomPass, $gp['gid'], $phone]);
+                    ->execute([$name, $gp['email'], password_hash($pass, PASSWORD_DEFAULT), $gp['gid'], $phone]);
                 $newId = $pdo->lastInsertId();
                 save_name_parts($pdo, 'users', $newId, $first, $last);
                 save_middle_name($pdo, 'users', $newId, $middle);
@@ -240,6 +247,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
             $error = $phoneError;
         } elseif (($mErr = middle_name_problem($middle, true)) !== '') {
             $error = $mErr;
+        } elseif (empty($_POST['agree'])) {
+            $error = "Please read and agree to the Terms & Conditions and Privacy Policy to create your account.";
         }
 
         // ---- AGE CHECK: account holders must be 18 or older ----
@@ -370,6 +379,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'googl
 
 $page_title = "Login";
 include 'includes/head.php';
+
+// Password + Confirm Password + the Terms & Conditions tick: the same on
+// "Create account" and on "Finish creating your account" (Google sign-up).
+function auth_password_fields() { ?>
+                    <label class="field-label">Password</label>
+                    <div class="muted mb-1" style="font-size:.74rem;">💡 8+ characters · upper &amp; lower case · a number · a symbol</div>
+<div class="pw-wrap mb-3">
+                    <input type="password" name="password" id="reg-pass" class="form-control" placeholder="Strong: 8+ characters, Aa, 1, #" required onkeyup="checkStrength()" autocomplete="new-password">
+                    <button type="button" class="pw-eye" aria-label="Show password">
+                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
+
+                    <!-- Password strength meter -->
+                    <div id="pw-strength" style="display:none;margin:-8px 0 14px;">
+                        <div style="height:6px;border-radius:4px;background:#e9eef0;overflow:hidden;">
+                            <div id="pw-strength-bar" style="height:100%;width:0;transition:width .2s,background .2s;"></div>
+                        </div>
+                        <div id="pw-strength-text" style="font-size:.76rem;margin-top:4px;color:#8aa0a0;"></div>
+                    </div>
+
+                    <label class="field-label">Confirm Password</label>
+<div class="pw-wrap mb-1">
+                    <input type="password" name="confirm_password" id="reg-pass2" class="form-control" placeholder="Re-type your password" required autocomplete="new-password">
+                    <button type="button" class="pw-eye" aria-label="Show password">
+                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
+                    <div id="reg-pass-warn" class="text-danger mb-2" style="display:none;font-size:.82rem;">The passwords do not match.</div>
+
+                    <!-- Terms & Conditions: must be ticked before the account is created (checked again on the server) -->
+                    <label class="d-flex gap-2 align-items-start mt-2 mb-1" style="font-size:.82rem;cursor:pointer;">
+                        <input type="checkbox" name="agree" value="1" id="reg-agree" class="form-check-input mt-1 flex-shrink-0"
+                               <?= !empty($_POST['agree']) ? 'checked' : '' ?> onchange="document.getElementById('reg-agree-warn').style.display='none';">
+                        <span>I have read and agree to the clinic's
+                            <a href="#" onclick="showTerms('terms');return false;" style="color:var(--teal);font-weight:600;text-decoration:underline;">Terms &amp; Conditions</a>
+                            and
+                            <a href="#" onclick="showTerms('privacy');return false;" style="color:var(--teal);font-weight:600;text-decoration:underline;">Privacy Policy</a>.</span>
+                    </label>
+                    <div id="reg-agree-warn" class="text-danger mb-2" style="display:none;font-size:.82rem;">Please tick the box to agree to the Terms &amp; Conditions and Privacy Policy.</div>
+                    <div class="mb-3"></div>
+<?php }
 ?>
 <style>
 /* ── Compact auth card so it fits without feeling oversized ── */
@@ -438,14 +491,22 @@ include 'includes/head.php';
                     <label class="field-label">Email address</label>
                     <input class="form-control mb-3" value="<?= e($gp['email']) ?>" readonly disabled style="background:#eef3f3;">
                     <label class="field-label">Phone number</label>
-                    <input name="contact" class="form-control mb-3" placeholder="09XX XXX XXXX" required
-                           value="<?= e($_POST['contact'] ?? '') ?>" <?= phone_input_attrs() ?>>
+                    <input name="contact" id="reg-phone" class="form-control mb-1" placeholder="09XX XXX XXXX" required
+                           value="<?= e($_POST['contact'] ?? '') ?>" <?= phone_input_attrs() ?> oninput="document.getElementById('reg-phone-warn').style.display='none';">
+                    <div id="reg-phone-warn" class="text-danger mb-2" style="display:none;font-size:.82rem;"></div>
+                    <div class="mb-2"></div>
                     <label class="field-label">Date of birth</label>
                     <input type="date" name="dob" class="form-control mb-1" required value="<?= e($_POST['dob'] ?? '') ?>"
                            min="1900-01-01" max="<?= date('Y-m-d', strtotime('-18 years')) ?>">
                     <div class="text-muted2 mb-3" style="font-size:.8rem;">You must be <strong>18 or older</strong> to create an account.
                         Under 18? A parent or guardian can make the account and book for you.</div>
-                    <button type="submit" class="btn btn-teal w-100 py-2">Create My Account →</button>
+                    <!-- Their own password for this system: not the Gmail password (Google never shares that). -->
+                    <div class="alert py-2 mb-2" style="background:#eef7f6;border:1px solid #d3e8e5;color:#0f5e57;font-size:.8rem;">
+                        🔑 Set a password for your St. Therese account. This is <strong>not</strong> your Gmail password —
+                        with it you can also sign in using your email and password, without Google.
+                    </div>
+                    <?php auth_password_fields(); ?>
+                    <button type="submit" class="btn btn-teal w-100 py-2" onclick="return checkRegPass()">Create My Account →</button>
                 </form>
                 <p class="text-center mt-3 muted"><a href="login?mode=cancel_google" style="color:var(--teal);">← Cancel</a></p>
 
@@ -579,33 +640,7 @@ include 'includes/head.php';
                         Under 18? A parent or guardian can make the account and book for you.
                     </div>
 
-                    <label class="field-label">Password</label>
-                    <div class="muted mb-1" style="font-size:.74rem;">💡 8+ characters · upper &amp; lower case · a number · a symbol</div>
-<div class="pw-wrap mb-3">
-                    <input type="password" name="password" id="reg-pass" class="form-control" placeholder="Strong: 8+ characters, Aa, 1, #" required onkeyup="checkStrength()">
-                    <button type="button" class="pw-eye" aria-label="Show password">
-                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                    </button>
-                </div>
-
-                    <!-- Password strength meter -->
-                    <div id="pw-strength" style="display:none;margin:-8px 0 14px;">
-                        <div style="height:6px;border-radius:4px;background:#e9eef0;overflow:hidden;">
-                            <div id="pw-strength-bar" style="height:100%;width:0;transition:width .2s,background .2s;"></div>
-                        </div>
-                        <div id="pw-strength-text" style="font-size:.76rem;margin-top:4px;color:#8aa0a0;"></div>
-                    </div>
-
-                    <label class="field-label">Confirm Password</label>
-<div class="pw-wrap mb-1">
-                    <input type="password" name="confirm_password" id="reg-pass2" class="form-control" placeholder="Re-type your password" required>
-                    <button type="button" class="pw-eye" aria-label="Show password">
-                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                    </button>
-                </div>
-                    <div id="reg-pass-warn" class="text-danger mb-3" style="display:none;font-size:.82rem;">The passwords do not match.</div>
+                    <?php auth_password_fields(); ?>
 
                     <button type="submit" class="btn btn-teal w-100 py-2" onclick="return checkRegPass()">Create Account →</button>
                 </form>
@@ -635,6 +670,40 @@ include 'includes/head.php';
         </div>
     </div>
 </div>
+
+<?php if ($mode === 'register' || $mode === 'signin' || $mode === 'google'): ?>
+<!-- Terms & Conditions / Privacy Policy (the same text as the home page footer; the admin edits it in Edit Landing Page) -->
+<dialog id="terms-dialog" class="terms-dialog" aria-labelledby="terms-dialog-title">
+    <div class="terms-head">
+        <h5 id="terms-dialog-title" class="m-0">Terms &amp; Conditions</h5>
+        <button type="button" class="btn-close" aria-label="Close" onclick="closeTerms(false)"></button>
+    </div>
+    <div class="auth-tabs terms-tabs">
+        <button type="button" id="terms-tab-terms" onclick="termsTab('terms')">Terms &amp; Conditions</button>
+        <button type="button" id="terms-tab-privacy" onclick="termsTab('privacy')">Privacy Policy</button>
+    </div>
+    <div class="terms-scroll">
+        <div id="terms-body-terms"><?= policy_html(policy_text($pdo, 'terms'), 'h6') ?></div>
+        <div id="terms-body-privacy" hidden><?= policy_html(policy_text($pdo, 'privacy'), 'h6') ?></div>
+    </div>
+    <div class="terms-foot">
+        <button type="button" class="btn btn-light" onclick="closeTerms(false)">Close</button>
+        <button type="button" class="btn btn-teal" onclick="closeTerms(true)">I agree</button>
+    </div>
+</dialog>
+<style>
+.terms-dialog { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 0; border-radius: 16px;
+                box-shadow: 0 20px 60px rgba(0,0,0,.25); flex-direction: column; overflow: hidden; }
+.terms-dialog[open] { display: flex; }
+.terms-dialog::backdrop { background: rgba(13,59,59,.45); }
+.terms-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 8px; }
+.terms-tabs { margin: 0 20px 8px !important; }
+.terms-tabs button { flex: 1; }
+.terms-scroll { overflow-y: auto; padding: 4px 20px 8px; font-size: .9rem; line-height: 1.65; }
+.terms-scroll h6 { margin-top: 12px; font-weight: 700; color: var(--teal); }
+.terms-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid #e3e9ee; }
+</style>
+<?php endif; ?>
 
 <?php if ($deletionNotice): ?>
 <!-- Account-deleted pop-up: shown when the email/password entered belongs
@@ -773,7 +842,39 @@ function checkRegPass(){
     return false;   // stop the form
   }
   warn.style.display = 'none';
+
+  // The Terms & Conditions box must be ticked.
+  var agree = document.getElementById('reg-agree');
+  if (agree && !agree.checked) {
+    document.getElementById('reg-agree-warn').style.display = 'block';
+    agree.focus();
+    return false;   // stop the form
+  }
   return true;
+}
+
+// ---- Terms & Conditions / Privacy Policy pop-up (the links next to the tick box) ----
+function showTerms(which) {
+  var d = document.getElementById('terms-dialog');
+  if (!d) return;
+  termsTab(which);
+  if (d.showModal) d.showModal(); else d.setAttribute('open', '');
+}
+function termsTab(which) {
+  ['terms', 'privacy'].forEach(function (k) {
+    document.getElementById('terms-body-' + k).hidden = (k !== which);
+    document.getElementById('terms-tab-' + k).classList.toggle('active', k === which);
+  });
+  document.getElementById('terms-dialog-title').textContent = which === 'privacy' ? 'Privacy Policy' : 'Terms & Conditions';
+  document.getElementById('terms-dialog').querySelector('.terms-scroll').scrollTop = 0;
+}
+function closeTerms(agree) {
+  var d = document.getElementById('terms-dialog');
+  if (agree) {                                   // "I agree" ticks the box for them
+    var box = document.getElementById('reg-agree');
+    if (box) { box.checked = true; document.getElementById('reg-agree-warn').style.display = 'none'; }
+  }
+  if (d.close) d.close(); else d.removeAttribute('open');
 }
 </script>
 </body>
