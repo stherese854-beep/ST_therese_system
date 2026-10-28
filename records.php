@@ -216,7 +216,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             "INSERT INTO treatments (patient_id,patient_name,treatment_name,tooth,dentist,treatment_date,status,notes,clinic_notes,entered_by)
              VALUES (?,?,?,?,?,?,?,?,?,?)"
         )->execute([
-            $pid, $_POST['patient_name'], trim($_POST['treatment_name']), trim($_POST['tooth'] ?? ''),
+            $pid, $_POST['patient_name'], trim($_POST['treatment_name']), mb_substr(trim($_POST['tooth'] ?? ''), 0, 20),
             $actDentist, $_POST['treatment_date'],
             in_array($_POST['status'] ?? '', ['Completed','In Progress','Planned'], true) ? $_POST['status'] : 'Completed',
             trim($_POST['notes'] ?? ''), trim($_POST['clinic_notes'] ?? '') ?: null, $enteredBy
@@ -815,9 +815,12 @@ $active = 'records';
                         </div>
                     <?php endif; ?>
                     <div class="row g-2">
-                        <!-- (No Tooth # here: a tooth's condition and note are recorded on the Odontogram.) -->
-                        <div class="col-md-6"><label class="field-label">Treatment</label>
+                        <div class="col-md-4"><label class="field-label">Treatment</label>
                             <input name="treatment_name" id="tr-name" class="form-control" placeholder="e.g. Cleaning, Filling" required oninput="trGuess()"></div>
+                        <!-- Which tooth (optional, FDI number; several: "16, 17"). Its condition is still recorded on the Odontogram. -->
+                        <div class="col-md-2"><label class="field-label">Tooth <span class="text-muted2">(optional)</span></label>
+                            <input name="tooth" id="tr-tooth" class="form-control" list="tr-teeth" maxlength="20" placeholder="e.g. 16">
+                            <datalist id="tr-teeth"><?php foreach (array_merge($UPPER_TEETH, $LOWER_TEETH) as $tn): ?><option value="<?= $tn ?>"><?php endforeach; ?></datalist></div>
                         <div class="col-md-3"><label class="field-label">Date</label>
                             <input type="date" name="treatment_date" class="form-control" value="<?= date('Y-m-d') ?>" required></div>
                         <div class="col-md-3"><label class="field-label">Status</label>
@@ -840,7 +843,7 @@ $active = 'records';
                         </div></div>
                         <script>
                         // The record's plan: picked by the buttons above, or guessed from the typed name.
-                        var TR_PLANS = <?= json_encode(array_map(fn($p) => ['id' => (int)$p['id'], 'name' => $p['treatment_name'],
+                        var TR_PLANS = <?= json_encode(array_map(fn($p) => ['id' => (int)$p['id'], 'name' => $p['treatment_name'], 'tooth' => (string)$p['tooth'],
                                             'fam' => treatment_family($p['treatment_name']), 'today' => (string)$p['last_session_date'] === $todayYmd], $activePlans),
                                             JSON_HEX_TAG | JSON_HEX_APOS) ?>;
                         var TR_FAMILIES = <?= json_encode(array_map(null, array_keys(TREATMENT_FAMILIES), array_values(TREATMENT_FAMILIES))) ?>, trTouched = false;
@@ -866,6 +869,7 @@ $active = 'records';
                         function trUsePlan(id) {
                             var p = trPlanById(id); if (!p) return;
                             document.getElementById('tr-name').value = p.name;
+                            if (p.tooth) document.getElementById('tr-tooth').value = p.tooth;   // same tooth as the plan
                             document.getElementById('tr-plan').value = String(id); trTouched = true; trNote();
                         }
                         </script>
