@@ -14,6 +14,8 @@ if (!function_exists('report_types')) {
             'treatment'    => ['💊', 'Treatment History', 'Detailed treatment records for a patient'],
             'appointments' => ['📅', 'Appointments List', 'All appointments by status and date'],
             'patients'     => ['👥', 'List of Patients',  'Complete patient registry with type and status'],
+            'dentists'     => ['🩺', 'Dentist List',      'All dentists with specialty, contact details and patients'],
+            'staff'        => ['💼', 'Staff List',        'The front-desk team with position and contact details'],
         ];
     }
 }

@@ -19,7 +19,7 @@
         '🦷': 'tooth', '🗑': 'trash3', '⚠': 'exclamation-triangle-fill', '📅': 'calendar-event',
         '🗓': 'calendar3', '★': 'star-fill', '⭐': 'star-fill', '☆': 'star', '✓': 'check-lg', '✔': 'check-lg',
         '✅': 'check-circle-fill', '☐': 'square', '💾': 'floppy', '📧': 'envelope-at', '✉': 'envelope',
-        '🖨': 'printer', '🩺': 'clipboard2-pulse', '📄': 'file-earmark-text', '🗄': 'archive',
+        '🖨': 'printer', '🩺': 'clipboard2-pulse', '💼': 'briefcase', '📄': 'file-earmark-text', '🗄': 'archive',
         '📞': 'telephone', '🚫': 'slash-circle', '⛔': 'x-octagon-fill', '👤': 'person', '👥': 'people',
         '👪': 'people-fill', '👨': 'person', '👩': 'person', '👧': 'person', '💬': 'chat-dots',
         '📱': 'phone', '👁': 'eye', '🔍': 'search', '🔎': 'search', '✕': 'x-lg', '✗': 'x-lg',

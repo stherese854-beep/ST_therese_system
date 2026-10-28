@@ -46,12 +46,17 @@ try {
 } catch (Throwable $e) {}
 
 // Which report + which patient are we showing?
-$type      = $_GET['type'] ?? 'profile';                 // profile / treatment / appointments / patients
+$type      = $_GET['type'] ?? 'profile';                 // profile / treatment / appointments / patients / dentists / staff
 $patientId = (int)($_GET['patient_id'] ?? 0);
 
 // Everyone who can open this page may run every report. A DENTIST is still
 // limited to their own patients further down; admin and staff see all patients.
-$allowedTypes = ['profile','treatment','appointments','patients'];
+$allowedTypes = ['profile','treatment','appointments','patients','dentists','staff'];
+
+// Dentist List / Staff List: everyone, or only the active (or only the inactive) ones.
+// Archived accounts are never listed (they are in the Archive).
+$teamStatus = in_array($_GET['team_status'] ?? '', ['active', 'inactive'], true) ? $_GET['team_status'] : '';
+$teamReport = in_array($type ?? '', ['dentists', 'staff'], true);   // not about one patient
 
 // only allow known report types (protects against typos in the URL)
 if (!in_array($type, $allowedTypes)) {
@@ -251,7 +256,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                 <h1>Generate Reports</h1>
                 <div class="sub">Create and export clinical reports for patients, appointments, and treatments.</div>
             </div>
-            <?php $repPdfName = pdf_name($reportTypes[$type][1] ?? 'Report', $patient['name'] ?? '', date('Y-m-d')); ?>
+            <?php $repPdfName = pdf_name($reportTypes[$type][1] ?? 'Report', $teamReport ? '' : ($patient['name'] ?? ''), date('Y-m-d')); ?>
             <div class="d-flex align-items-center gap-2">
                 <?= print_menu('#report-area', $repPdfName) ?>
             </div>
@@ -265,7 +270,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                 <?php foreach ($reportTypes as $key => $rt):
                     $isActive = ($type === $key);
                 ?>
-                    <div class="col-12 col-sm-6 col-xl-3">
+                    <div class="col-12 col-sm-6 col-xl-4">
                         <a href="reports?type=<?= $key ?>&patient_id=<?= $patientId ?><?= $filterDentist !== '' ? '&dentist='.urlencode($filterDentist) : '' ?>"
                            class="report-type-card<?= $isActive ? ' is-active' : '' ?>" <?= $isActive ? 'aria-current="page"' : '' ?>>
                             <div class="rt-icon"><?= $rt[0] ?></div>
@@ -312,7 +317,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
 
                     <!-- Filter the patient list by dentist (admin & staff only;
                          a dentist is always locked to their own patients) -->
-                    <?php if (!$isDentistUser && count($dentistOptions) > 0): ?>
+                    <?php if (!$isDentistUser && count($dentistOptions) > 0 && !$teamReport): ?>
                     <form method="GET">
                         <input type="hidden" name="type" value="<?= e($type) ?>">
                         <?php if ($filterStatus !== ''): ?><input type="hidden" name="status" value="<?= e($filterStatus) ?>"><?php endif; ?>
@@ -360,6 +365,22 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <div class="text-muted2 mb-3" style="font-size:.78rem;">
                                 Patients who came in without an appointment. A walk-in already happened, so it shows with
                                 <b>All statuses</b> or <b>Completed</b>.
+                            </div>
+                        </form>
+                    <?php endif; ?>
+
+                    <?php if ($teamReport): ?>
+                        <!-- Dentist List / Staff List: everyone, or only active / inactive accounts -->
+                        <form method="GET">
+                            <input type="hidden" name="type" value="<?= e($type) ?>">
+                            <label class="field-label">Status</label>
+                            <select name="team_status" class="form-select mb-1" onchange="this.form.submit()">
+                                <option value="">Active and inactive</option>
+                                <option value="active" <?= $teamStatus === 'active' ? 'selected' : '' ?>>Active only</option>
+                                <option value="inactive" <?= $teamStatus === 'inactive' ? 'selected' : '' ?>>Inactive only</option>
+                            </select>
+                            <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                                Archived <?= $type === 'dentists' ? 'dentists' : 'staff' ?> are not listed (they are in the Archive).
                             </div>
                         </form>
                     <?php endif; ?>
@@ -774,6 +795,54 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                 </table>
                             <?php endif; ?>
 
+                        <?php elseif ($teamReport): ?>
+                            <!-- ===== DENTIST LIST / STAFF LIST ===== -->
+                            <?php
+                            $isDentistList = $type === 'dentists';
+                            $tmSql = "SELECT * FROM users WHERE role = ? AND status <> 'archived'"; $tmPrm = [$isDentistList ? 'dentist' : 'staff'];
+                            if ($teamStatus !== '') { $tmSql .= " AND status = ?"; $tmPrm[] = $teamStatus; }
+                            $tmStmt = $pdo->prepare($tmSql . " ORDER BY COALESCE(NULLIF(last_name, ''), name), first_name, name");
+                            $tmStmt->execute($tmPrm);
+                            $team = $tmStmt->fetchAll();
+                            $tmWord = $isDentistList ? 'dentist' : 'staff member';
+                            ?>
+                            <h6><?= $isDentistList ? 'Dentists' : 'Staff' ?></h6>
+                            <div style="font-size:.85rem;margin-bottom:8px;">
+                                <strong><?= $teamStatus === 'active' ? 'Active only' : ($teamStatus === 'inactive' ? 'Inactive only' : 'Active and inactive') ?></strong>
+                                · <?= count($team) ?> <?= $tmWord . (count($team) === 1 ? '' : 's') ?>
+                            </div>
+                            <table class="data" style="font-size:.85rem;">
+                                <thead><tr>
+                                    <th>#</th><th>Name</th><th><?= $isDentistList ? 'Specialty' : 'Position' ?></th><th>Email</th><th>Contact</th>
+                                    <th><?= $isDentistList ? 'Patients' : 'Last Sign-in' ?></th><th>Status</th>
+                                </tr></thead>
+                                <tbody>
+                                <?php foreach ($team as $i => $tm):
+                                    if ($isDentistList) {
+                                        // Patients assigned to this dentist (either shape of the name), not archived ones.
+                                        $pcPrm = [];
+                                        $pc = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE status <> 'Archived' AND " . dentist_match_sql('primary_dentist', $tm['name'], $pcPrm));
+                                        $pc->execute($pcPrm);
+                                        $extra = (string)(int)$pc->fetchColumn();
+                                    } else {
+                                        $extra = $tm['last_login'] ? date('M j, Y', strtotime($tm['last_login'])) : 'Not yet';
+                                    } ?>
+                                    <tr>
+                                        <td><?= $i + 1 ?></td>
+                                        <td><?= e(name_with_initial($tm)) ?></td>
+                                        <td><?= e($isDentistList ? ($tm['specialty'] ?: 'General Dentistry') : ($tm['specialty'] ?: ($tm['position'] ?: 'Front desk'))) ?></td>
+                                        <td><?= e($tm['email']) ?></td>
+                                        <td class="nw"><?= e($tm['contact'] ?: '–') ?></td>
+                                        <td class="nw"><?= e($extra) ?></td>
+                                        <td><span class="badge-pill <?= badge_for(ucfirst($tm['status'])) ?>"><?= e(ucfirst($tm['status'])) ?></span></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                <?php if (!$team): ?>
+                                    <tr><td colspan="7" style="text-align:center;padding:20px;color:#888;">No <?= $isDentistList ? 'dentists' : 'staff' ?> found.</td></tr>
+                                <?php endif; ?>
+                                </tbody>
+                            </table>
+
                         <?php else: /* patients */ ?>
                             <!-- ===== LIST OF PATIENTS ===== -->
                             <h6>Patient Registry</h6>
@@ -816,17 +885,21 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             if ($handling === '') $handling = '____________________';
                             $signatory = $_SESSION['name'] ?? '';
                         ?>
-                        <div class="report-signature" style="margin-top:26px;padding-top:14px;border-top:1px solid #e3e9ee;">
+                        <div class="report-signature" style="margin-top:26px;padding-top:<?= $teamReport ? '48' : '14' ?>px;border-top:1px solid #e3e9ee;">
+                            <?php if (!$teamReport): /* the Dentist / Staff List is not about a patient: no handling dentist */ ?>
                             <div class="report-signature-name" style="font-size:.82rem;color:#555;margin-bottom:34px;">
                                 <strong>Handling Dentist:</strong> <?= e($handling) ?>
                             </div>
+                            <?php endif; ?>
                             <div style="display:flex;gap:48px;flex-wrap:wrap;">
+                                <?php if (!$teamReport): ?>
                                 <div style="min-width:230px;">
                                     <div style="border-top:1px solid #333;padding-top:5px;font-size:.8rem;">
                                         <strong><?= e($handling) ?></strong><br>
                                         <span style="color:#777;">Attending Dentist — Signature over Printed Name</span>
                                     </div>
                                 </div>
+                                <?php endif; ?>
                                 <div style="min-width:230px;">
                                     <div style="border-top:1px solid #333;padding-top:5px;font-size:.8rem;">
                                         <strong><?= e($signatory) ?></strong><br>
