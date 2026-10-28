@@ -898,11 +898,7 @@ $active = 'records';
                             Recording the same treatment again later counts as the next session automatically.</div>
                         <div id="fu-more" class="row g-2 mt-1" style="display:none;">
                             <div class="col-md-5"><label class="field-label">Come back</label>
-                                <select name="followup_every" class="form-select">
-                                    <?php foreach (FOLLOWUP_INTERVALS as $fd => $fl): ?>
-                                        <option value="<?= $fd ?>" <?= $fd === 28 ? 'selected' : '' ?>><?= e($fl) ?></option>
-                                    <?php endforeach; ?>
-                                </select></div>
+                                <?= followup_every_select('rec-fu') ?></div>
                             <div class="col-md-4"><label class="field-label">…or on this date</label>
                                 <input type="date" name="followup_date" class="form-control" min="<?= date('Y-m-d') ?>"></div>
                             <div class="col-md-3"><label class="field-label">Total sessions</label>
@@ -939,7 +935,7 @@ $active = 'records';
                             <strong><?= e($pl['treatment_name']) ?></strong><?= $pl['tooth'] ? ' · Tooth #' . e($pl['tooth']) : '' ?>
                             <span class="badge-pill <?= $pl['status']==='Active' ? ($overdue ? 'b-cancelled' : 'b-pending') : 'b-completed' ?>"><?= e($overdue ? 'Overdue' : $pl['status']) ?></span><br>
                             <small class="text-muted2"><?= e(followup_session_text($pl)) ?>
-                                <?= $pl['interval_days'] ? ' · every ' . (int)$pl['interval_days'] . ' days' : '' ?>
+                                <?= $pl['interval_days'] ? ' · ' . followup_every_text($pl['interval_days']) : '' ?>
                                 <?php if ($pl['status'] === 'Active'): ?>
                                     · next due <b><?= $pl['next_due'] ? date('M j, Y', strtotime($pl['next_due'])) : '–' ?></b>
                                     · <?= $nextBooked ? 'booked ' . date('M j', strtotime($nextBooked['appointment_date'])) . ' ' . e($nextBooked['appointment_time']) : '<span style="color:#c0392b;">not booked</span>' ?>

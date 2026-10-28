@@ -1242,9 +1242,7 @@ function validateCancelAppt(){
           </label>
           <div id="ap-fu" class="row g-2 mt-1" style="display:none;">
             <div class="col-md-5"><label class="field-label">Come back</label>
-              <select name="followup_every" class="form-select">
-                <?php foreach (FOLLOWUP_INTERVALS as $fd => $fl): ?><option value="<?= $fd ?>" <?= $fd === 28 ? 'selected' : '' ?>><?= e($fl) ?></option><?php endforeach; ?>
-              </select></div>
+              <?= followup_every_select('ap-fu') ?></div>
             <div class="col-md-4"><label class="field-label">…or on this date</label><input type="date" name="followup_date" class="form-control" min="<?= date('Y-m-d') ?>"></div>
             <div class="col-md-3"><label class="field-label">Total sessions</label><input type="number" name="followup_sessions" class="form-control" min="2" max="99"></div>
           </div>

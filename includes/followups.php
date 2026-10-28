@@ -25,10 +25,59 @@
 const FOLLOWUP_INTERVALS = [
     7   => 'In 1 week',
     14  => 'In 2 weeks',
+    21  => 'Every 3 weeks',
     28  => 'Every 4 weeks (e.g. braces adjustment)',
     90  => 'In 3 months',
     180 => 'In 6 months (check-up)',
 ];
+const FOLLOWUP_MAX_DAYS = 730;           // a custom "every N weeks/days" may be up to 2 years
+
+/**
+ * The "Come back" drop-down: the usual choices, plus "Other…" which shows
+ * "Every [N] [weeks|days]" for anything else (every 3 weeks, every 10 days, every 5 weeks…).
+ * $id makes the element ids unique when a page has two of these forms.
+ */
+function followup_every_select($id = 'fu') {
+    ob_start(); ?>
+    <select name="followup_every" class="form-select" id="<?= e($id) ?>-every"
+            onchange="var c=document.getElementById('<?= e($id) ?>-custom');c.style.display=this.value==='custom'?'flex':'none';if(this.value==='custom')c.querySelector('input').focus();">
+        <?php foreach (FOLLOWUP_INTERVALS as $fd => $fl): ?>
+            <option value="<?= $fd ?>" <?= $fd === 28 ? 'selected' : '' ?>><?= e($fl) ?></option>
+        <?php endforeach; ?>
+        <option value="custom">Other… (set your own)</option>
+    </select>
+    <div id="<?= e($id) ?>-custom" class="align-items-center gap-2 mt-2" style="display:none;">
+        <span class="text-muted2" style="font-size:.85rem;">Every</span>
+        <input type="number" name="followup_custom_n" class="form-control" min="1" max="<?= FOLLOWUP_MAX_DAYS ?>" value="3" style="width:80px;">
+        <select name="followup_custom_unit" class="form-select" style="width:auto;">
+            <option value="weeks" selected>weeks</option>
+            <option value="days">days</option>
+            <option value="months">months</option>
+        </select>
+    </div>
+    <?php return ob_get_clean();
+}
+
+/** Days between sessions from the form: a listed choice, or "Other…" = N weeks / days / months. 0 = none / not valid. */
+function followup_every_days(array $post) {
+    $v = (string)($post['followup_every'] ?? '');
+    if ($v === 'custom') {
+        $n = (int)($post['followup_custom_n'] ?? 0);
+        $per = ['days' => 1, 'weeks' => 7, 'months' => 30][$post['followup_custom_unit'] ?? 'weeks'] ?? 7;
+        $days = $n * $per;
+        return ($days >= 1 && $days <= FOLLOWUP_MAX_DAYS) ? $days : 0;
+    }
+    return max(0, min(FOLLOWUP_MAX_DAYS, (int)$v));
+}
+
+/** "every 21 days" -> "every 3 weeks" (whole weeks / months read better). */
+function followup_every_text($days) {
+    $days = (int)$days;
+    if ($days <= 0) return '';
+    if ($days % 30 === 0 && $days >= 60) return 'every ' . ($days / 30) . ' months';
+    if ($days % 7 === 0) return 'every ' . ($days / 7 === 1 ? 'week' : ($days / 7) . ' weeks');
+    return 'every ' . ($days === 1 ? 'day' : "$days days");
+}
 define('FOLLOWUP_DUE_WINDOW', 7);        // staff list: due within this many days (or overdue)
 define('FOLLOWUP_REMIND_DAYS', 5);       // patient email this many days before the due date
 
@@ -276,9 +325,12 @@ function followup_after_treatment($pdo, $patientId, $name, $tooth, $date, array 
     $name = trim($name);
     if ($name === '') return '';
     $want   = !empty($post['followup']);
-    $every  = (int)($post['followup_every'] ?? 0);
-    $custom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $post['followup_date'] ?? '') ? $post['followup_date'] : '';
-    $total  = (int)($post['followup_sessions'] ?? 0) ?: null;
+    // The "Come back" choices count only when "Needs follow-up" is ticked. The hidden
+    // drop-down is still sent (it shows "Every 4 weeks"), and must not change an
+    // existing plan's interval — a 3-week plan stays 3 weeks at its next session.
+    $every  = $want ? followup_every_days($post) : 0;
+    $custom = $want && preg_match('/^\d{4}-\d{2}-\d{2}$/', $post['followup_date'] ?? '') ? $post['followup_date'] : '';
+    $total  = $want ? ((int)($post['followup_sessions'] ?? 0) ?: null) : null;
     $dueFrom = function ($days) use ($date) { return date('Y-m-d', strtotime($date . " +$days days")); };
 
     $plan = $planId === null ? find_active_plan($pdo, $patientId, $name)
