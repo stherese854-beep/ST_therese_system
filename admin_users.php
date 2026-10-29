@@ -155,8 +155,16 @@ $patientsU  = $pdo->query("SELECT COUNT(*) FROM users WHERE role='patient'")->fe
 // ?role=staff (the menu's "Staff"), dentist, admin, patient — or everyone
 $roleNames  = ['staff' => 'Staff', 'dentist' => 'Dentists', 'admin' => 'Admins', 'patient' => 'Patients'];
 $roleFilter = isset($roleNames[$_GET['role'] ?? '']) ? $_GET['role'] : '';
-$uq = $pdo->prepare("SELECT * FROM users WHERE status <> 'archived'" . ($roleFilter ? " AND role = ?" : '') . " ORDER BY role, name");
-$uq->execute($roleFilter ? [$roleFilter] : []);
+// ?q= search by name, email, phone or specialty / position (inside the chosen role)
+$search = mb_substr(trim($_GET['q'] ?? ''), 0, 100);
+$uWhere = "status <> 'archived'"; $uArgs = [];
+if ($roleFilter) { $uWhere .= " AND role = ?"; $uArgs[] = $roleFilter; }
+if ($search !== '') {
+    $uWhere .= " AND (name LIKE ? OR email LIKE ? OR contact LIKE ? OR specialty LIKE ? OR position LIKE ?)";
+    array_push($uArgs, ...array_fill(0, 5, '%' . $search . '%'));
+}
+$uq = $pdo->prepare("SELECT * FROM users WHERE $uWhere ORDER BY role, name");
+$uq->execute($uArgs);
 $users = $uq->fetchAll();
 // Who books for family members? (asked about when their account is archived)
 $famByUser = [];
@@ -216,11 +224,22 @@ $active = 'users';
             </div>
             <!-- Show only one kind of user -->
             <div class="d-flex flex-wrap gap-2 mb-3 no-print" data-keep-text>
-                <a href="admin_users" class="btn btn-sm <?= $roleFilter === '' ? 'btn-dark-navy' : 'btn-light' ?>">All</a>
+                <?php $qKeep = $search !== '' ? 'q=' . urlencode($search) : ''; ?>
+                <a href="admin_users<?= $qKeep ? '?' . $qKeep : '' ?>" class="btn btn-sm <?= $roleFilter === '' ? 'btn-dark-navy' : 'btn-light' ?>">All</a>
                 <?php foreach ($roleNames as $rk => $rl): ?>
-                    <a href="admin_users?role=<?= $rk ?>" class="btn btn-sm <?= $roleFilter === $rk ? 'btn-dark-navy' : 'btn-light' ?>"><?= $rl ?></a>
+                    <a href="admin_users?role=<?= $rk ?><?= $qKeep ? '&' . $qKeep : '' ?>" class="btn btn-sm <?= $roleFilter === $rk ? 'btn-dark-navy' : 'btn-light' ?>"><?= $rl ?></a>
                 <?php endforeach; ?>
             </div>
+            <!-- Search bar (stays inside the chosen role) -->
+            <form method="GET" class="d-flex gap-2 align-items-center flex-wrap mb-3 no-print">
+                <?php if ($roleFilter): ?><input type="hidden" name="role" value="<?= e($roleFilter) ?>"><?php endif; ?>
+                <span>🔍</span>
+                <input type="search" name="q" class="form-control" placeholder="Search by name, email, phone or specialty..." value="<?= e($search) ?>" style="flex:1;min-width:180px;">
+                <button class="btn btn-teal">Search</button>
+                <?php if ($search !== ''): ?>
+                    <a href="admin_users<?= $roleFilter ? '?role=' . $roleFilter : '' ?>" class="btn btn-light" data-keep-text>Clear</a>
+                <?php endif; ?>
+            </form>
             <?= bulk_bar('bulk-users', 'delete', 'users to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive. Family members they book for are kept as the clinic patients.', 'Move') ?>
             <div class="table-responsive">
                 <table class="data">
@@ -261,6 +280,10 @@ $active = 'users';
                             </td>
                         </tr>
                     <?php endforeach; ?>
+                    <?php if (!$users): ?>
+                        <tr><td colspan="7" class="text-center text-muted2 py-4">
+                            <?= $search !== '' ? 'No users match "' . e($search) . '". <a href="admin_users' . ($roleFilter ? '?role=' . $roleFilter : '') . '" style="color:var(--teal);">Clear search</a>' : 'No users yet.' ?></td></tr>
+                    <?php endif; ?>
                     </tbody>
                 </table>
             </div>
