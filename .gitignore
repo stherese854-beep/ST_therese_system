@@ -13,3 +13,6 @@ config/local.php
 # Ignore logs and temp files
 *.log
 *.tmp
+
+# Automatic backups saved on the server (every patient's record) — never commit them.
+backups/

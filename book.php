@@ -666,6 +666,10 @@ include 'includes/head.php';
                 <p class="text-muted2">Choose the treatment you would like, then tell us about your health.</p>
 
                 <?= treatment_picker_assets() ?>
+                <!-- Wide screens: treatments + X-ray on the left, the health questionnaire on the right,
+                     so the whole step fits without scrolling (one column on phones/tablets). -->
+                <div class="bk-svc">
+                <div class="bk-svc-left">
                 <div class="field-label">Preferred treatment * <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— choose 1 to <?= MAX_TREATMENTS ?></span></div>
                 <?php // "Book a visit" from My Records can pre-pick the treatment (?treatment=Dental Filling)
                       $bkPre = $_POST['treatment'] ?? (isset(clinic_treatments()[$_GET['treatment'] ?? '']) ? $_GET['treatment'] : ''); ?>
@@ -700,11 +704,15 @@ include 'includes/head.php';
                         </div>
                     </div>
                 </div>
+                </div><!-- /bk-svc-left -->
 
+                <div class="bk-svc-right">
                 <?= health_form_styles() ?>
                 <div id="hf-person-note" class="text-muted2 mb-1" style="font-size:.82rem;"><?= ($_SERVER['REQUEST_METHOD'] !== 'POST' && $hfMine) ? 'These are your saved answers — please review and update them.' : '' ?></div>
                 <div id="hf-wrap"><?= health_form_fields($hfPrefill) ?></div>
                 <div id="hf-warn" class="text-danger small mb-2" style="display:none;"></div>
+                </div><!-- /bk-svc-right -->
+                </div><!-- /bk-svc -->
 
                 <div class="flex-between">
                     <button type="button" class="btn btn-outline-teal" onclick="goStep(2)">← Back</button>
@@ -940,6 +948,60 @@ body,
 .wizard-card label.field-label { margin-top: 4px; }
 .wizard-card .form-control,
 .wizard-card .form-select { padding: .3rem .6rem; font-size: .88rem; }
+
+/* ── Service step on a computer screen: the card grows into the empty space at the sides
+      and the step is laid out in columns, so it fits without scrolling. ── */
+@media (min-width: 992px) {
+    .wizard-card:has(#step-3:not(.d-none)) { max-width: 1320px !important; }
+    .wizard-card:has(#step-3:not(.d-none)) .steps { max-width: 540px; margin-left: auto; margin-right: auto; }
+    /* One grid for the whole step (the wrappers step aside with display: contents):
+         row 1      the treatments, four across
+         columns    yes/no questions | diseases | physician + X-ray
+         bottom     privacy note, consent and "I confirm", full width */
+    .wizard-card:has(#step-3:not(.d-none)) .steps { margin-top: 0 !important; }   /* no back arrow on this step */
+    .wizard-card:has(#step-3:not(.d-none)) { padding-top: 12px !important; padding-bottom: 14px !important; }
+    #step-3 > h3 { display: inline-block; margin-right: 10px; }
+    #step-3 > p.text-muted2 { display: inline; }
+    /* The big page header shrinks to one slim line on this step */
+    body:has(#step-3:not(.d-none)) .booking-hero { padding: 12px 140px 12px 20px !important; text-align: left; }
+    body:has(#step-3:not(.d-none)) .booking-hero h1 { font-size: 1.1rem !important; margin: 0 !important; display: inline-block; }
+    body:has(#step-3:not(.d-none)) .booking-hero .eyebrow { display: none; }
+    body:has(#step-3:not(.d-none)) .booking-hero > .d-inline-flex { padding: 2px 10px !important; margin-left: 12px; vertical-align: middle; }
+    body:has(#step-3:not(.d-none)) .booking-body { padding-top: 12px !important; }
+    .bk-svc { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); column-gap: 20px; align-items: start; }
+    .bk-svc-left, .bk-svc-right, .bk-svc #hf-wrap, .bk-svc .hf { display: contents; }
+    .bk-svc-left > *, .bk-svc-right > *, .bk-svc .hf > * { grid-column: 1 / -1; }
+    .bk-svc .tp-list { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+    .bk-svc .tp-item { display: block; padding: 5px 9px; font-size: .86rem; line-height: 1.3; }
+    .bk-svc .tp-item input { margin-right: 4px; }
+    .bk-svc .tp-item span { font-size: .76rem; }
+    .bk-svc-left > .text-muted2 { font-size: .76rem !important; margin-bottom: 4px !important; }
+    .bk-svc .hf-title { font-size: .92rem; margin: 2px 0 0; padding-top: 6px; border-top: 1px solid #e3e9ee; }
+    .bk-svc .hf-q { padding: 4px 0; font-size: .83rem; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; }
+    .bk-svc .hf-q > label { margin-right: 0; }
+    .bk-svc .hf-label { margin-bottom: 1px; flex: 0 1 auto; }   /* short question: the Yes/No sit beside it */
+    .bk-svc .hf-more, .bk-svc .hf-inline, .bk-svc .hf-grid { flex: 1 1 100%; margin-top: 3px; }
+    /* column 1: the yes/no questions + medication */
+    .bk-svc .hf-q:has([name="hf[pregnant]"])    { grid-column: 1; grid-row: 7; }
+    .bk-svc .hf-q:has([name="hf[anesthesia]"])  { grid-column: 1; grid-row: 8; }
+    .bk-svc .hf-q:has([name="hf[allergy]"])     { grid-column: 1; grid-row: 9; }
+    .bk-svc .hf-q:has([name="hf[smoke]"])       { grid-column: 1; grid-row: 10; }
+    .bk-svc .hf-q:has([name="hf[good_health]"]) { grid-column: 1; grid-row: 11; }
+    .bk-svc .hf-q:has([name="hf[no_medication]"]) { grid-column: 1; grid-row: 12; }
+    /* column 2: the diseases */
+    .bk-svc .hf-q:has(.hf-grid) { grid-column: 2; grid-row: 7 / span 6; }
+    .bk-svc .hf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+    .bk-svc .hf-grid label { font-size: .76rem; line-height: 1.35; }
+    /* column 3: physician / further information, then the X-ray */
+    .bk-svc .hf-two { grid-column: 3; grid-row: 7 / span 3; display: grid; grid-template-columns: 1fr; gap: 3px; align-content: start; }
+    .bk-svc .bk-xray { grid-column: 3; grid-row: 10 / span 3; padding: 8px 10px; margin: 4px 0 0 !important; }
+    .bk-svc .bk-xray > .text-muted2 { display: none; }   /* the heading says enough here; the long hint shows on phones */
+    /* bottom, full width */
+    .bk-svc .hf-privacy { grid-row: 13; margin: 6px 0 2px; padding: 4px 9px; font-size: .7rem; }
+    .bk-svc .hf-q:has([name="hf[share_consent]"]) { grid-row: 14; border-top: 0; }
+    .bk-svc .hf-confirm { grid-row: 15; margin-top: 0; font-size: .82rem; }
+    .bk-svc #hf-warn { grid-row: 16; }
+}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>

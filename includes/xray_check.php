@@ -118,6 +118,8 @@ function xray_image_problem($stats) {
  */
 function xray_check_script($form) {
     ob_start(); ?>
+    <!-- Bootstrap's d-flex (display:flex !important) would otherwise beat the hidden attribute -->
+    <style>.xr-confirm[hidden], .xr-check[hidden], .xr-need[hidden] { display: none !important; }</style>
     <script>
     (function () {
         var form = document.querySelector(<?= json_encode($form) ?>);

@@ -891,6 +891,12 @@ if (function_exists('is_logged_in') && is_logged_in()
     require_once __DIR__ . '/noshow_check.php';
     run_noshow_scan($pdo);
 }
+// Automatic data backup (Data Backup → Every week / Every month): made by the
+// first page a signed-in user opens once one is due. One settings read otherwise.
+if (isset($pdo) && function_exists('is_logged_in') && is_logged_in()) {
+    require_once __DIR__ . '/backup.php';
+    try { run_auto_backup($pdo); } catch (Throwable $e) { /* never break the page */ }
+}
 ?>
 
 <?php
