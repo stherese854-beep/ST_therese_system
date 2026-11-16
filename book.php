@@ -170,8 +170,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
     // (c) Scheduling conflicts (dentist away / already booked at that time) are
     //     handled above: pick_dentist_for_slot() only returns a dentist who is free.
 
-    // Same-day booking is allowed; only a date or time that has already passed is refused.
-    $minBookDate = date('Y-m-d');
+    // No same-day appointments: the earliest bookable date is tomorrow.
+    // (To allow same-day booking again, change '+1 day' back to 'today'.)
+    $minBookDate = date('Y-m-d', strtotime('+1 day'));
 
     [$cleanPhone, $phoneError] = validate_phone($_POST['phone'] ?? '');
 
@@ -258,10 +259,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'book'
         $bookError = $healthError;
     } elseif ($xrError !== '') {
         $bookError = e($xrError);
-    } elseif (($_POST['date'] ?? '') < $minBookDate) {
-        $bookError = "That date has already passed. Please pick today or a later date.";
-    } elseif (($_POST['date'] ?? '') === $minBookDate && strtotime($minBookDate . ' ' . ($_POST['time'] ?? '')) <= time()) {
-        $bookError = "That time has already passed today. Please choose a later time.";
+    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_POST['date'] ?? '')) || ($_POST['date'] ?? '') < $minBookDate) {
+        $bookError = "Appointments can't be booked for today or a past date. Please pick tomorrow or a later date.";
     } elseif (($_POST['for'] ?? 'myself') === 'other' && ($dobErr = birth_date_error($_POST['patient_dob'] ?? '', true)) !== '') {
         $bookError = $dobErr;
     } elseif ($depMiddleErr !== '') {
@@ -486,12 +485,30 @@ foreach ($busyBy as $date => $perDentist) {
 
 // Past time slots computed in JS in real-time (so the page doesn't go stale)
 $todayStr = date('Y-m-d');
-$minBookDateStr = date('Y-m-d');   // earliest bookable date — today (passed times are greyed out)
+$minBookDateStr = date('Y-m-d', strtotime('+1 day'));   // earliest bookable date — tomorrow (no same-day appointments)
 
 $page_title = "Book Appointment";
 $hide_hamburger = true;   // this page has no sidebar, so the menu button has nothing to open
 include 'includes/head.php';
 ?>
+<?php if (!empty($_GET['embed'])): // shown inside the booking pop-up: no header, no exit arrow ?>
+<style>
+    .booking-hero, #wiz-exit, .back-arrow, .hamburger, .sidebar, .sidebar-backdrop, #topbarWidgets, .topbar-widget { display: none !important; }
+    html, body { background: #f6f1e9 !important; }
+    .booking-body { min-height: 0 !important; padding: 10px 10px 16px !important; align-items: flex-start !important; }
+    .wizard-card { padding: 14px 14px !important; max-width: 100% !important; border-radius: 12px !important; }
+    .wizard-card .card-box { padding: 10px 12px !important; font-size: .88rem; }
+    .wizard-card h3 { font-size: 1.05rem; }
+    .wizard-card { box-shadow: none !important; }
+    .steps { margin-top: 0 !important; }
+</style>
+<script>
+// Links that leave the wizard (OK / Back to my appointments) reload the whole page behind the pop-up.
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('a[href="portal"]').forEach(function (a) { a.target = '_top'; });
+});
+</script>
+<?php endif; ?>
 <div class="booking-hero<?= $booked ? ' bk-done-hero' : '' ?>">
     <div class="eyebrow">ONLINE BOOKING</div>
     <h1>Book Your Appointment</h1>
@@ -645,7 +662,7 @@ include 'includes/head.php';
                 <label class="field-label">Date</label>
                 <input type="date" name="date" id="sel-date" class="form-control mb-1"
                        value="<?= $minBookDateStr ?>" min="<?= $minBookDateStr ?>" onchange="checkDate()" required>
-                <div class="text-muted2 mb-1" style="font-size:.76rem;">You can book for today — times that have already passed are greyed out.</div>
+                <div class="text-muted2 mb-1" style="font-size:.76rem;">Appointments must be booked at least one day ahead. For a same-day visit, please call or visit the clinic.</div>
                 <div id="date-warn" class="text-danger small mb-2" style="display:none;"></div>
 
                 <label class="field-label">Available Slots</label>
@@ -664,29 +681,32 @@ include 'includes/head.php';
             <div class="wizard-step d-none" id="step-3">
                 <h3>Service</h3>
                 <p class="text-muted2">Choose the treatment you would like, then tell us about your health.</p>
+                <div class="svc-progress text-muted2" id="svc-progress" style="font-size:.78rem;margin-bottom:6px;">Part 1 of 6</div>
 
                 <?= treatment_picker_assets() ?>
                 <!-- Wide screens: treatments + X-ray on the left, the health questionnaire on the right,
                      so the whole step fits without scrolling (one column on phones/tablets). -->
                 <div class="bk-svc">
-                <div class="bk-svc-left">
+                <div class="svc-part" id="svc-part-1">
                 <div class="field-label">Preferred treatment * <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— choose 1 to <?= MAX_TREATMENTS ?></span></div>
                 <?php // "Book a visit" from My Records can pre-pick the treatment (?treatment=Dental Filling)
                       $bkPre = $_POST['treatment'] ?? (isset(clinic_treatments()[$_GET['treatment'] ?? '']) ? $_GET['treatment'] : ''); ?>
                 <?= treatment_picker(array_filter(explode(', ', (string)$bkPre)), 'bk') ?>
                 <div id="tp-warn" class="text-danger small mb-1" style="display:none;">Please choose at least one treatment.</div>
-                <div class="text-muted2 mb-3" style="font-size:.8rem;">
-                    Not sure what you need? Choose <b>Consultation</b> — the dentist will check and confirm the right treatment.
-                    Our clinic will assign an available dentist for your visit.
-                </div>
 
                 <input type="hidden" name="pref_dentist" value="">
+                <div class="flex-between mt-3">
+                    <button type="button" class="btn btn-outline-teal" onclick="goStep(2)">← Back</button>
+                    <button type="button" class="btn btn-teal" onclick="svcNext(1)">Next →</button>
+                </div>
+                </div><!-- /svc-part-1 -->
+
+                <div class="svc-part d-none" id="svc-part-2">
 
                 <!-- Optional: an X-ray the patient already has (saved to their X-rays when the booking is made).
                      The same "is it really an X-ray?" check as Records (includes/xray_check.php). -->
                 <div class="bk-xray mb-3">
                     <div class="field-label mb-1">📷 Panoramic X-ray (Panorex) <span class="text-muted2" style="text-transform:none;letter-spacing:0;">— optional</span></div>
-                    <div class="text-muted2 mb-2" style="font-size:.8rem;">Have a recent panoramic X-ray — the wide X-ray of all your teeth? Attach it so the dentist can see it before your visit.</div>
                     <div class="row g-2">
                         <div class="col-md-7">
                             <input type="file" name="xray" class="form-control" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>">
@@ -704,20 +724,23 @@ include 'includes/head.php';
                         </div>
                     </div>
                 </div>
-                </div><!-- /bk-svc-left -->
+                <div class="flex-between mt-3">
+                    <button type="button" class="btn btn-outline-teal" onclick="svcGo(1)">← Back</button>
+                    <button type="button" class="btn btn-teal" onclick="svcNext(2)">Next →</button>
+                </div>
+                </div><!-- /svc-part-2 -->
 
-                <div class="bk-svc-right">
+                <div class="svc-part d-none" id="svc-part-3">
                 <?= health_form_styles() ?>
                 <div id="hf-person-note" class="text-muted2 mb-1" style="font-size:.82rem;"><?= ($_SERVER['REQUEST_METHOD'] !== 'POST' && $hfMine) ? 'These are your saved answers — please review and update them.' : '' ?></div>
                 <div id="hf-wrap"><?= health_form_fields($hfPrefill) ?></div>
                 <div id="hf-warn" class="text-danger small mb-2" style="display:none;"></div>
-                </div><!-- /bk-svc-right -->
-                </div><!-- /bk-svc -->
-
-                <div class="flex-between">
-                    <button type="button" class="btn btn-outline-teal" onclick="goStep(2)">← Back</button>
-                    <button type="button" class="btn btn-teal" onclick="validateStep2()">Continue →</button>
+                <div class="flex-between mt-3">
+                    <button type="button" class="btn btn-outline-teal" id="svc-back" onclick="svcGo(svcCur - 1)">← Back</button>
+                    <button type="button" class="btn btn-teal" id="svc-next" onclick="svcNext(svcCur)">Next →</button>
                 </div>
+                </div><!-- /svc-part-3 (health parts 3-6) -->
+                </div><!-- /bk-svc -->
             </div>
 
             <!-- STEP 3: Personal Info -->
@@ -727,22 +750,12 @@ include 'includes/head.php';
 
                 <label class="field-label">Who is this appointment for?</label>
                 <div class="d-flex gap-3 mb-3">
-                    <label class="d-flex align-items-center gap-1" style="cursor:pointer;">
+                    <label class="d-flex align-items-center gap-1" style="cursor:<?= $ownerBusyDate ? 'not-allowed;opacity:.65' : 'pointer' ?>;"<?= $ownerBusyDate ? ' title="' . e('You already have a booking on ' . date('M j, Y', strtotime($ownerBusyDate)) . '. Each person can only have one booking at a time — please book for someone else.') . '"' : '' ?>>
                         <input type="radio" name="for" value="myself" <?= $ownerBusyDate ? 'disabled' : 'checked' ?> onclick="toggleFor()"> Myself
                     </label>
                     <label class="d-flex align-items-center gap-1" style="cursor:pointer;">
                         <input type="radio" name="for" value="other" <?= $ownerBusyDate ? 'checked' : '' ?> onclick="toggleFor()"> Someone else (e.g. my child)
                     </label>
-                </div>
-                <?php if ($ownerBusyDate): ?>
-                <div class="alert alert-warning py-2 mb-3" style="font-size:.83rem;">
-                    📅 You already have an appointment on <strong><?= date('M j, Y', strtotime($ownerBusyDate)) ?></strong>.
-                    Each person can only have one booking at a time, so this booking must be for <strong>someone else</strong>.
-                </div>
-                <?php endif; ?>
-                <div id="dependent-note" class="alert alert-light border py-2 mb-3" style="display:none;font-size:.83rem;">
-                    ℹ️ <?= $familyList ? 'Choose someone you booked for before, or pick <b>Someone new</b> and enter their name.' : "Enter the patient's name below." ?>
-                    The appointment will still be under your account.
                 </div>
 
                 <div id="rel-wrap" style="display:none;">
@@ -778,17 +791,17 @@ include 'includes/head.php';
 
                 </div>
 
-                <div class="row">
-                    <div class="col"><label class="field-label">First Name</label>
-                        <input name="fname" id="sel-fname" class="form-control mb-1" value="<?= e(name_parts_of($me)[0]) ?>" readonly>
+                <div class="row g-2">
+                    <div class="col-4">
+                        <input name="fname" id="sel-fname" placeholder="First Name" aria-label="First Name" class="form-control mb-1" value="<?= e(name_parts_of($me)[0]) ?>" readonly>
                     </div>
-                    <div class="col"><label class="field-label">Last Name</label>
-                        <input name="lname" id="sel-lname" class="form-control mb-1" value="<?= e(name_parts_of($me)[1]) ?>" readonly>
+                    <div class="col-4">
+                        <input name="lname" id="sel-lname" placeholder="Last Name" aria-label="Last Name" class="form-control mb-1" value="<?= e(name_parts_of($me)[1]) ?>" readonly>
                     </div>
+                    <!-- Middle name beside the last name: yours (and someone booked before) is on file, shown as the initial;
+                         someone new: typed in full, or "No middle name" -->
+                    <div class="col-4 mb-1 bk-mid"><?= middle_name_input('mname', '', false, ['id' => 'sel-mname', 'label' => false, 'placeholder' => 'Middle Name *']) ?></div>
                 </div>
-                <!-- Middle name: yours (and someone booked before) is on file, shown as the initial;
-                     someone new: typed in full, or "No middle name" -->
-                <div class="mb-1"><?= middle_name_input('mname', '', false, ['id' => 'sel-mname', 'label' => 'Middle Name *']) ?></div>
                 <div id="name-warn" class="text-danger small mb-2" style="display:none;">Please enter the patient's first and last name.</div>
 
                 <!-- Booking for someone else: their birthday, right after their name -->
@@ -845,7 +858,7 @@ include 'includes/head.php';
 
                 <div class="flex-between">
                     <button type="button" class="btn btn-outline-teal" onclick="goStep(3)">← Back</button>
-                    <button type="submit" class="btn btn-gold" onclick="return checkAgree()">✓ Submit Booking Request</button>
+                    <button type="submit" class="btn btn-gold" onclick="return checkAgree()">✓ Submit</button>
                 </div>
             </div>
         </form>
@@ -949,59 +962,22 @@ body,
 .wizard-card .form-control,
 .wizard-card .form-select { padding: .3rem .6rem; font-size: .88rem; }
 
-/* ── Service step on a computer screen: the card grows into the empty space at the sides
-      and the step is laid out in columns, so it fits without scrolling. ── */
-@media (min-width: 992px) {
-    .wizard-card:has(#step-3:not(.d-none)) { max-width: 1320px !important; }
-    .wizard-card:has(#step-3:not(.d-none)) .steps { max-width: 540px; margin-left: auto; margin-right: auto; }
-    /* One grid for the whole step (the wrappers step aside with display: contents):
-         row 1      the treatments, four across
-         columns    yes/no questions | diseases | physician + X-ray
-         bottom     privacy note, consent and "I confirm", full width */
-    .wizard-card:has(#step-3:not(.d-none)) .steps { margin-top: 0 !important; }   /* no back arrow on this step */
-    .wizard-card:has(#step-3:not(.d-none)) { padding-top: 12px !important; padding-bottom: 14px !important; }
-    #step-3 > h3 { display: inline-block; margin-right: 10px; }
-    #step-3 > p.text-muted2 { display: inline; }
-    /* The big page header shrinks to one slim line on this step */
-    body:has(#step-3:not(.d-none)) .booking-hero { padding: 12px 140px 12px 20px !important; text-align: left; }
-    body:has(#step-3:not(.d-none)) .booking-hero h1 { font-size: 1.1rem !important; margin: 0 !important; display: inline-block; }
-    body:has(#step-3:not(.d-none)) .booking-hero .eyebrow { display: none; }
-    body:has(#step-3:not(.d-none)) .booking-hero > .d-inline-flex { padding: 2px 10px !important; margin-left: 12px; vertical-align: middle; }
-    body:has(#step-3:not(.d-none)) .booking-body { padding-top: 12px !important; }
-    .bk-svc { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); column-gap: 20px; align-items: start; }
-    .bk-svc-left, .bk-svc-right, .bk-svc #hf-wrap, .bk-svc .hf { display: contents; }
-    .bk-svc-left > *, .bk-svc-right > *, .bk-svc .hf > * { grid-column: 1 / -1; }
-    .bk-svc .tp-list { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-    .bk-svc .tp-item { display: block; padding: 5px 9px; font-size: .86rem; line-height: 1.3; }
-    .bk-svc .tp-item input { margin-right: 4px; }
-    .bk-svc .tp-item span { font-size: .76rem; }
-    .bk-svc-left > .text-muted2 { font-size: .76rem !important; margin-bottom: 4px !important; }
-    .bk-svc .hf-title { font-size: .92rem; margin: 2px 0 0; padding-top: 6px; border-top: 1px solid #e3e9ee; }
-    .bk-svc .hf-q { padding: 4px 0; font-size: .83rem; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; }
-    .bk-svc .hf-q > label { margin-right: 0; }
-    .bk-svc .hf-label { margin-bottom: 1px; flex: 0 1 auto; }   /* short question: the Yes/No sit beside it */
-    .bk-svc .hf-more, .bk-svc .hf-inline, .bk-svc .hf-grid { flex: 1 1 100%; margin-top: 3px; }
-    /* column 1: the yes/no questions + medication */
-    .bk-svc .hf-q:has([name="hf[pregnant]"])    { grid-column: 1; grid-row: 7; }
-    .bk-svc .hf-q:has([name="hf[anesthesia]"])  { grid-column: 1; grid-row: 8; }
-    .bk-svc .hf-q:has([name="hf[allergy]"])     { grid-column: 1; grid-row: 9; }
-    .bk-svc .hf-q:has([name="hf[smoke]"])       { grid-column: 1; grid-row: 10; }
-    .bk-svc .hf-q:has([name="hf[good_health]"]) { grid-column: 1; grid-row: 11; }
-    .bk-svc .hf-q:has([name="hf[no_medication]"]) { grid-column: 1; grid-row: 12; }
-    /* column 2: the diseases */
-    .bk-svc .hf-q:has(.hf-grid) { grid-column: 2; grid-row: 7 / span 6; }
-    .bk-svc .hf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
-    .bk-svc .hf-grid label { font-size: .76rem; line-height: 1.35; }
-    /* column 3: physician / further information, then the X-ray */
-    .bk-svc .hf-two { grid-column: 3; grid-row: 7 / span 3; display: grid; grid-template-columns: 1fr; gap: 3px; align-content: start; }
-    .bk-svc .bk-xray { grid-column: 3; grid-row: 10 / span 3; padding: 8px 10px; margin: 4px 0 0 !important; }
-    .bk-svc .bk-xray > .text-muted2 { display: none; }   /* the heading says enough here; the long hint shows on phones */
-    /* bottom, full width */
-    .bk-svc .hf-privacy { grid-row: 13; margin: 6px 0 2px; padding: 4px 9px; font-size: .7rem; }
-    .bk-svc .hf-q:has([name="hf[share_consent]"]) { grid-row: 14; border-top: 0; }
-    .bk-svc .hf-confirm { grid-row: 15; margin-top: 0; font-size: .82rem; }
-    .bk-svc #hf-warn { grid-row: 16; }
-}
+/* Health parts: smaller text, and the diseases in two columns, so a part fits without scrolling */
+.bk-svc .hf-q { padding: 6px 0; font-size: .8rem; }
+.bk-svc .hf-label { font-size: .8rem; margin-bottom: 2px; }
+.bk-svc .hf-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 1px 10px; }
+.bk-svc .hf-grid label { font-size: .74rem; line-height: 1.25; display: flex; align-items: flex-start; gap: 4px; }
+.bk-svc .hf-grid input { margin-top: 2px; flex: 0 0 auto; }
+.bk-svc .hf-inline span, .bk-svc .hf-more span { font-size: .74rem; }
+.bk-svc .hf-privacy { font-size: .72rem; }
+/* Wizard buttons: compact, one line each */
+.wizard-card .flex-between > .btn { padding: .38rem .95rem !important; font-size: .9rem !important; line-height: 1.35; white-space: nowrap; width: auto; flex: 0 0 auto; }
+.wizard-card .flex-between { gap: 8px; }
+#hf-person-note { display: none !important; }
+.bk-mid .mid-none { font-size: .72rem; white-space: nowrap; }
+.bk-mid .field-label .text-muted2 { display: none; }   /* "(in full)" would not fit in the narrow column */          /* "These are your saved answers…" is not shown */
+.bk-svc .hf-title { font-size: .82rem; }
+.bk-svc .hf-title span { font-size: .72rem; font-weight: 400; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
@@ -1010,7 +986,7 @@ const DAYS_OFF   = <?= json_encode($allOffDates) ?>;   // dates when NO dentist 
 const OPEN_DAYS  = <?= json_encode($openDaysArr) ?>;      // e.g. ['Mon','Tue',...]
 const SHORT_DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const TODAY_STR  = <?= json_encode($todayStr) ?>;
-const MIN_BOOK_DATE = <?= json_encode($minBookDateStr) ?>;   // earliest selectable date — today
+const MIN_BOOK_DATE = <?= json_encode($minBookDateStr) ?>;   // earliest selectable date — tomorrow
 const TAKEN_BY_DATE = <?= json_encode($takenByDate) ?>;   // times when every dentist is away or booked
 const ALL_SLOTS  = <?= json_encode($slots) ?>;            // all clinic time slots
 
@@ -1161,6 +1137,76 @@ function relOther() {
 
 // Step 2: every required health question answered (the browser marks the first one missing).
 // Everything still missing turns red (and back to normal once answered).
+// The Service step is shown in 6 parts: 1 treatment, 2 panoramic X-ray, 3 health yes/no questions,
+// 4 diseases, 5 medication & notes, 6 privacy, consent and confirmation.
+var svcCur = 1, SVC_LAST = 6;
+function svcTagHealth() {          // sort the health questionnaire's blocks into parts 3-6 (once)
+    var hf = document.querySelector('#hf-wrap .hf');
+    if (!hf || hf.dataset.tagged) return;
+    hf.dataset.tagged = '1';
+    Array.prototype.forEach.call(hf.children, function (el) {
+        var part = 3;
+        if (el.querySelector('.hf-grid')) part = 4;
+        else if (el.querySelector('[name="hf[no_medication]"]') || el.classList.contains('hf-two')) part = 5;
+        else if (el.classList.contains('hf-privacy') || el.classList.contains('hf-confirm') || el.querySelector('[name="hf[share_consent]"]')) part = 6;
+        el.dataset.svc = part;
+    });
+}
+function svcGo(n) {
+    svcTagHealth();
+    n = Math.max(1, Math.min(SVC_LAST, n)); svcCur = n;
+    document.getElementById('svc-part-1').classList.toggle('d-none', n !== 1);
+    document.getElementById('svc-part-2').classList.toggle('d-none', n !== 2);
+    document.getElementById('svc-part-3').classList.toggle('d-none', n < 3);
+    document.querySelectorAll('#hf-wrap .hf > [data-svc]').forEach(function (el) { el.style.display = (+el.dataset.svc === n) ? '' : 'none'; });
+    var note = document.getElementById('hf-person-note'); if (note) note.style.display = n === 3 ? '' : 'none';
+    document.getElementById('svc-progress').textContent = 'Part ' + n + ' of ' + SVC_LAST;
+    var nx = document.getElementById('svc-next');
+    nx.textContent = n === SVC_LAST ? 'Continue →' : 'Next →';
+    window.scrollTo({ top: 0 });
+}
+// Red-mark what is missing in ONE health part; returns true when something is.
+function svcHealthBad(n) {
+    var wrap = document.getElementById('hf-wrap'), bad = false, seen = {};
+    wrap.querySelectorAll('.hf-missing').forEach(function (q) { q.classList.remove('hf-missing'); });
+    wrap.querySelectorAll('.hf-need').forEach(function (i) { i.classList.remove('hf-need'); });
+    wrap.querySelectorAll('.hf > [data-svc="' + n + '"]').forEach(function (blk) {
+        blk.querySelectorAll('input[required]').forEach(function (el) {
+            if (seen[el.name]) return; seen[el.name] = 1;
+            var ok = el.type === 'radio' ? !!wrap.querySelector('[name="' + el.name + '"]:checked')
+                   : el.type === 'checkbox' ? el.checked : el.value.trim() !== '';
+            if (!ok) { (el.closest('.hf-q') || el.closest('.hf-confirm')).classList.add('hf-missing'); bad = true; }
+        });
+        ['allergy', 'anesthesia'].forEach(function (k) {
+            var yes = blk.querySelector('[name="hf[' + k + ']"][value="yes"]:checked');
+            var det = blk.querySelector('[name="hf[' + k + '_detail]"]');
+            if (yes && det && det.value.trim() === '') { det.classList.add('hf-need'); det.closest('.hf-q').classList.add('hf-missing'); bad = true; }
+        });
+    });
+    var warn = document.getElementById('hf-warn');
+    warn.textContent = 'Please answer the questions marked in red.';
+    warn.style.display = bad ? 'block' : 'none';
+    return bad;
+}
+function svcNext(from) {
+    if (from === 1) {
+        var list1 = document.getElementById('bk-list');
+        var noTreat1 = tpPicked('bk-list').length === 0;
+        list1.classList.toggle('tp-missing', noTreat1);
+        document.getElementById('tp-warn').style.display = noTreat1 ? 'block' : 'none';
+        if (noTreat1) return;
+        svcGo(2);
+    } else if (from === 2) {
+        var bf2 = document.getElementById('bookForm');
+        if (bf2.xrayCheckOk && !bf2.xrayCheckOk()) return;
+        svcGo(3);
+    } else if (from < SVC_LAST) {
+        if (svcHealthBad(from)) return;
+        svcGo(from + 1);
+    } else {
+        validateStep2();
+    }
+}
 function validateStep2() {
     var list = document.getElementById('bk-list');
     var noTreat = tpPicked('bk-list').length === 0;
@@ -1173,11 +1219,16 @@ function validateStep2() {
     warn.textContent = 'Please answer the questions marked in red.';
     warn.style.display = bad ? 'block' : 'none';
 
-    if (noTreat) { list.scrollIntoView({ block: 'center' }); return; }
+    if (noTreat) { svcGo(1); return; }
     // An attached picture that does not look like an X-ray (and is not confirmed) stops here.
     var bf = document.getElementById('bookForm');
-    if (bf.xrayCheckOk && !bf.xrayCheckOk()) { document.querySelector('.bk-xray').scrollIntoView({ block: 'center' }); return; }
-    if (bad) { bad.scrollIntoView({ block: 'center' }); return; }
+    if (bf.xrayCheckOk && !bf.xrayCheckOk()) { svcGo(2); return; }
+    if (bad) {
+        var blk = bad.closest('[data-svc]');
+        if (blk) svcGo(+blk.dataset.svc);
+        bad.scrollIntoView({ block: 'center' });
+        return;
+    }
     goStep(4);
 }
 
@@ -1213,11 +1264,11 @@ function midLock(text) {
     t.checked = false; b.setCustomValidity('');
     if (text !== null) {
         b.disabled = true; b.value = text;
-        b.placeholder = text === '' ? 'Not on file yet — add it in My Information' : '';
+        b.placeholder = text === '' ? 'Not on file yet' : '';
         t.parentNode.style.display = 'none';
     } else {
         b.disabled = false; b.value = '';
-        b.placeholder = 'Full middle name, e.g. Santos';
+        b.placeholder = 'Middle Name *';
         t.parentNode.style.display = '';
     }
 }
@@ -1260,7 +1311,6 @@ function toggleFor() {
     var forOther = document.querySelector('input[name="for"]:checked').value === 'other';
     var fn = document.getElementById('sel-fname');
     var ln = document.getElementById('sel-lname');
-    document.getElementById('dependent-note').style.display = forOther ? 'block' : 'none';
     document.getElementById('rel-wrap').style.display       = forOther ? 'block' : 'none';
     document.getElementById('dob-wrap').style.display       = forOther ? 'block' : 'none';
     var fam = document.getElementById('sel-family');
@@ -1319,10 +1369,10 @@ function checkDate() {
     var d  = new Date(v + 'T00:00:00');
     var wd = SHORT_DAYS[d.getDay()];
 
-    // No past dates (today is fine; its passed times are greyed out in the grid).
+    // No same-day or past dates: the earliest bookable date is tomorrow.
     // Blocks it even if a browser lets someone type a date past the "min" attribute.
     if (v < MIN_BOOK_DATE) {
-        warn.textContent = 'That date has already passed. Please pick ' +
+        warn.textContent = 'Appointments can\'t be booked for today or a past date. Please pick ' +
             new Date(MIN_BOOK_DATE + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) +
             ' or a later date.';
         warn.style.display = 'block';
@@ -1354,6 +1404,8 @@ function checkDate() {
     return true;
 }
 function goStep(n) {
+    var prevStep = 0;
+    document.querySelectorAll('.wizard-step').forEach(function (s) { if (!s.classList.contains('d-none')) prevStep = parseInt(s.id.replace('step-', ''), 10); });
     document.querySelectorAll('.wizard-step').forEach(s => s.classList.add('d-none'));
     document.getElementById('step-' + n).classList.remove('d-none');
     for (let i = 1; i <= 4; i++) {
@@ -1362,6 +1414,7 @@ function goStep(n) {
         if (i < n) ind.classList.add('done');
         if (i === n) ind.classList.add('active');
     }
+    if (n === 3) svcGo(prevStep === 4 ? SVC_LAST : 1);   // coming back from Confirm lands on the last part
     if (n === 4) fillReview();
     // The top arrow (leave booking) only on step 1; later steps have their own "← Back" at the bottom.
     const exit = document.getElementById('wiz-exit'); if (exit) exit.hidden = n !== 1;

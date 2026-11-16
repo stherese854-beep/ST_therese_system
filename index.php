@@ -1172,5 +1172,6 @@ function icon($k){
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">'.$p.'</svg>';
 }
 ?>
+<?php if (function_exists('is_logged_in') && is_logged_in() && function_exists('current_role') && current_role() === 'patient') include __DIR__ . '/includes/book_modal.php'; ?>
 </body>
 </html>

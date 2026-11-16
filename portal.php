@@ -308,8 +308,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($hours < 24) {
                 set_flash('Appointments can only be moved online up to 24 hours in advance. '
                         . 'Please call the clinic so we can help you.', 'error');
-            } elseif ($newWhen <= time()) {
-                set_flash('Please choose a date in the future.', 'error');
+            } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $newDate) || $newWhen === false || $newDate <= date('Y-m-d')) {
+                set_flash('Appointments cannot be moved to today or a past date. Please choose tomorrow or a later date.', 'error');
             } elseif (!appt_slot_is_open($pdo, $newDate, $newTime, $appt['dentist'], $aid)) {
                 set_flash('That slot is not available. The clinic may be closed, the dentist may be away, '
                         . 'or someone already has that time. Please choose another.', 'error');
@@ -1793,5 +1793,6 @@ function validateMyCancel(){
     return true;
 }
 </script>
+<?php include __DIR__ . '/includes/book_modal.php'; ?>
 </body>
 </html>

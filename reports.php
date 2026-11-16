@@ -141,6 +141,7 @@ $validSids = array_map('intval', array_column($chartSessions, 'id'));
 if (!$chartSid || !in_array($chartSid, $validSids)) {
     $chartSid = $validSids[0] ?? 0;      // default = latest visit
 }
+$allVisits = (($_GET['session'] ?? '') === 'all') && count($chartSessions) > 0;   // print EVERY visit's chart
 $chartSession = null;
 $chartIndex = 0;                          // "visit N of M" for the printed label
 foreach (array_reverse($chartSessions) as $i => $s) {
@@ -416,15 +417,16 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <label class="field-label">Dental Chart to Include</label>
                             <select name="session" class="form-select mb-1" data-search="Search visit…" data-search-combo onchange="this.form.submit()">
                                 <?php $oldFirst = array_reverse($chartSessions); ?>
+                                <option value="all" <?= $allVisits ? 'selected' : '' ?>>All visits (<?= count($oldFirst) ?> chart<?= count($oldFirst)>1?'s':'' ?>)</option>
                                 <?php foreach ($oldFirst as $i => $s): ?>
-                                    <option value="<?= $s['id'] ?>" <?= ((int)$s['id']===$chartSid)?'selected':'' ?>>
+                                    <option value="<?= $s['id'] ?>" <?= (!$allVisits && (int)$s['id']===$chartSid)?'selected':'' ?>>
                                         Visit <?= $i+1 ?><?= ($i === count($oldFirst)-1) ? ' (latest)' : '' ?>
                                         · <?= date('M j, Y', strtotime($s['visit_date'])) ?><?= $s['title'] ? ' · '.e($s['title']) : '' ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
                             <div class="text-muted2 mb-3" style="font-size:.78rem;">
-                                Defaults to the most recent visit. Pick an earlier one to print that chart instead.
+                                Defaults to the most recent visit. Pick an earlier one, or choose “All visits” to print every visit's chart and notes.
                             </div>
                         </form>
                         <?php endif; ?>
@@ -494,7 +496,7 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                     </div>
 
                     <!-- the printable report area -->
-                    <div id="report-area" data-fit-screen<?= in_array($type, ['profile','treatment'], true) ? ' data-fit-one-page' : '' ?> style="border:1px solid #e3e9ee;border-radius:10px;padding:22px;background:#fff;">
+                    <div id="report-area" data-fit-screen<?= (in_array($type, ['profile','treatment'], true) && !($type === 'profile' && $allVisits)) ? ' data-fit-one-page' : '' ?> style="border:1px solid #e3e9ee;border-radius:10px;padding:22px;background:#fff;">
 
                         <!-- letterhead -->
                         <div data-section="letterhead" class="flex-between" style="border-bottom:2px solid var(--teal-dark);padding-bottom:10px;margin-bottom:16px;">
@@ -551,6 +553,17 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <!-- dental chart (odontogram) -->
                             <div data-section="chart">
                             <h6 class="mt-3">Dental Chart (Odontogram)</h6>
+                            <?php
+                                $visitsToPrint = $allVisits ? array_reverse($chartSessions) : [$chartSession];   // oldest -> newest
+                                $nVisits = count($chartSessions);
+                                foreach ($visitsToPrint as $vi => $vs):
+                                    if ($allVisits) {
+                                        $chartSession = $vs; $chartIndex = $vi + 1;
+                                        $chartMap  = build_tooth_map($pdo, $patientId, (int)$vs['id']);
+                                        $chartInfo = tooth_details($pdo, $patientId, (int)$vs['id']);
+                                    }
+                            ?>
+                            <div style="<?= $allVisits ? 'break-inside:avoid;page-break-inside:avoid;margin-bottom:14px;' . ($vi > 0 ? 'border-top:1px solid #ddd;padding-top:10px;' : '') : '' ?>">
                             <?php if ($chartSession): ?>
                                 <div style="font-size:.72rem;color:#666;margin:-4px 0 6px;">
                                     Chart as of <strong><?= date('M j, Y', strtotime($chartSession['visit_date'])) ?></strong>
@@ -578,8 +591,8 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                             <?php
                                 $conds = [];
                                 foreach (array_merge($UPPER_TEETH, $LOWER_TEETH) as $t) {
-                                    $s = $chartMap[$t] ?? 'Healthy';
-                                    if ($s !== 'Healthy') $conds[] = "Tooth $t: $s";
+                                    $ts = $chartMap[$t] ?? 'Healthy';
+                                    if ($ts !== 'Healthy') $conds[] = "Tooth $t: $ts";
                                 }
                             ?>
                             <div style="font-size:.8rem;margin-top:6px;"><strong>Conditions:</strong> <?= $conds ? e(implode(' · ', $conds)) : 'All teeth healthy' ?></div>
@@ -595,6 +608,8 @@ body.print-compact #report-area .text-muted2, body.print-compact #report-area [s
                                     echo '<span style="color:#999;">No notes recorded for this visit.</span>';
                                 }
                             ?></div>
+                            </div><!-- /visit -->
+                            <?php endforeach; ?>
                             </div><!-- /chart -->
 
                             <!-- treatment summary -->

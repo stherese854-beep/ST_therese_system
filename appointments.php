@@ -213,10 +213,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'staff
 
     if ($err === '') {
         if (!$dateObj || $dateObj->format('Y-m-d') !== $date)               $err = 'Please choose a valid date.';
-        elseif ($date < date('Y-m-d'))                                      $err = 'The date has already passed.';
+        // No same-day appointments. Someone who comes in today is recorded with + Walk-in instead.
+        elseif ($date <= date('Y-m-d'))                                     $err = 'Appointments can\'t be booked for today or a past date. Choose tomorrow or a later date (use + Walk-in for a patient who is here today).';
         elseif (!in_array($time, clinic_time_slots($pdo), true))            $err = 'Please choose one of the clinic\'s time slots.';
-        // The slot in progress right now can still be booked (a walk-in seen straight away); only ended slots are refused.
-        elseif ($date === date('Y-m-d') && strtotime("$date $time") + 3600 <= time()) $err = 'That time has already passed today.';
         elseif ($treatErr !== '')                                           $err = $treatErr;
     }
 
@@ -647,7 +646,7 @@ $bookSlots    = clinic_time_slots($pdo);
 $bookPrefill  = (int)($_GET['book'] ?? 0);           // ?book=<patient id> opens the form with that patient chosen
 // "Book follow-up" (Records / Dashboard) also fills in the treatment, date, dentist and a note.
 $bookTreat    = isset(clinic_treatments()[$_GET['treatment'] ?? '']) ? [$_GET['treatment']] : [];
-$bookDate     = (preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'] ?? '') && $_GET['date'] >= date('Y-m-d')) ? $_GET['date'] : date('Y-m-d', strtotime('+1 day'));
+$bookDate     = (preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'] ?? '') && $_GET['date'] > date('Y-m-d')) ? $_GET['date'] : date('Y-m-d', strtotime('+1 day'));
 $bookDentist  = (string)($_GET['dentist'] ?? '');
 $bookNote     = mb_substr(trim((string)($_GET['note'] ?? '')), 0, 200);
 $bookHealth   = [];                                  // patient id => their latest questionnaire (prefill)
@@ -1041,7 +1040,7 @@ $active = 'appointments';
           </div>
           <div class="col-md-3">
             <label class="field-label">Date *</label>
-            <input type="date" name="date" id="sb-date" class="form-control" min="<?= date('Y-m-d') ?>" value="<?= e($bookDate) ?>" required onchange="sbTimes()">
+            <input type="date" name="date" id="sb-date" class="form-control" min="<?= date('Y-m-d', strtotime('+1 day')) ?>" value="<?= e($bookDate) ?>" required onchange="sbTimes()">
           </div>
           <div class="col-md-3">
             <label class="field-label">Time *</label>
