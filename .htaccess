@@ -27,6 +27,21 @@ RewriteRule ^(?:[^.]*|.*\.php)$ not_found.php [L]
     Deny from all
 </FilesMatch>
 
+# Installable app files (manifest.json, sw.js, icons/) are real files, so the rewrites above leave
+# them alone, and they are public (no login) as browsers fetch them before anyone signs in.
+# The manifest gets its proper type; the service worker is never cached, so updates apply at once.
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>
+<Files "manifest.json">
+    ForceType application/manifest+json
+</Files>
+<IfModule mod_headers.c>
+    <FilesMatch "^(sw\.js|manifest\.json)$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+</IfModule>
+
 # Security headers: no framing by other sites (clickjacking), no MIME sniffing,
 # and don't leak full URLs (with patient IDs) to other sites.
 <IfModule mod_headers.c>

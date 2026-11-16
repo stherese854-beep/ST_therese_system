@@ -1,0 +1,684 @@
+/* ============================================================
+   ST. THERESE DENTAL CLINIC - STYLES (css/style.css)
+   ------------------------------------------------------------
+   We use Bootstrap 5 (loaded from a CDN in each page) for the
+   layout/grid, and this file for the clinic's colors & custom
+   pieces (sidebar, cards, badges, odontogram, etc).
+   ============================================================ */
+
+/* ---- Color variables (change these to re-theme everything) ---- */
+:root {
+    --teal-dark:   #0d3b3b;   /* darkest green for sidebar top */
+    --teal:        #14524f;   /* main dark teal */
+    --teal-mid:    #0f766e;   /* buttons / accents */
+    --teal-light:  #14b8a6;   /* highlights */
+    --gold:        #c79a5c;   /* gold accent (the "Remembered." word) */
+    --bg:          #eef2f5;   /* light page background */
+    --card:        #ffffff;
+    --text:        #1f2d3d;
+    --muted:       #6b7b8c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+}
+
+/* =========================== LAYOUT =========================== */
+/* The app is a sidebar on the left + main content on the right. */
+.app-wrap { display: flex; min-height: 100vh; }
+
+/* ---------------------------- SIDEBAR ---------------------------- */
+/* The sidebar stays fixed on screen while only the main content scrolls.
+   position:sticky + top:0 pins it; its own overflow-y lets a long menu
+   scroll by itself instead of stretching the whole page. */
+.sidebar {
+    width: 230px;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, var(--teal-dark), var(--teal));
+    color: #cfe3e0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 14px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+}
+/* thin, subtle scrollbar for the sidebar if the menu is long */
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 3px; }
+.sidebar { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+.sidebar .brand {
+    display: flex; align-items: center; gap: 10px;
+    color: #fff; font-weight: 700; font-size: 1.05rem;
+    margin-bottom: 18px;
+}
+.sidebar .brand .logo {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: var(--teal-light);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem;
+}
+.sidebar .brand small { display: block; font-size: .62rem; letter-spacing: 1px; color: #9fc4bf; }
+
+.logged-as {
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 10px; padding: 8px 12px; margin-bottom: 16px;
+    font-size: .7rem; letter-spacing: 1px; color: #9fc4bf;
+}
+.logged-as strong { display: block; color: var(--teal-light); font-size: .95rem; letter-spacing: 0; }
+
+.nav-label {
+    font-size: .65rem; letter-spacing: 1.5px; color: #6f9893;
+    margin: 14px 6px 6px; text-transform: uppercase;
+}
+.sidebar a.nav-item {
+    display: flex; align-items: center; gap: 10px;
+    color: #cfe3e0; text-decoration: none;
+    padding: 10px 12px; border-radius: 10px; margin-bottom: 2px;
+    font-size: .92rem;
+}
+.sidebar a.nav-item:hover { background: rgba(255,255,255,.07); }
+.sidebar a.nav-item.active {
+    background: rgba(20,184,166,.18);
+    color: #fff;
+    box-shadow: inset 0 0 0 1px rgba(20,184,166,.5);
+}
+.sidebar .spacer { flex: 1; }
+.sidebar .user-card {
+    border-top: 1px solid rgba(255,255,255,.12);
+    padding-top: 12px; margin-top: 10px; font-size: .85rem; color: #fff;
+}
+.sidebar .user-card small { color: #9fc4bf; }
+.sidebar .signout { color: #e9967a; text-decoration: none; font-size: .85rem; display: inline-flex; gap: 6px; margin-top: 8px; }
+
+/* --------------------------- MAIN AREA --------------------------- */
+.main { flex: 1; min-width: 0; padding: 22px 28px; overflow-x: hidden; overflow-x: clip; }   /* clip (where supported) keeps "sticky" bars working */
+
+.page-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+.page-head h1 { font-size: 1.7rem; margin: 0; font-weight: 700; }
+.page-head .sub { color: var(--muted); font-size: .9rem; }
+.page-head .clock { text-align: right; font-size: .8rem; color: var(--muted); }
+.page-head .clock .time { font-weight: 700; color: var(--text); font-size: .95rem; }
+
+/* ----------------------------- CARDS ----------------------------- */
+.card-box {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    margin-bottom: 20px;
+}
+
+/* Stat cards on the dashboard */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr)); gap: 18px; margin-bottom: 20px; }
+.stat-card { background: var(--card); border-radius: 16px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.stat-card .label { font-size: .7rem; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
+.stat-card .value { font-size: 2rem; font-weight: 700; margin: 4px 0; }
+.stat-card .change { font-size: .8rem; color: var(--muted); }
+.stat-card .bar { height: 5px; border-radius: 4px; background: #e3e9ee; margin-top: 12px; overflow: hidden; }
+.stat-card .bar > span { display: block; height: 100%; background: var(--teal-mid); }
+.stat-card .spark { margin-top: 12px; line-height: 0; }
+.stat-card .spark svg rect { transition: opacity .15s; }
+.stat-card .spark svg rect:hover { opacity: .7; }
+
+/* ---------------------------- TABLES ----------------------------- */
+table.data { width: 100%; border-collapse: collapse; }
+table.data th {
+    text-align: left; font-size: .7rem; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--muted); padding: 12px 14px; background: #f5f8fa; border-bottom: 1px solid #e7edf2;
+}
+table.data td { padding: 14px; border-bottom: 1px solid #eef2f5; font-size: .92rem; vertical-align: middle; }
+table.data tr:last-child td { border-bottom: none; }
+table.data .date-blue { color: var(--teal-light); font-weight: 600; }
+
+/* Avatars (round initials) */
+.avatar { width: 38px; height: 38px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: .9rem; }
+
+/* --------------------------- BADGES ------------------------------ */
+.badge-pill { padding: 4px 12px; border-radius: 20px; font-size: .75rem; font-weight: 600; display: inline-block; }
+.b-active, .b-confirmed, .b-completed { background: #d7f5e3; color: #138a4e; }
+.b-pending  { background: #fdeccd; color: #b9802a; }
+.b-inactive, .b-cancelled, .b-noshow { background: #fbdcdc; color: #c0392b; }
+.b-disapproved { background: #fde6d3; color: #b4531a; }
+
+/* ---- Count on a filter tab, e.g. "Pending 3" ---- */
+.tab-count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px;
+             background: rgba(15,118,110,.12); color: inherit; font-size: .72rem; font-weight: 700; line-height: 18px; text-align: center; }
+.btn-dark-navy .tab-count { background: rgba(255,255,255,.22); }
+
+/* ---- Dashboard calendar (js/app.js buildCalendar) ---- */
+#calendar td.cal-day { position: relative; padding: 7px 0; color: #475569; border-radius: 8px; }
+#calendar td.cal-day.pickable { cursor: pointer; }
+#calendar td.cal-day.pickable:hover { background: #e8f5f3; }
+#calendar td.cal-day.is-today { background: var(--teal-mid); color: #fff; }
+#calendar td.cal-day.is-picked { box-shadow: inset 0 0 0 2px #f0a531; font-weight: 700; }
+.cal-dot { display: none; position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%);
+           width: 5px; height: 5px; border-radius: 50%; background: #f0a531; }
+#calendar td.has-appts .cal-dot { display: block; }
+#calendar td.is-today .cal-dot { background: var(--card, #fff); }
+
+/* ---- Delete several at once (bulk_bar / bulk_pick in config/auth.php) ---- */
+.bulk-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px;
+            padding: 7px 12px; border: 1px dashed #d6e2e1; border-radius: 10px; background: #f8fbfb; font-size: .84rem; }
+.bulk-bar.has-picks { border-style: solid; border-color: #f0c9c9; background: #fff6f6; }
+.bulk-all-wrap { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; color: #55606a; font-weight: 600; }
+.bulk-count { color: #c0392b; font-weight: 600; }
+.bulk-go { background: #fbdcdc; color: #c0392b; margin-left: auto; font-weight: 600; }
+.bulk-go:disabled { background: #eef2f2; color: #9aa7a7; border-color: transparent; }
+.bulk-pick, .bulk-all { width: 17px; height: 17px; accent-color: #c0392b; cursor: pointer; flex: none; vertical-align: middle; }
+@media print { .bulk-bar, .bulk-pick { display: none !important; } }
+.b-expired { background: #eceff1; color: #5f6f7a; }   /* never confirmed before its date */
+.b-arrived { background: #dff3ff; color: #1b6fa8; }   /* patient is at the clinic now */
+.b-archived { background: #e6e6e6; color: #6b6b6b; }
+.b-progress { background: #dbeafe; color: #2563eb; }
+
+/* --------------------------- BUTTONS ----------------------------- */
+.btn-teal { background: var(--teal-mid); color: #fff; border: none; }
+.btn-teal:hover { background: var(--teal); color: #fff; }
+.btn-teal:disabled, .btn-teal[disabled] { background: #b8c8c6; color: #f0f0f0; cursor: not-allowed; opacity: 1; }
+.btn-gold { background: var(--gold); color: #fff; border: none; }
+.btn-gold:hover { background: #b1864a; color: #fff; }
+.btn-dark-navy { background: #143a4a; color: #fff; border: none; }
+.btn-dark-navy:hover { background: #0d2935; color: #fff; }
+.btn-outline-teal { border: 1px solid var(--teal-mid); color: var(--teal-mid); background: var(--card, #fff); }
+.btn-outline-teal:hover { background: var(--teal-mid); color: #fff; }
+
+/* Small action buttons in tables */
+.btn-sm-action { padding: 6px 14px; border-radius: 8px; font-size: .82rem; border: none; cursor: pointer; }
+
+/* ----------------------- LOGIN / AUTH PAGE ----------------------- */
+.auth-page { display: flex; min-height: 100vh; position: relative; }
+
+/* Close (X) button top-left — returns to the landing page */
+.auth-close {
+    position: absolute; top: 18px; left: 20px; z-index: 20;
+    width: 42px; height: 42px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,.14); color: #fff;
+    font-size: 1.7rem; line-height: 1; text-decoration: none;
+    border: 1px solid rgba(255,255,255,.25);
+    transition: background .15s, transform .15s;
+}
+.auth-close:hover { background: rgba(255,255,255,.28); transform: scale(1.06); color: #fff; }
+/* On the white form side (small screens) make it dark so it stays visible */
+@media(max-width:860px){
+    /* Left panel is hidden on mobile so the X sits over the teal form background.
+       Give it a solid white circle so it is always visible. */
+    .auth-close {
+        background: rgba(255,255,255,.92);
+        color: var(--teal);
+        border-color: rgba(255,255,255,.6);
+        top: 14px; left: 14px;
+        width: 38px; height: 38px;
+        font-size: 1.4rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    .auth-close:hover { background: var(--card, #fff); color: var(--teal-dark); }
+}
+.auth-page  { background: var(--teal); }
+.auth-left {
+    flex: 1;
+    color: #fff; display: flex; flex-direction: column; justify-content: center;
+    align-items: center;                /* center branding in the panel = balanced */
+    padding: 60px;
+}
+.auth-brand { max-width: 430px; width: 100%; }   /* text stays left-aligned inside */
+.auth-left .tooth { font-size: 3rem; margin-bottom: 18px; }
+.auth-left h1 { font-size: 3.4rem; line-height: 1.05; margin: 0; font-weight: 800; }
+.auth-left h1 .gold { color: var(--gold); font-style: italic; }
+.auth-left p { color: #bcd6d2; margin-top: 18px; max-width: 360px; }
+.auth-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px; }
+.auth-card { background: var(--card, #fff); border-radius: 18px; padding: 28px; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+.auth-tabs { display: flex; background: #f1ede6; border-radius: 12px; padding: 5px; margin-bottom: 22px; position: relative; }
+.auth-tabs button { flex: 1; border: none; background: transparent; padding: 10px; border-radius: 9px; font-weight: 600; color: #97917f; cursor: pointer;
+                    position: relative; z-index: 1; transition: color .25s; }
+.auth-tabs button.active { background: var(--teal); color: #fff; }
+/* Login <-> Create Account (login.php): a dark pill slides under the active tab */
+.auth-tabs[data-active]::before { content: ''; position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc(50% - 5px);
+                                  background: var(--teal); border-radius: 9px; transition: transform .32s cubic-bezier(.2, .7, .3, 1); }
+.auth-tabs[data-active="register"]::before { transform: translateX(100%); }
+.auth-tabs[data-active] button.active { background: transparent; }
+.auth-pane { --dist: 22px; }
+.auth-pane.auth-out { animation: auth-out .15s ease-in both; }
+.auth-pane.auth-in  { animation: auth-in .34s cubic-bezier(.2, .7, .3, 1) both; }
+@keyframes auth-out { to   { opacity: 0; transform: translateX(calc(var(--dir, 1) * var(--dist) * -1)); } }
+@keyframes auth-in  { from { opacity: 0; transform: translateX(calc(var(--dir, 1) * var(--dist))); } }
+@media (prefers-reduced-motion: reduce) { .auth-pane { --dist: 0px; } }   /* "reduce motion": a plain fade */
+/* the brand panel stays in the middle of the screen while the form beside it grows */
+@media (min-width: 801px) { .auth-left { position: sticky; top: 0; height: 100vh; align-self: flex-start; } }
+.auth-card h2 { font-weight: 700; margin: 0 0 4px; }
+.auth-card .muted { color: var(--muted); font-size: .9rem; margin-bottom: 18px; }
+.field-label { font-size: .72rem; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 5px; display: block; }
+
+/* Responsive: stack login on small screens */
+@media (max-width: 800px) {
+    /* ── Login / register page ── */
+    .auth-left  { display: none; }
+    .auth-right { width: 100%; }
+
+    /* ── Hamburger button — teal pill fixed to top-left ── */
+    .hamburger {
+        display: flex !important;
+        align-items: center; justify-content: center;
+        width: 44px; height: 44px; border-radius: 10px;
+        background: var(--teal); color: #fff; border: none;
+        font-size: 1.5rem; line-height: 1; cursor: pointer;
+        position: fixed; top: 10px; left: 10px; z-index: 8500;
+        box-shadow: 0 2px 10px rgba(0,0,0,.22);
+    }
+    .hamburger:active { transform: scale(.94); }
+
+    /* ── Sidebar: slides in from the left ── */
+    .sidebar {
+        position: fixed !important;
+        left: -270px; top: 0;
+        width: 250px; height: 100vh;
+        z-index: 9000;
+        transition: left .22s ease;
+        box-shadow: 4px 0 20px rgba(0,0,0,.28);
+        overflow-y: auto;
+    }
+    .sidebar.open { left: 0 !important; }
+
+    /* ── Semi-transparent backdrop ── */
+    .sidebar-backdrop {
+        display: none;
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,.38);
+        z-index: 8800;
+    }
+    .sidebar-backdrop.open { display: block; }
+
+    /* ── Main area: full width, enough top padding for the hamburger ── */
+    .app-wrap { display: block !important; }
+    .main     { padding: 12px; padding-top: 66px !important; }
+    .page-head { padding-top: 0; }
+
+    /* Topbar widgets: keep them from overlapping the hamburger */
+    #topbarWidgets { right: 10px; top: 10px; }
+
+    /* ── Fixed-column stat rows (No-Show Report, Reports): swipe sideways ──
+       Squeezing 4-5 cards into a phone's width cuts them off, so the row
+       becomes a horizontal strip that snaps card by card. The next card
+       peeks in from the right so it's clear there is more to swipe. */
+    .stat-grid.stat-scroll {
+        display: flex; gap: 12px;
+        overflow-x: auto; overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x mandatory; scroll-padding-left: 12px;
+        margin-left: -12px; margin-right: -12px;           /* run edge to edge */
+        padding: 2px 12px 10px;
+        scrollbar-width: none;
+    }
+    .stat-grid.stat-scroll::-webkit-scrollbar { display: none; }
+    .stat-grid.stat-scroll > .stat-card {
+        flex: 0 0 auto; min-width: 150px; width: 42%;
+        scroll-snap-align: start;
+    }
+}
+
+/* Desktop: hamburger and backdrop are never shown */
+@media (min-width: 801px) {
+    .hamburger          { display: none !important; }
+    .sidebar-backdrop   { display: none !important; }
+}
+
+/* ========================== ODONTOGRAM =========================== */
+.odo-section-label { display: inline-block; background: #e7eef0; color: var(--muted); font-size: .65rem; letter-spacing: 1px; padding: 3px 14px; border-radius: 20px; text-transform: uppercase; }
+.odo-arch { border: 1px dashed #bcdada; border-radius: 14px; padding: 22px 12px; background: #f3fafa; display: flex; gap: 6px; justify-content: center; flex-wrap: nowrap; margin: 8px 0; }
+.tooth { flex: 0 1 42px; min-width: 0; text-align: center; cursor: pointer; }
+/* All 16 teeth of an arch stay on ONE row: on a narrower screen they shrink
+   a little instead of the last tooth dropping onto a line of its own. */
+.tooth svg { display: block; margin: 0 auto; width: 100%; max-width: 40px; height: auto; }
+.tooth .num { font-size: .68rem; color: var(--muted); margin-top: 2px; }
+.tooth:hover svg path { stroke-width: 2.5; }
+@media (max-width: 576px) { .odo-arch { gap: 2px; padding: 14px 4px; } .tooth .num { font-size: .58rem; } }
+.odo-midline { text-align: center; color: var(--muted); font-size: .65rem; letter-spacing: 2px; margin: 6px 0; }
+.odo-legend { display: flex; flex-wrap: wrap; gap: 14px; background: #f3fafa; border-radius: 12px; padding: 12px 16px; margin-top: 8px; }
+.odo-legend span { font-size: .8rem; color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
+.legend-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; border: 1px solid #cbd5e1; }
+
+/* Tooth status colors (fill of the tooth shape) */
+.t-Healthy   { fill: #d6f5d6; stroke: #6bbf6b; }
+.t-Decayed   { fill: #ffe6b3; stroke: #e0a92e; }
+.t-Filled    { fill: #bfe0ff; stroke: #3b9ae0; }
+.t-Missing   { fill: #ffd6d6; stroke: #e05b5b; }
+.t-Crowned   { fill: #e6cffb; stroke: #a06fd6; }
+.t-Extracted { fill: #f0f0f0; stroke: #999; }
+.t-Impacted  { fill: #ffe0a0; stroke: #d99a00; }
+.t-Fractured { fill: #ffcccc; stroke: #cc4444; }
+.t-Other     { fill: #fbd9ea; stroke: #d6589c; }
+
+/* One box: search + drop-down (select[data-search-combo], see includes/head.php) */
+.select-combo { position: relative; width: 100%; }
+.select-combo-input { cursor: text; text-overflow: ellipsis; }
+.select-combo-list { position: absolute; z-index: 1060; left: 0; right: 0; top: calc(100% + 4px); max-height: 300px; overflow-y: auto;
+                     background: #fff; border: 1px solid #d9e3e1; border-radius: 10px; box-shadow: 0 12px 30px rgba(15,40,40,.14); padding: 4px; }
+.select-combo-list[hidden] { display: none; }
+.select-combo-item { padding: 8px 12px; border-radius: 7px; cursor: pointer; font-size: .95rem; color: #24343a; }
+.select-combo-item.is-hi { background: #eef7f6; }
+.select-combo-item.is-current { font-weight: 600; color: var(--teal-mid, #0f766e); }
+.select-combo-empty { padding: 8px 12px; color: #8aa0a0; font-size: .9rem; }
+/* a tooth with a note: small dot after its number; a change not saved yet: gold glow */
+.tooth.has-note .num::after { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--teal-mid, #0f766e); margin-left: 2px; vertical-align: super; }
+.tooth.unsaved svg { filter: drop-shadow(0 0 3px #e0a92e); }
+.tooth.unsaved .num { color: #b7791f; font-weight: 700; }
+
+/* ===================== BOOKING WIZARD (patient) ================== */
+.booking-hero { background: linear-gradient(135deg, var(--teal-dark), var(--teal)); color: #fff; padding: 40px 20px 90px; text-align: center; }
+.booking-hero .eyebrow { color: var(--gold); letter-spacing: 2px; font-size: .8rem; font-weight: 700; }
+.booking-hero h1 { font-size: 2.8rem; font-weight: 800; margin: 6px 0; }
+.booking-body { background: #f6f1e9; min-height: 60vh; padding: 0 16px 50px; }
+.wizard-card { background: var(--card, #fff); border-radius: 16px; max-width: 540px; margin: -60px auto 0; padding: 26px; box-shadow: 0 8px 30px rgba(0,0,0,.12); }
+
+/* Back-to-dashboard control on the booking page — a real button instead of
+   bare arrow text, so it's clearly clickable. */
+.back-arrow {
+    position: absolute; top: 18px; left: 18px;
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid #e1e8e7; border-radius: 50%;
+    background: var(--card, #fff); color: var(--teal-dark);
+    font-size: 1.1rem; text-decoration: none;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    transition: background .15s, transform .15s;
+}
+.back-arrow:hover { background: #eef7f6; color: var(--teal-dark); transform: translateX(-2px); }
+.steps { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.steps .step { text-align: center; flex: 1; }
+.steps .dot { width: 34px; height: 34px; border-radius: 9px; background: #e6ddd0; display: flex; align-items: center; justify-content: center; margin: 0 auto 4px; font-weight: 700; color: #97917f; }
+.steps .step.done .dot, .steps .step.active .dot { background: var(--teal); color: #fff; }
+.steps .step small { font-size: .72rem; color: var(--muted); }
+.slot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.slot { border: 1px solid var(--teal-mid); border-radius: 10px; padding: 12px; text-align: center; cursor: pointer; font-weight: 600; color: var(--text); background: var(--card, #fff); }
+.slot.taken { color: #bbb; border-color: #ddd; text-decoration: line-through; cursor: not-allowed; }
+.slot.selected { background: var(--teal); color: #fff; }
+
+/* Reschedule dialog — kept compact so it fits one screen without scrolling
+   the page behind it (the modal body itself scrolls internally if the
+   viewport is short). */
+#rescheduleModal .modal-body { max-height: 78vh; overflow-y: auto; padding: 14px 18px; }
+#rescheduleModal .card-box { padding: 8px 10px !important; margin-bottom: 8px !important; }
+#rescheduleModal .card-box div { font-size: .78rem; }
+#rescheduleModal .alert { padding: 8px 10px !important; font-size: .74rem; margin-bottom: 10px !important; line-height: 1.35; }
+#rescheduleModal .field-label { font-size: .74rem; margin-bottom: 3px; }
+#rescheduleModal input[type="date"] { padding: 6px 10px; font-size: .85rem; }
+#rescheduleModal .slot-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+#rescheduleModal .slot { padding: 6px 4px; font-size: .76rem; border-radius: 8px; }
+#rescheduleModal textarea#rs-reason { font-size: .82rem; padding: 6px 10px; }
+#rescheduleModal .text-muted2 { font-size: .72rem !important; }
+#rescheduleModal .modal-header,
+#rescheduleModal .modal-footer { padding: 12px 18px; }
+#rescheduleModal .modal-title { font-size: 1.05rem; }
+
+/* Generic helpers */
+.text-muted2 { color: var(--muted); }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.gap-2 { gap: .5rem; }
+
+/* ============================================================
+   CHART SESSIONS (odontogram history)
+   Shared by odontogram.php (staff) and portal.php (patient).
+   ============================================================ */
+.sess-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;margin:10px 0 4px;}
+.sess-tab{display:block;padding:8px 14px;border-radius:10px;border:1px solid #e3e9ee;background: var(--card, #fff);
+          text-decoration:none;color:#44585a;transition:.15s;}
+.sess-tab:hover{border-color:var(--teal-light);color:var(--teal);}
+.sess-tab.on{background:var(--teal);border-color:var(--teal);color:#fff;box-shadow:0 6px 16px rgba(12,50,48,.16);}
+.sess-tab b{display:block;font-size:.88rem;line-height:1.2;}
+.sess-tab small{font-size:.74rem;opacity:.75;}
+.sess-tab.on small{opacity:.9;}
+
+/* "What changed since the last visit" rows */
+.chg-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed #eef2f2;font-size:.86rem;}
+.chg-row:last-child{border-bottom:none;}
+.chg-t{font-weight:700;min-width:38px;}
+.pill-sm{font-size:.72rem;padding:2px 9px;border-radius:100px;color:#fff;font-weight:600;}
+
+/* ============================================================
+   PASSWORD SHOW/HIDE TOGGLE (eye icon)
+   Wrap any password <input> in <div class="pw-wrap"> and add
+   a <button class="pw-eye"> after it. JS in includes/head.php
+   handles the click.
+   ============================================================ */
+.pw-wrap{position:relative;}
+.pw-wrap input{padding-right:44px !important;}   /* room for the eye */
+.pw-eye{
+    position:absolute; top:0; right:0; height:100%;
+    width:42px; border:none; background:transparent; cursor:pointer;
+    display:grid; place-items:center; color:#8aa0a0; padding:0;
+    transition:color .15s;
+}
+.pw-eye:hover{color:var(--teal,#0f766e);}
+.pw-eye svg{width:20px;height:20px;pointer-events:none;}
+/* the "hidden" (slash) icon is shown only when the field is revealed */
+.pw-eye .eye-off{display:none;}
+.pw-eye.on .eye-on{display:none;}
+.pw-eye.on .eye-off{display:block;}
+/* when the eye sits next to a field that has mb-1/mb-3, keep alignment tidy */
+.pw-wrap.mb-1{margin-bottom:.25rem;}
+.pw-wrap.mb-3{margin-bottom:1rem;}
+
+/* ============================================================
+   PRINTING
+   Any page can be printed (or saved as PDF) from the browser.
+   We hide the parts that only make sense on screen — the sidebar,
+   the floating widgets, buttons and filters — so the paper shows
+   just the content.
+   Add class="no-print" to anything else that should be left out.
+   ============================================================ */
+@media print {
+    .sidebar,
+    #topbarWidgets,
+    #profileWidget,
+    #notifWidget,
+    .toast,
+    .no-print,
+    button,
+    .btn                { display: none !important; }
+
+    body                { background: #fff !important; }
+    .app-wrap           { display: block !important; }
+    .main               { padding: 0 !important; }
+    .card-box           { box-shadow: none !important; border: 1px solid #ddd !important;
+                          break-inside: avoid; page-break-inside: avoid; }
+    a                   { text-decoration: none !important; color: inherit !important; }
+    table               { break-inside: auto; }
+    tr                  { break-inside: avoid; page-break-inside: avoid; }
+    thead               { display: table-header-group; }   /* repeat headers on each page */
+    .print-only         { display: block !important; }
+
+    /* No page margin -> the browser has no room for its own date / title /
+       web-address "Headers and footers", so that option is hidden in the print
+       window. The white space is drawn inside the page instead, on every page
+       (box-decoration-break: clone). Colours always print, whether or not
+       "Background graphics" is ticked. */
+    @page               { margin: 0; }
+    html, body          { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body                { padding: 14mm !important; margin: 0 !important;
+                          -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+}
+
+/* ── Icon-only buttons with tooltip on hover ── */
+.icon-btn {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+}
+/* The hover label is drawn by the page-wide tooltip (includes/head.php), which
+   is never clipped by scrolling tables; the old CSS-only one is switched off. */
+.icon-btn::after, .icon-btn::before { display: none !important; }
+.ui-tip { position: fixed; z-index: 30000; display: none; pointer-events: none; max-width: 260px;
+          background: #11302d; color: #fff; font-size: .75rem; font-weight: 500; line-height: 1.3;
+          padding: 5px 9px; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+/* Action cells: the buttons sit side by side in one line. */
+td.td-actions { white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+td.td-actions form { display: inline-block; margin: 0; vertical-align: middle; }
+td.td-actions > .icon-btn, td.td-actions > a.icon-btn, td.td-actions form .icon-btn { margin: 1px 1px; vertical-align: middle; }
+td.td-actions .bulk-pick { margin: 0 4px; }
+.icon-btn { font-size: 1rem; line-height: 1; }
+
+/* Dashboard "Recent Patients": the name opens their record */
+a.recent-name { color: inherit; text-decoration: none; }
+a.recent-name:hover strong { color: var(--teal, #0f766e); text-decoration: underline; }
+
+/* "N/A" shown wherever a piece of information is missing (includes/head.php) */
+.na { color: #9aa7a7; font-style: italic; font-size: .92em; }
+
+/* ---- Printing / PDF: elements that only exist on paper ---- */
+.print-only { display: none; }
+.odo-print-head { border-bottom: 2px solid var(--teal-dark); padding-bottom: 8px; margin-bottom: 12px; }
+.odo-print-info { width: 100%; margin-top: 8px; font-size: 12px; border-collapse: collapse; }
+.odo-print-info td { padding: 3px 6px 3px 0; }
+.odo-print-findings { margin-top: 14px; font-size: 12px; line-height: 2; }
+.odo-print-findings .pill-sm { display: inline-block; margin: 0 3px 3px 0; }
+.odo-print-sign { margin-top: 36px; }
+@media print {
+    #odo-left-col { width: 100% !important; flex: 0 0 100% !important; max-width: 100% !important; }
+    #odo-row .card-box { border: none !important; padding: 0 !important; }
+    .odo-arch { padding: 12px 6px !important; gap: 3px !important; flex-wrap: nowrap !important; }
+    .odo-print-findings { display: block !important; }
+    .odo-print-head { display: block !important; }
+}
+
+/* Printing: summary cards always sit side by side in one row (the phone
+   "swipe strip" must never apply on paper, or cards get cut off). */
+@media print {
+    .stat-grid, .stat-grid.stat-scroll {
+        display: grid !important; grid-auto-flow: row !important; overflow: visible !important;
+        grid-template-columns: repeat(auto-fit, minmax(0, 1fr)) !important; gap: 8px !important;
+        scroll-snap-type: none !important; margin-bottom: 12px !important;
+    }
+    .stat-grid > .stat-card, .stat-grid.stat-scroll > .stat-card {
+        min-width: 0 !important; width: auto !important; flex: none !important;
+        padding: 8px 10px !important; border: 1px solid #ddd !important; box-shadow: none !important;
+        break-inside: avoid;
+    }
+    .stat-card .value { font-size: 1.25rem !important; }
+    .stat-card .label { font-size: .6rem !important; letter-spacing: .5px !important; }
+}
+
+/* Printing: a box that holds a table may continue onto the next page
+   (otherwise a long table jumps to page 2 and leaves page 1 empty). */
+@media print {
+    .card-box:has(table), .card-box:has(.table-responsive) { break-inside: auto !important; page-break-inside: auto !important; }
+    .table-responsive { overflow: visible !important; }
+}
+
+/* ----------------- SCROLL ONLY THE LIST, NOT THE PAGE ----------------- */
+/* Long tables (and a few chosen panels marked data-fit-screen) scroll inside
+   their own box, sized by includes/head.php to end at the bottom of the
+   screen. Search bars, filters, tabs and buttons above them stay in view,
+   and the table's header row stays pinned at the top while scrolling. */
+.table-responsive, .tbl-scroll, [data-fit-screen] { overflow: auto; max-height: 70vh; }
+.tbl-scroll { width: 100%; }
+.table-responsive thead th, .tbl-scroll thead th, .match-scroll thead th { position: sticky; top: 0; z-index: 3; }
+table.table thead th { background: var(--card, #fff); }
+[data-fit-screen] .table-responsive, [data-fit-screen] .tbl-scroll { max-height: none; overflow: visible; }
+[data-fit-screen] .table-responsive { overflow-x: auto; }
+
+/* Dashboard: a card that is exactly as tall as its neighbour, its list scrolling inside */
+.row-match > [class*="col-"] { display: flex; flex-direction: column; }
+.row-match > [class*="col-"] > .card-box { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.row-match .match-scroll { flex: 1 1 0; min-height: 260px; overflow: auto; max-height: none; }
+@media (max-width: 991.98px) { .row-match .match-scroll { flex: none; max-height: 420px; } }
+
+@media print {
+    .table-responsive, .tbl-scroll, [data-fit-screen], .row-match .match-scroll { max-height: none !important; overflow: visible !important; }
+    .table-responsive thead th, .tbl-scroll thead th { position: static; }
+}
+
+/* ---------------- DOWNLOAD PDF FILE (same look as printing) ----------------
+   downloadPdf() in includes/head.php adds body.pdf-mode for a moment while the
+   page is turned into a .pdf file — these rules copy the print rules above. */
+.pdf-mode .sidebar, .pdf-mode #topbarWidgets, .pdf-mode #profileWidget, .pdf-mode #notifWidget,
+.pdf-mode .no-print, .pdf-mode .print-hide, .pdf-mode .btn, .pdf-mode button, .pdf-mode .print-menu,
+.pdf-mode .bulk-bar, .pdf-mode .bulk-pick, .pdf-mode .pp-off, .pdf-mode #app-toast, .pdf-mode .le-pv-fab,
+.pdf-mode .rv-nav, .pdf-mode .viz-nav, .pdf-mode .page-head .clock { display: none !important; }
+.pdf-mode .print-only { display: block !important; }
+.pdf-mode .main { padding: 0 !important; }
+.pdf-mode .card-box { box-shadow: none !important; border: 1px solid #ddd !important; }
+.pdf-mode .table-responsive, .pdf-mode .tbl-scroll, .pdf-mode [data-fit-screen], .pdf-mode .match-scroll {
+    max-height: none !important; overflow: visible !important; }
+.pdf-mode .table-responsive thead th, .pdf-mode .tbl-scroll thead th { position: static !important; }
+.pdf-mode a { text-decoration: none !important; color: inherit !important; }
+
+/* The Print / PDF drop-down button */
+.print-menu .dropdown-menu { min-width: 210px; }
+.print-menu .dropdown-item { padding: 9px 14px; }
+.pdf-busy { position: fixed; inset: 0; z-index: 100001; background: rgba(255,255,255,.75); display: flex;
+            align-items: center; justify-content: center; font-weight: 600; color: #0f766e; font-size: 1.05rem; }
+/* In a PDF the 16 teeth of an arch stay on one line (A4 is narrower than the screen). */
+.pdf-mode .odo-arch { flex-wrap: nowrap !important; gap: 1px !important; justify-content: center; }
+.pdf-mode .odo-arch .tooth svg { width: 32px !important; height: auto !important; }
+/* Closed "View as table" sections stay closed in a PDF (the PDF tool would show their insides). */
+.pdf-mode details:not([open]) { display: none !important; }
+.pdf-mode details > summary { display: none !important; }
+
+/* ============================================================
+   PAGE TRANSITIONS — moving from one page to the next
+   ============================================================
+   Chrome / Edge / Safari 18.2+: the browser cross-fades the old page
+   into the new one (the content slides up a little); the sidebar, the
+   top-right user bar and the login page's left panel stay put.
+   Other browsers (html.no-vt, set in includes/head.php): the new
+   page's content fades in. "Reduce motion" (e.g. Windows "Show
+   animations" turned off): a plain fade, nothing slides. */
+@view-transition { navigation: auto; }
+.sidebar        { view-transition-name: sidebar; }
+#topbarWidgets  { view-transition-name: topbar; }
+.auth-left      { view-transition-name: auth-brand; }
+::view-transition-old(root) { animation: vt-out .18s ease-in both; }
+::view-transition-new(root) { animation: vt-in .32s cubic-bezier(.2, .7, .3, 1) both; }
+@keyframes vt-out { to   { opacity: 0; transform: translateY(-6px); } }
+@keyframes vt-in  { from { opacity: 0; transform: translateY(10px); } }
+html.no-vt .main, html.no-vt .auth-card { animation: page-in .35s cubic-bezier(.2, .7, .3, 1) both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(root) { animation: vt-fade-out .18s ease-in both; }
+    ::view-transition-new(root) { animation: vt-fade-in .25s ease both; }
+    html.no-vt .main, html.no-vt .auth-card { animation: vt-fade-in .3s ease both; }
+}
+@keyframes vt-fade-out { to   { opacity: 0; } }
+@keyframes vt-fade-in  { from { opacity: 0; } }
+@media print { html.no-vt .main { animation: none; } }
+
+/* ============================================================
+   POP-UPS, MENUS AND BUTTONS: a short animation when they open
+   ============================================================
+   Every pop-up "pops" in (fades in while growing a little), every
+   drop-down menu (Print / PDF, the bell, the account menu…) slides
+   down into place, and buttons press in slightly when clicked.
+   These run even with Windows "Show animations" turned off — they
+   are small and quick. (The confirm pop-up has its own, the same.) */
+@keyframes ui-fade { from { opacity: 0; } }
+@keyframes ui-pop  { from { opacity: 0; transform: translateY(12px) scale(.95); } }
+@keyframes ui-drop { from { opacity: 0; translate: 0 -8px; } }
+/* Bootstrap pop-ups: Welcome back, Book Appointment, Add / Edit patient, … */
+.modal.fade .modal-dialog { transition: none; transform: none; }          /* our pop instead of the slide-down */
+.modal.show .modal-dialog { animation: ui-pop .28s cubic-bezier(.2, .8, .3, 1.12) both; }
+.modal-backdrop.show      { animation: ui-fade .2s ease-out both; }
+/* the clinic's own pop-ups: Walk-in, "Still there?", keep or archive the family */
+.wi-modal:not([hidden]), .idle-warn:not([hidden]), .fam-ask:not([hidden]) { animation: ui-fade .2s ease-out both; }
+.wi-modal:not([hidden]) .wi-box, .idle-warn:not([hidden]) .idle-box, .fam-ask:not([hidden]) .fam-box {
+    animation: ui-pop .28s cubic-bezier(.2, .8, .3, 1.12) both; }
+/* drop-down menus ("translate", not "transform": Bootstrap places the menu with transform) */
+.dropdown-menu.show { animation: ui-drop .2s cubic-bezier(.2, .8, .3, 1) both; }
+/* buttons press in a little */
+.btn { transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out,
+                   box-shadow .15s ease-in-out, transform .1s ease; }
+.btn:active:not(:disabled) { transform: scale(.96); }
+@media print { .modal.show .modal-dialog, .dropdown-menu.show { animation: none; } }

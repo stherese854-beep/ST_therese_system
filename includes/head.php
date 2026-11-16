@@ -17,6 +17,12 @@ $page_title = $page_title ?? 'St. Therese Dental Clinic';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>"><!-- sent with JS POST requests -->
+    <!-- Installable app (icon with the system's name on a PC / phone; see manifest.json and sw.js) -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#14524f">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-title" content="St. Therese">
+    <script>if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {}); });</script>
     <title><?= e($page_title) ?> — St. Therese Dental Clinic</title>
 
     <!-- Page transitions (css/style.css): browsers without cross-page view

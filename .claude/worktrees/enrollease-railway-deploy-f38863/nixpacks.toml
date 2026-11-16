@@ -1,0 +1,25 @@
+[phases.setup]
+nixPkgs = [
+  "php82",
+  "php82Extensions.pdo",
+  "php82Extensions.pdo_mysql",
+  "php82Extensions.mbstring",
+  "php82Extensions.openssl",
+  "php82Extensions.curl",
+  "php82Extensions.gd",
+  "php82Extensions.fileinfo",
+  "apacheHttpd"
+]
+
+[phases.build]
+cmds = [
+  "mkdir -p /var/www/html",
+  "cp -r . /var/www/html/",
+  "mkdir -p /var/www/html/uploads",
+  "chmod 777 /var/www/html/uploads",
+  "mkdir -p /tmp/sessions",
+  "chmod 777 /tmp/sessions"
+]
+
+[start]
+cmd = "mkdir -p /tmp/sessions && chmod 777 /tmp/sessions && apache2 -D FOREGROUND"

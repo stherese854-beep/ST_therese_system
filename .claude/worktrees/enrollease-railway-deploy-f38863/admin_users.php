@@ -1,0 +1,339 @@
+<?php
+// ============================================================
+//  USER MANAGEMENT  (admin_users.php) -- admin only
+// ============================================================
+require_once 'config/auth.php';
+require_once 'includes/mailer.php';
+require_once 'includes/message_templates.php';   // to email new accounts their login details
+require_login(['admin']);   // <-- only admins can open this page
+
+// ---------- Add / Edit / Delete users ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    // back to the same list (e.g. ?role=staff from the menu's "Staff")
+    $usersBack = 'admin_users' . (in_array($_GET['role'] ?? '', ['staff', 'dentist', 'admin', 'patient'], true) ? '?role=' . $_GET['role'] : '');
+
+    // Unlock an account locked after 5 wrong passwords (includes/security.php).
+    if ($action === 'unlock') {
+        $uid = (int)($_POST['id'] ?? 0);
+        $nm = $pdo->prepare("SELECT name FROM users WHERE id = ?");
+        $nm->execute([$uid]);
+        if ($name = $nm->fetchColumn()) {
+            login_succeeded($pdo, $uid);
+            log_activity($pdo, 'Unlocked account', $name);
+            set_flash($name . "'s account is unlocked — they can sign in again.");
+        }
+        header("Location: $usersBack"); exit;
+    }
+
+    if ($action === 'save') {
+        $id    = $_POST['id'] ?? '';
+        $role  = $_POST['role'];
+        $spec  = trim($_POST['specialty'] ?? '');
+        [$contact, $phoneError] = validate_phone($_POST['contact'] ?? '', false);   // optional, but must be real
+        if ($phoneError !== '') {
+            set_flash($phoneError, 'error');
+            header("Location: $usersBack"); exit;
+        }
+        $status  = $_POST['status'];
+        $email = strtolower(trim($_POST['email']));
+
+        // The form asks for the name in parts, but we store ONE name because
+        // patients.primary_dentist and appointments.dentist are matched on it.
+        $title = trim($_POST['title'] ?? '');
+        $first = trim($_POST['first_name'] ?? '');
+        $last  = trim($_POST['last_name'] ?? '');
+        $name  = trim(preg_replace('/\s+/', ' ', "$title $first $last"));
+
+        if ($first === '' || $last === '') {
+            set_flash('Please enter both a first name and a last name.', 'error');
+            header("Location: $usersBack"); exit;
+        }
+
+        // A dentist's name must be their own (appointments and patients point to it).
+        if ($role === 'dentist' && ($dnErr = dentist_name_problem($pdo, $name, (int)$id)) !== '') {
+            set_flash($dnErr, 'error');
+            header("Location: $usersBack"); exit;
+        }
+
+        // Make sure the email is real and not already taken.
+        $emailError = validate_account_email($pdo, $email, $id ?: null);
+        if ($emailError !== '') {
+            set_flash($emailError, 'error');
+            header("Location: $usersBack"); exit;
+        }
+
+        if ($id) {
+            $was = $pdo->prepare("SELECT name, email, role, specialty, contact, status FROM users WHERE id=?");
+            $was->execute([$id]); $was = $was->fetch() ?: [];
+            $pdo->prepare("UPDATE users SET name=?,email=?,role=?,specialty=?,contact=?,status=? WHERE id=?")
+                ->execute([$name,$email,$role,$spec,$contact,$status,$id]);
+            save_name_parts($pdo, 'users', $id, $first, $last);
+            if (($was['role'] ?? '') === 'dentist' && $role === 'dentist') rename_dentist_links($pdo, $was['name'] ?? '', $name);
+            $chg = change_list($was, ['name' => $name, 'email' => $email, 'role' => $role, 'specialty' => $spec, 'contact' => $contact, 'status' => $status],
+                               ['name' => 'Name', 'email' => 'Email', 'role' => 'Role', 'specialty' => 'Specialty', 'contact' => 'Phone', 'status' => 'Status']);
+            log_activity($pdo, 'Updated user', "$name ($role)" . ($chg ? ' — ' . $chg : ''));
+            set_flash('User updated.');
+        } else {
+            // New users get a random Strong temporary password (shown once, emailed).
+            $tempPass = generate_temp_password();
+            $hash = password_hash($tempPass, PASSWORD_DEFAULT);
+            $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status) VALUES (?,?,?,?,?,?,?)")
+                ->execute([$name,$email,$hash,$role,$spec,$contact,$status]);
+            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);
+
+            // Email them their login details — useful, and it proves the address works.
+            $note = '';
+            if (mail_is_ready($pdo)) {
+                $cat = message_catalogue()['account_welcome'];
+                [$wSubj, $body] = tpl_message($pdo, 'account_welcome', $cat['subject'], $cat['body'], [
+                    'name'     => $name,
+                    'email'    => $email,
+                    'password' => $tempPass,
+                    'clinic'   => clinic_name($pdo),
+                ]);
+                $err = '';
+                $note = send_mail($pdo, $email, $wSubj, $body, $err, 'account_welcome')
+                      ? ' Their login details were emailed to them.'
+                      : " (Note: the welcome email could not be sent — $err)";
+            }
+            log_activity($pdo, 'Created user', "$name ($role)");
+            set_flash("$name added. Temporary password: $tempPass — please give it to them; they should change it after signing in." . $note);
+        }
+        header("Location: $usersBack"); exit;
+    }
+
+    if ($action === 'delete') {
+        $moved = []; $skippedSelf = false;
+        foreach (bulk_ids() as $delId) {          // one user, or several ticked ones
+            // Don't let an admin delete their own account while logged in.
+            if ($delId === (int)($_SESSION['user_id'] ?? 0)) { $skippedSelf = true; continue; }
+
+            // Look up what we are about to move so the message can be honest.
+            $info = $pdo->prepare("SELECT name, role FROM users WHERE id=?");
+            $info->execute([$delId]);
+            $u = $info->fetch();
+            if (!$u) continue;
+
+            // Deleting no longer removes the account right away — it moves it to
+            // the Archive first. An admin can restore it or permanently delete it
+            // from there.
+            // Family members this account books for: kept as the clinic's own
+            // patients unless the admin chose to archive them too.
+            archive_user($pdo, $delId, $_SESSION['name'] ?? null, ($_POST['family'] ?? 'keep') === 'archive' ? 'archive' : 'keep');
+            $moved[] = $u['name'];
+        }
+        $msg = count($moved) === 1 ? $moved[0] . ' moved to Archive.' : (count($moved) . ' users moved to Archive.');
+        if ($skippedSelf) $msg = (count($moved) ? $msg . ' ' : '') . 'You cannot delete the account you are signed in with.';
+        set_flash($msg, $skippedSelf && !$moved ? 'error' : 'info');
+        header("Location: $usersBack"); exit;
+    }
+}
+
+// ---------- Stats ----------
+$totalUsers = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+$doctors    = $pdo->query("SELECT COUNT(*) FROM users WHERE role='dentist' AND status <> 'archived'")->fetchColumn();
+$staff      = $pdo->query("SELECT COUNT(*) FROM users WHERE role='staff' AND status <> 'archived'")->fetchColumn();
+$patientsU  = $pdo->query("SELECT COUNT(*) FROM users WHERE role='patient'")->fetchColumn();
+
+// ?role=staff (the menu's "Staff"), dentist, admin, patient — or everyone
+$roleNames  = ['staff' => 'Staff', 'dentist' => 'Dentists', 'admin' => 'Admins', 'patient' => 'Patients'];
+$roleFilter = isset($roleNames[$_GET['role'] ?? '']) ? $_GET['role'] : '';
+$uq = $pdo->prepare("SELECT * FROM users WHERE status <> 'archived'" . ($roleFilter ? " AND role = ?" : '') . " ORDER BY role, name");
+$uq->execute($roleFilter ? [$roleFilter] : []);
+$users = $uq->fetchAll();
+// Who books for family members? (asked about when their account is archived)
+$famByUser = [];
+foreach ($pdo->query("SELECT h.user_id, d.name, d.relationship FROM patients h JOIN patients d ON d.guardian_patient_id = h.id
+                       WHERE h.user_id IS NOT NULL AND d.status <> 'Archived' ORDER BY d.name") as $f) {
+    $famByUser[(int)$f['user_id']][] = $f['name'] . ($f['relationship'] ? ' (' . $f['relationship'] . ')' : '');
+}
+$archivedCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE status = 'archived'")->fetchColumn();
+
+$page_title = "User Management";
+include 'includes/head.php';
+$active = 'users';
+?>
+<div class="app-wrap">
+    <?php include 'includes/sidebar.php'; ?>
+    <main class="main">
+        <?php $uClinic = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='clinic_name'")->fetchColumn() ?: 'St. Therese Dental Clinic'; ?>
+        <!-- Only on paper / PDF -->
+        <div class="print-only" style="border-bottom:2px solid #0d3b3b;padding-bottom:8px;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+                <div style="font-size:18px;font-weight:700;color:#0d3b3b;"><?= e($uClinic) ?></div>
+                <div style="text-align:right;font-size:11px;color:#555;"><strong style="font-size:14px;color:#0d3b3b;">System Users</strong><br>
+                    <?= count($users) ?> users · Printed <?= date('M j, Y g:i A') ?> by <?= e($_SESSION['name'] ?? '') ?></div>
+            </div>
+        </div>
+
+        <div class="page-head no-print">
+            <div><h1 style="color:var(--teal-light)">User Management</h1><div class="sub">Manage doctors, staff, and patient accounts</div></div>
+            <?= print_menu('main', pdf_name('User-Management', date('Y-m-d'))) ?>
+        </div>
+
+        <!-- Top tabs shared across admin pages -->
+        <div class="no-print"><?php include 'includes/admin_tabs.php'; ?></div>
+
+        <!-- Stat cards -->
+        <div class="stat-grid">
+            <div class="stat-card"><div class="value"><?= $totalUsers ?></div><div class="label">Total Users</div><div class="bar"><span style="width:100%"></span></div></div>
+            <div class="stat-card"><div class="value"><?= $doctors ?></div><div class="label">Doctors</div><div class="bar"><span style="width:40%;background:#a06fd6"></span></div></div>
+            <div class="stat-card"><div class="value"><?= $staff ?></div><div class="label">Staff</div><div class="bar"><span style="width:30%;background:#14b8a6"></span></div></div>
+            <div class="stat-card"><div class="value"><?= $patientsU ?></div><div class="label">Patients</div><div class="bar"><span style="width:80%;background:#ec4899"></span></div></div>
+        </div>
+
+        <div class="card-box">
+            <div class="flex-between mb-3">
+                <h5 class="mb-0"><?= $roleFilter ? e($roleNames[$roleFilter]) : 'System Users' ?> <small class="text-muted2 d-block" style="font-size:.75rem;">Showing <?= count($users) ?> <?= $roleFilter ? e(strtolower($roleNames[$roleFilter])) : 'users' ?></small></h5>
+                <div class="d-flex gap-2 no-print">
+                    <a href="admin_archive" class="btn btn-sm btn-outline-secondary position-relative" title="Archive" data-keep-text>
+                        🗄 Archive
+                        <?php if ($archivedCount > 0): ?>
+                            <span class="badge-pill b-inactive" style="margin-left:4px;"><?= $archivedCount ?></span>
+                        <?php endif; ?>
+                    </a>
+                    <?php $addRole = in_array($roleFilter, ['staff', 'dentist', 'admin'], true) ? $roleFilter : ''; ?>
+                    <button class="btn btn-teal" data-bs-toggle="modal" data-bs-target="#userModal" data-keep-text
+                            onclick="openAddUser(<?= e(json_encode($addRole)) ?>)">+ Add <?= ['staff' => 'Staff', 'dentist' => 'Dentist', 'admin' => 'Admin'][$addRole] ?? 'User' ?></button>
+                </div>
+            </div>
+            <!-- Show only one kind of user -->
+            <div class="d-flex flex-wrap gap-2 mb-3 no-print" data-keep-text>
+                <a href="admin_users" class="btn btn-sm <?= $roleFilter === '' ? 'btn-dark-navy' : 'btn-light' ?>">All</a>
+                <?php foreach ($roleNames as $rk => $rl): ?>
+                    <a href="admin_users?role=<?= $rk ?>" class="btn btn-sm <?= $roleFilter === $rk ? 'btn-dark-navy' : 'btn-light' ?>"><?= $rl ?></a>
+                <?php endforeach; ?>
+            </div>
+            <?= bulk_bar('bulk-users', 'delete', 'users to the Archive', [], '🗑 Move selected to Archive', 'They can be restored from the Archive. Family members they book for are kept as the clinic patients.', 'Move') ?>
+            <div class="table-responsive">
+                <table class="data">
+                    <thead><tr><th>User</th><th>Role</th><th>Specialty / Position</th><th>Contact</th><th>Status</th><th>Last Login</th><th class="no-print">Actions</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($users as $u):
+                        $initials = strtoupper(substr($u['name'],0,1) . (strpos($u['name'],' ') ? substr(strstr($u['name'],' '),1,1) : ''));
+                        $roleBadge = ['admin'=>'b-progress','staff'=>'b-confirmed','dentist'=>'b-progress','patient'=>'b-pending'][$u['role']] ?? 'b-pending';
+                    ?>
+                        <tr>
+                            <td><div class="d-flex align-items-center gap-2">
+                                <span class="avatar" style="background:#5e8a86;"><?= e($initials) ?></span>
+                                <div><strong><?= e($u['name']) ?></strong><br><small class="text-muted2"><?= e($u['email']) ?></small></div>
+                            </div></td>
+                            <td><span class="badge-pill <?= $roleBadge ?>"><?= ucfirst($u['role']) ?></span></td>
+                            <td><?= e($u['specialty'] ?: $u['position'] ?: '–') ?></td>
+                            <td><?= e($u['contact']) ?></td>
+                            <td><span class="badge-pill b-<?= $u['status'] ?>"><?= ucfirst($u['status']) ?></span>
+                                <?php if (account_locked($u)): ?>
+                                    <div class="mt-1 d-flex align-items-center gap-1 flex-wrap">
+                                        <span class="badge-pill b-cancelled" title="<?= LOGIN_MAX_TRIES ?> wrong passwords in a row">🔒 Locked until <?= date('g:i A', strtotime($u['locked_until'])) ?></span>
+                                        <form method="POST" class="d-inline m-0"><input type="hidden" name="action" value="unlock"><input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                                            <button class="btn btn-sm btn-light py-0" data-keep-text>Unlock</button></form>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
+                            <td style="white-space:nowrap;"><small class="text-muted2"><?= $u['last_login'] ? date('M j, g:i A', strtotime($u['last_login'])) : '–' ?></small></td>
+                            <td class="no-print">
+                                <?php if ((int)$u['id'] !== (int)($_SESSION['user_id'] ?? 0)) echo bulk_pick('bulk-users', $u['id'], 'Select ' . $u['name']); ?>
+                                <?php // only what the form needs (never the password hash or tokens) ?>
+                                <button class="btn btn-sm btn-outline-secondary" onclick='openEditUser(<?= json_encode(array_intersect_key($u, array_flip(['id', 'name', 'first_name', 'last_name', 'email', 'role', 'specialty', 'position', 'contact', 'status'])), JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) ?>)' data-bs-toggle="modal" data-bs-target="#userModal">✏️ Edit</button>
+                                <form method="POST" class="d-inline" onsubmit="return confirmDelete('Move this user to Archive?')"
+                                      <?php if (!empty($famByUser[(int)$u['id']])): ?>data-family='<?= e(json_encode($famByUser[(int)$u['id']])) ?>' data-who="<?= e($u['name']) ?>"<?php endif; ?>>
+                                    <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $u['id'] ?>">
+                                    <input type="hidden" name="family" value="keep">
+                                    <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;" title="Move to Archive">🗑</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Add/Edit user modal -->
+<div class="modal fade" id="userModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    <form method="POST">
+        <input type="hidden" name="action" value="save"><input type="hidden" name="id" id="u-id">
+        <div class="modal-header"><h5 class="modal-title" id="u-title">Add User</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <div class="row">
+                <div class="col-4">
+                    <label class="field-label">Title</label>
+                    <select name="title" id="u-title-sel" class="form-select mb-3">
+                        <option value="">(none)</option>
+                        <option value="Dr.">Dr.</option>
+                        <option value="Dra.">Dra.</option>
+                        <option value="Mr.">Mr.</option>
+                        <option value="Ms.">Ms.</option>
+                        <option value="Mrs.">Mrs.</option>
+                    </select>
+                </div>
+                <div class="col-8">
+                    <label class="field-label">First Name</label>
+                    <input name="first_name" id="u-first" class="form-control mb-3" placeholder="Juan" required>
+                </div>
+            </div>
+            <label class="field-label">Last Name</label>
+            <input name="last_name" id="u-last" class="form-control mb-3" placeholder="Dela Cruz" required>
+
+            <label class="field-label">Email</label>
+            <input type="email" name="email" id="u-email" class="form-control mb-1" placeholder="name@gmail.com" required>
+            <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                Must be real — we check the domain and email their login details here.
+            </div>
+
+            <label class="field-label">Role</label>
+            <select name="role" id="u-role" class="form-select mb-3"><option value="admin">Admin</option><option value="staff">Staff</option><option value="dentist">Dentist</option><option value="patient">Patient</option></select>
+            <label class="field-label">Specialty / Position</label><input name="specialty" id="u-spec" class="form-control mb-3">
+            <label class="field-label">Contact</label><input name="contact" id="u-contact" class="form-control mb-3" placeholder="09XX XXX XXXX"
+                   <?= phone_input_attrs() ?>>
+            <label class="field-label">Status</label><select name="status" id="u-status" class="form-select"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        </div>
+        <div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-teal">Save</button></div>
+    </form>
+</div></div></div>
+
+<?php include 'includes/family_choice.php'; ?>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<script>
+// role: start the form on this role (e.g. 'staff' from "+ Add Staff"), else Dentist
+function openAddUser(role){
+    var label = {staff: 'Staff', dentist: 'Dentist', admin: 'Admin'}[role] || 'User';
+    document.getElementById('u-title').textContent = 'Add ' + label; document.getElementById('u-id').value = '';
+    ['u-first','u-last','u-email','u-spec','u-contact'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('u-title-sel').value='';
+    document.getElementById('u-role').value = role || 'dentist'; document.getElementById('u-status').value = 'active';
+}
+
+// The name is stored as one string, so when editing we split it back into
+// Title / First / Last to fill the three boxes.
+function splitName(full){
+    var parts = (full || '').trim().split(/\s+/);
+    var titles = ['Dr.','Dra.','Mr.','Ms.','Mrs.'];
+    var title = '';
+    if (parts.length && titles.indexOf(parts[0]) !== -1) { title = parts.shift(); }
+    var first = parts.length ? parts.shift() : '';
+    var last  = parts.join(' ');          // anything left is the surname
+    if (last === '') { last = first; first = ''; }   // single-word name
+    return { title: title, first: first, last: last };
+}
+
+function openEditUser(u){
+    document.getElementById('u-title').textContent = 'Edit User';   // the form opens filled in: change only what you need
+    document.getElementById('u-id').value=u.id;
+    var n = splitName(u.name);
+    if (u.first_name) { n.first = u.first_name; n.last = u.last_name || ''; }   // the saved first / last name
+    document.getElementById('u-title-sel').value = n.title;
+    document.getElementById('u-first').value = n.first;
+    document.getElementById('u-last').value  = n.last;
+    document.getElementById('u-email').value=u.email;
+    document.getElementById('u-role').value=u.role;
+    document.getElementById('u-spec').value=u.specialty||u.position||'';
+    document.getElementById('u-contact').value=u.contact||'';
+    document.getElementById('u-status').value=u.status;
+}
+</script>
+</body></html>

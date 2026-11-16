@@ -1,0 +1,531 @@
+<?php
+// ============================================================
+//  DENTISTS (admin drill-down)  (admin_dentists.php) -- admin only
+// ============================================================
+//  A 3-level view for the admin:
+//    LEVEL 1  (no parameters)           -> list of all dentists + profile
+//    LEVEL 2  (?dentist=ID)             -> that dentist's patients
+//    LEVEL 3  (?dentist=ID&patient=PID) -> that patient's dental chart,
+//                                          remarks, and treatment notes
+//
+//  How dentists are linked to patients:
+//    Each patient row has a `primary_dentist` text field that holds
+//    the dentist's full name (e.g. "Dr. Ana Santos"). We match that
+//    against the dentist's `name` in the users table.
+// ============================================================
+require_once 'config/auth.php';
+require_login(['admin']);              // only admins can open this page
+require_once 'includes/teeth.php';     // for the read-only dental chart
+require_once 'includes/mailer.php';
+require_once 'includes/message_templates.php';    // to email new dentists their login details
+
+// ---------- Add / Delete a dentist (used on the dentist list) ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'add_dentist') {
+        // The form now asks for the parts separately, but we still store ONE name
+        // because patients.primary_dentist and appointments.dentist are matched
+        // against users.name.
+        $title = trim($_POST['title'] ?? '');
+        $first = trim($_POST['first_name'] ?? '');
+        $last  = trim($_POST['last_name'] ?? '');
+        $name  = trim(preg_replace('/\s+/', ' ', "$title $first $last"));
+
+        $email   = strtolower(trim($_POST['email']));
+        $spec    = trim($_POST['specialty'] ?? '');
+        [$contact, $phoneError] = validate_phone($_POST['contact'] ?? '');
+
+        // ---- Make sure the email is a REAL, usable address ----
+        $emailError = '';
+        if ($first === '' || $last === '') {
+            $emailError = 'Please enter both a first name and a last name.';
+        } elseif ($phoneError !== '') {
+            $emailError = $phoneError;
+        } elseif (($emailError = dentist_name_problem($pdo, $name)) !== '') {
+            // another dentist already has this name
+        } else {
+            // Shared check: format, the domain really accepts mail, and not taken.
+            $emailError = validate_account_email($pdo, $email);
+        }
+        if ($emailError !== '') {
+            set_flash($emailError, 'error');
+            header("Location: admin_dentists"); exit;
+        }
+
+        // New dentists get a random Strong temporary password (shown once, emailed).
+        $tempPass = generate_temp_password();
+        $hash = password_hash($tempPass, PASSWORD_DEFAULT);
+        try {
+            $pdo->prepare("INSERT INTO users (name,email,password,role,specialty,contact,status)
+                           VALUES (?,?,?,'dentist',?,?,'active')")
+                ->execute([$name,$email,$hash,$spec,$contact]);
+            save_name_parts($pdo, 'users', $pdo->lastInsertId(), $first, $last);   // first / last name kept apart too
+
+            // Email their login details. This is useful for them AND it proves the
+            // address really works — if it bounces, we say so.
+            $note = '';
+            if (mail_is_ready($pdo)) {
+                $cat = message_catalogue()['account_welcome'];
+                [$wSubj, $body] = tpl_message($pdo, 'account_welcome', $cat['subject'], $cat['body'], [
+                    'name'     => $name,
+                    'email'    => $email,
+                    'password' => $tempPass,
+                    'clinic'   => clinic_name($pdo),
+                ]);
+                $err = '';
+                $note = send_mail($pdo, $email, $wSubj, $body, $err, 'dentist_welcome')
+                      ? ' Their login details were emailed to them.'
+                      : " (Note: the welcome email could not be sent — $err)";
+            }
+            set_flash("$name added. Temporary password: $tempPass — they should change it after signing in." . $note);
+            header("Location: admin_dentists"); exit;
+        } catch (PDOException $ex) {
+            set_flash('That email is already in use. Please use a different email.', 'error');
+            header("Location: admin_dentists"); exit;
+        }
+    }
+
+    // ---- Forgot their approval PIN: the admin clears it; the dentist creates a new one ----
+    if ($action === 'reset_pin') {
+        $rid = (int)($_POST['id'] ?? 0);
+        $rn = $pdo->prepare("SELECT name FROM users WHERE id = ? AND role = 'dentist'");
+        $rn->execute([$rid]);
+        if ($rname = $rn->fetchColumn()) {
+            $pdo->prepare("UPDATE users SET approval_pin = NULL, pin_fail_count = 0, pin_locked_until = NULL WHERE id = ?")->execute([$rid]);
+            log_activity($pdo, 'Reset approval PIN', $rname);
+            set_flash("$rname's approval PIN was reset. They can create a new one in Profile & Settings.", 'info');
+        }
+        header("Location: admin_dentists"); exit;
+    }
+
+    // ---- Upload a photo for a dentist (shown on the landing page) ----
+    if ($action === 'upload_photo') {
+        $did = (int)$_POST['id'];
+        $dir = __DIR__ . '/uploads/landing';
+        if (!is_dir($dir)) mkdir($dir, 0777, true);
+
+        // JPG / PNG only, judged by the file's content (not its name), at most 5 MB,
+        // saved under a random name — includes/security.php
+        [$ext, $upErr] = check_image_upload($_FILES['photo'] ?? null);
+        if ($upErr !== '') {
+            set_flash($upErr, 'error');
+        } else {
+            $fname = random_upload_name($ext, 'dentist_');
+            if (move_uploaded_file($_FILES['photo']['tmp_name'], "$dir/$fname")) {
+                $pdo->prepare("UPDATE users SET photo=? WHERE id=? AND role='dentist'")
+                    ->execute(['uploads/landing/' . $fname, $did]);
+                set_flash('Photo uploaded — it now shows on the landing page.');
+            } else {
+                set_flash('Could not save the photo.', 'error');
+            }
+        }
+        header("Location: admin_dentists"); exit;
+    }
+
+    if ($action === 'delete_dentist') {
+      $totalRemoved = 0; $totalMoved = 0;
+      foreach (bulk_ids() as $delDentistId) {    // one dentist, or several ticked ones
+        // Get the dentist's name first (needed to find their patients).
+        $d = $pdo->prepare("SELECT name FROM users WHERE id=? AND role='dentist' AND status <> 'archived'");
+        $d->execute([$delDentistId]);
+        $dname = $d->fetchColumn();
+        if (!$dname) continue;
+
+        // Move the dentist to the Archive first (not deleted for good) — the
+        // admin can restore them, or delete them permanently, from Archive.
+        archive_user($pdo, $delDentistId, $_SESSION['name'] ?? null);
+        $totalRemoved++;
+
+        // Auto-transfer this dentist's patients to the REMAINING dentists.
+        // We reassign one patient at a time using the same auto-balancer, so the
+        // patients get spread evenly (each goes to whoever has the fewest).
+        $moved = 0;
+        if ($dname) {
+            $orphans = $pdo->prepare("SELECT id FROM patients WHERE primary_dentist = ?");
+            $orphans->execute([$dname]);
+            foreach ($orphans->fetchAll(PDO::FETCH_COLUMN) as $opid) {
+                $newDentist = pick_dentist_for_new_patient($pdo);   // least-loaded remaining dentist (or null if none left)
+                $pdo->prepare("UPDATE patients SET primary_dentist = ? WHERE id = ?")->execute([$newDentist, $opid]);
+                if ($newDentist) move_upcoming_to_dentist($pdo, $opid, $newDentist);   // their upcoming visits follow
+                $moved++;
+            }
+        }
+
+        log_activity($pdo, 'Archived dentist', $dname . ($moved ? " ($moved patient(s) reassigned)" : ''));
+        $totalMoved += $moved;
+      }
+
+        $what = $totalRemoved === 1 ? 'Dentist moved to Archive.' : "$totalRemoved dentists moved to Archive.";
+        if ($totalMoved > 0) {
+            set_flash("$what $totalMoved patient(s) transferred to another dentist.", 'info');
+        } else {
+            set_flash($what, 'info');
+        }
+        header("Location: admin_dentists"); exit;
+    }
+}
+
+// Which level are we on?
+$did = (int)($_GET['dentist'] ?? 0);
+$pid = (int)($_GET['patient'] ?? 0);
+if ($did && $pid) log_record_view($pdo, $pid, 'Dentists — dental chart');   // audit (includes/security.php)
+
+// Small helper: status word -> badge CSS class (same idea as reports.php).
+function badge_for($status) {
+    $map = [
+        'Completed'=>'b-completed','In Progress'=>'b-progress','Pending'=>'b-pending',
+        'Confirmed'=>'b-confirmed','Cancelled'=>'b-cancelled','No-show'=>'b-noshow','Disapproved'=>'b-disapproved',
+        'Rescheduled'=>'b-progress','Active'=>'b-active','Inactive'=>'b-inactive',
+    ];
+    return $map[$status] ?? 'b-pending';
+}
+// Small helper: initials for the round avatar.
+function initials($name) {
+    return strtoupper(substr($name,0,1) . (strpos($name,' ') ? substr(strstr($name,' '),1,1) : ''));
+}
+
+$page_title = "Dentists";
+include 'includes/head.php';
+$active = 'dentists';
+?>
+<div class="app-wrap">
+    <?php include 'includes/sidebar.php'; ?>
+    <main class="main">
+
+    <?php
+    // ==========================================================
+    //  LEVEL 3 : one patient's clinical detail
+    // ==========================================================
+    if ($did && $pid):
+        $d = $pdo->prepare("SELECT * FROM users WHERE id=? AND role='dentist'"); $d->execute([$did]); $dentist = $d->fetch();
+        $p = $pdo->prepare("SELECT * FROM patients WHERE id=?");                 $p->execute([$pid]); $patient = $p->fetch();
+
+        // dental chart data
+        $toothMap = build_tooth_map($pdo, $pid);
+        $legendColors = ['Healthy'=>'#6bbf6b','Decayed'=>'#e0a92e','Filled'=>'#3b9ae0','Missing'=>'#e05b5b',
+                         'Crowned'=>'#a06fd6','Extracted'=>'#999','Impacted'=>'#d99a00','Fractured'=>'#cc4444','Other'=>'#d6589c'];
+        // count each condition
+        $counts = [];
+        foreach (array_merge($UPPER_TEETH,$LOWER_TEETH) as $t) { $s=$toothMap[$t]??'Healthy'; $counts[$s]=($counts[$s]??0)+1; }
+
+        // treatments for this patient
+        $tr = $pdo->prepare("SELECT * FROM treatments WHERE patient_id=? ORDER BY treatment_date DESC"); $tr->execute([$pid]);
+        $treatments = $tr->fetchAll();
+    ?>
+        <!-- breadcrumb -->
+        <div class="mb-2" style="font-size:.9rem;">
+            <a href="admin_dentists">Dentists</a> ›
+            <a href="admin_dentists?dentist=<?= $did ?>"><?= e($dentist['name'] ?? 'Dentist') ?></a> ›
+            <span class="text-muted2"><?= e($patient['name'] ?? 'Patient') ?></span>
+        </div>
+
+        <div class="page-head">
+            <div><h1><?= e($patient['name']) ?></h1><div class="sub">Dental chart &amp; treatment records — under <?= e($dentist['name']) ?></div></div>
+            <a href="admin_dentists?dentist=<?= $did ?>" class="btn btn-light">← Back to patients</a>
+        </div>
+
+        <!-- patient info strip -->
+        <div class="card-box mb-3">
+            <div class="d-flex flex-wrap gap-4" style="font-size:.9rem;">
+                <div><div class="field-label">Age</div><?= e($patient['age']) ?> yrs</div>
+                <div><div class="field-label">Blood Type</div><?= e($patient['blood_type']) ?></div>
+                <div><div class="field-label">Phone</div><?= e($patient['phone']) ?></div>
+                <div><div class="field-label">Type</div><span class="badge-pill <?= badge_for($patient['patient_type']) ?>"><?= e($patient['patient_type']) ?></span></div>
+                <div><div class="field-label">Status</div><span class="badge-pill <?= badge_for($patient['status']) ?>"><?= e(status_label($patient['status'])) ?></span></div>
+                <?php if ($patient['medical_alert']): ?>
+                    <div><div class="field-label">Medical Alert</div><span style="color:#c0392b;">⚠️ <?= e($patient['medical_alert']) ?></span></div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- read-only dental chart -->
+            <div class="col-lg-8">
+                <div class="card-box">
+                    <h5 class="mb-3">🦷 Dental Chart <small class="text-muted2 d-block" style="font-size:.75rem;">Read-only view</small></h5>
+
+                    <div class="text-center mb-1"><span class="odo-section-label">Upper (Maxillary)</span></div>
+                    <div class="odo-arch">
+                        <?php foreach ($UPPER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                    </div>
+                    <div class="odo-midline">— MIDLINE —</div>
+                    <div class="odo-arch">
+                        <?php foreach ($LOWER_TEETH as $t) echo render_tooth($t, $toothMap[$t] ?? 'Healthy'); ?>
+                    </div>
+                    <div class="text-center mt-1"><span class="odo-section-label">Lower (Mandibular)</span></div>
+
+                    <div class="odo-legend">
+                        <?php foreach ($TOOTH_STATUSES as $st): ?>
+                            <span><i class="legend-dot" style="background:<?= $legendColors[$st] ?>"></i><?= $st ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+
+            <!-- summary + remarks -->
+            <div class="col-lg-4">
+                <div class="card-box">
+                    <h5>Select a Tooth</h5>
+                    <div id="tooth-panel"><p class="text-muted2">Click a tooth to see its condition</p></div>
+                </div>
+                <div class="card-box">
+                    <h5>Chart Summary</h5>
+                    <?php foreach (['Healthy','Decayed','Filled','Crowned','Missing'] as $st): ?>
+                        <div class="flex-between py-1">
+                            <span><i class="legend-dot" style="background:<?= $legendColors[$st] ?>"></i> <?= $st ?></span>
+                            <strong><?= $counts[$st] ?? 0 ?></strong>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="card-box">
+                    <h5>📝 General Remarks</h5>
+                    <?php if (!empty($patient['chart_remarks'])): ?>
+                        <p style="font-size:.9rem;white-space:pre-wrap;"><?= e($patient['chart_remarks']) ?></p>
+                    <?php else: ?>
+                        <p class="text-muted2" style="font-size:.9rem;">No remarks recorded yet.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <!-- treatment notes -->
+        <div class="card-box">
+            <h5 class="mb-3">📋 Treatment Records &amp; Notes</h5>
+            <div class="table-responsive">
+                <table class="data">
+                    <thead><tr><th>Date</th><th>Treatment</th><th>Tooth</th><th>Dentist</th><th>Status</th><th>Notes</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($treatments as $t): ?>
+                        <tr>
+                            <td><?= e($t['treatment_date']) ?></td>
+                            <td><strong><?= e($t['treatment_name']) ?></strong></td>
+                            <td><?= e($t['tooth']) ?></td>
+                            <td><?= e($t['dentist']) ?></td>
+                            <td><span class="badge-pill <?= badge_for($t['status']) ?>"><?= e(status_label($t['status'])) ?></span></td>
+                            <td><?= e($t['notes']) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($treatments)): ?>
+                        <tr><td colspan="6" class="text-center text-muted2">No treatment records for this patient yet.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    <?php
+    // ==========================================================
+    //  LEVEL 2 : one dentist's patients
+    // ==========================================================
+    elseif ($did):
+        $d = $pdo->prepare("SELECT * FROM users WHERE id=? AND role='dentist'"); $d->execute([$did]); $dentist = $d->fetch();
+
+        // patients whose primary_dentist matches this dentist's name
+        $ps = $pdo->prepare("SELECT * FROM patients WHERE primary_dentist = ? ORDER BY name");
+        $ps->execute([$dentist['name'] ?? '']);
+        $docPatients = $ps->fetchAll();
+    ?>
+        <div class="mb-2" style="font-size:.9rem;">
+            <a href="admin_dentists">Dentists</a> › <span class="text-muted2"><?= e($dentist['name'] ?? 'Dentist') ?></span>
+        </div>
+
+        <div class="page-head">
+            <div><h1><?= e($dentist['name']) ?></h1><div class="sub"><?= e($dentist['specialty'] ?: 'Dentist') ?></div></div>
+            <a href="admin_dentists" class="btn btn-light">← Back to dentists</a>
+        </div>
+
+        <!-- dentist profile card -->
+        <div class="card-box mb-3">
+            <div class="d-flex align-items-center gap-3">
+                <span class="avatar" style="background:#5e8a86;width:56px;height:56px;font-size:1.2rem;"><?= e(initials($dentist['name'])) ?></span>
+                <div>
+                    <h5 class="mb-0"><?= e($dentist['name']) ?> <span class="badge-pill <?= badge_for($dentist['status']) ?>"><?= ucfirst($dentist['status']) ?></span></h5>
+                    <div class="text-muted2" style="font-size:.9rem;">
+                        <?= e($dentist['specialty'] ?: 'General Dentistry') ?> · 📧 <?= e($dentist['email']) ?> · 📞 <?= e($dentist['contact']) ?>
+                    </div>
+                </div>
+                <div class="ms-auto text-center">
+                    <div style="font-size:1.8rem;font-weight:700;color:var(--teal-mid);"><?= count($docPatients) ?></div>
+                    <div class="field-label">Patients</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-box">
+            <h5 class="mb-3">Patients under <?= e($dentist['name']) ?></h5>
+            <div class="table-responsive">
+                <table class="data">
+                    <thead><tr><th>Patient</th><th>Age</th><th>Type</th><th>Last Visit</th><th>Next Visit</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ($docPatients as $pt): ?>
+                        <tr>
+                            <td><div class="d-flex align-items-center gap-2">
+                                <span class="avatar" style="background:#7a9bd6;"><?= e(initials($pt['name'])) ?></span>
+                                <div><strong><?= e($pt['name']) ?></strong><br><small class="text-muted2"><?= e($pt['email']) ?></small></div>
+                            </div></td>
+                            <td><?= e($pt['age']) ?></td>
+                            <td><span class="badge-pill <?= badge_for($pt['patient_type']) ?>"><?= e($pt['patient_type']) ?></span></td>
+                            <td><?= e($pt['last_visit']) ?></td>
+                            <td><?= e($pt['next_visit']) ?></td>
+                            <td><span class="badge-pill <?= badge_for($pt['status']) ?>"><?= e(status_label($pt['status'])) ?></span></td>
+                            <td><a href="admin_dentists?dentist=<?= $did ?>&patient=<?= $pt['id'] ?>" class="btn btn-sm btn-teal">View Chart &amp; Records →</a></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($docPatients)): ?>
+                        <tr><td colspan="7" class="text-center text-muted2">This dentist has no assigned patients yet.</td></tr>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    <?php
+    // ==========================================================
+    //  LEVEL 1 : list of all dentists
+    // ==========================================================
+    else:
+        $dentists = $pdo->query("SELECT * FROM users WHERE role='dentist' AND status <> 'archived' ORDER BY name")->fetchAll();
+    ?>
+        <div class="page-head">
+            <div><h1>Dentists</h1><div class="sub">View each dentist's profile and the patients assigned to them</div></div>
+            <div class="d-flex align-items-center gap-3">
+                <div class="clock"><span class="time" id="clock"></span><br><span id="clock-date"></span></div>
+                <button class="btn btn-teal" data-bs-toggle="modal" data-bs-target="#dentistModal">+ Add Dentist</button>
+            </div>
+        </div>
+
+        <div class="mb-3"><?= bulk_bar('bulk-dentists', 'delete_dentist', 'dentists to the Archive', [], '🗑 Move selected to Archive', 'Their patients will be transferred to the remaining dentists. They can be restored from the Archive.', 'Move') ?></div>
+        <div class="dentist-grid">
+            <?php foreach ($dentists as $doc):
+                // how many patients are assigned to this dentist?
+                $cnt = $pdo->prepare("SELECT COUNT(*) FROM patients WHERE primary_dentist = ?");
+                $cnt->execute([$doc['name']]);
+                $patientCount = $cnt->fetchColumn();
+            ?>
+                <div class="dg-cell">
+                    <div class="card-box h-100 mb-0">
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <?php if (!empty($doc['photo']) && is_file(__DIR__ . '/' . $doc['photo'])): ?>
+                                <img src="<?= e($doc['photo']) ?>" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;">
+                            <?php else: ?>
+                                <span class="avatar" style="background:#5e8a86;width:52px;height:52px;font-size:1.1rem;"><?= e(initials($doc['name'])) ?></span>
+                            <?php endif; ?>
+                            <div>
+                                <h6 class="mb-0"><?= e($doc['name']) ?></h6>
+                                <span class="badge-pill <?= badge_for($doc['status']) ?>"><?= ucfirst($doc['status']) ?></span>
+                            </div>
+                        </div>
+                        <div class="text-muted2 mb-1" style="font-size:.85rem;">🦷 <?= e($doc['specialty'] ?: 'General Dentistry') ?></div>
+                        <div class="text-muted2 mb-1" style="font-size:.85rem;">📧 <?= e($doc['email']) ?></div>
+                        <div class="text-muted2 mb-1" style="font-size:.85rem;">📞 <?= e($doc['contact'] ?: '–') ?></div>
+                        <!-- Approval PIN: staff open a patient's chart with it -->
+                        <div class="text-muted2 mb-3 d-flex align-items-center gap-2" style="font-size:.85rem;">
+                            🔐 <?= !empty($doc['approval_pin']) ? 'Approval PIN set up' : 'No approval PIN yet' ?>
+                            <?php if (!empty($doc['approval_pin'])): ?>
+                                <form method="POST" class="m-0" onsubmit="return confirm('Reset <?= e(addslashes($doc['name'])) ?>\'s approval PIN? They will need to create a new one in Profile & Settings.')">
+                                    <input type="hidden" name="action" value="reset_pin"><input type="hidden" name="id" value="<?= (int)$doc['id'] ?>">
+                                    <button class="btn btn-sm btn-light py-0" data-keep-text style="font-size:.78rem;">Reset PIN</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+
+                        <form method="POST" enctype="multipart/form-data" class="mb-3">
+                            <input type="hidden" name="action" value="upload_photo">
+                            <input type="hidden" name="id" value="<?= $doc['id'] ?>">
+                            <label class="field-label" style="font-size:.72rem;">Photo (shows on the landing page)</label>
+                            <div class="d-flex gap-1">
+                                <input type="file" name="photo" class="form-control form-control-sm" accept="<?= IMAGE_ACCEPT ?>" data-max-mb="<?= UPLOAD_MAX_MB ?>" title="<?= image_upload_hint() ?>" required>
+                                <button class="btn btn-sm btn-light" style="white-space:nowrap;">⬆</button>
+                            </div>
+                        </form>
+
+                        <div class="flex-between" style="border-top:1px solid #eee;padding-top:10px;">
+                            <span><strong style="font-size:1.3rem;color:var(--teal-mid);"><?= $patientCount ?></strong> <span class="text-muted2" style="font-size:.85rem;">patients</span></span>
+                            <div class="d-flex gap-1 align-items-center">
+                                <?= bulk_pick('bulk-dentists', $doc['id'], 'Select ' . $doc['name']) ?>
+                                <a href="admin_dentists?dentist=<?= $doc['id'] ?>" class="btn btn-sm btn-teal">View →</a>
+                                <form method="POST" onsubmit="return confirm('Move <?= e(addslashes($doc['name'])) ?> to the Archive? Their patients will be transferred to another dentist. You can restore them from the Archive.')">
+                                    <input type="hidden" name="action" value="delete_dentist">
+                                    <input type="hidden" name="id" value="<?= $doc['id'] ?>">
+                                    <button class="btn btn-sm" style="background:#fbdcdc;color:#c0392b;">🗑</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+
+            <?php if (empty($dentists)): ?>
+                <div class="dg-full"><div class="card-box text-center text-muted2">No dentists yet. Click <strong>+ Add Dentist</strong> to create one.</div></div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Add Dentist modal (only shown on the dentist list) -->
+        <div class="modal fade" id="dentistModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="action" value="add_dentist">
+                <div class="modal-header"><h5 class="modal-title">Add Dentist</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-4">
+                            <label class="field-label">Title</label>
+                            <select name="title" class="form-select mb-3">
+                                <option value="Dr." selected>Dr.</option>
+                                <option value="Dra.">Dra.</option>
+                                <option value="">(none)</option>
+                            </select>
+                        </div>
+                        <div class="col-8">
+                            <label class="field-label">First Name</label>
+                            <input name="first_name" class="form-control mb-3" placeholder="Juan" required>
+                        </div>
+                    </div>
+
+                    <label class="field-label">Last Name</label>
+                    <input name="last_name" class="form-control mb-1" placeholder="Dela Cruz" required>
+                    <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                        Saved as one name, e.g. <strong>Dr. Juan Dela Cruz</strong> — this is what patients and appointments are matched against.
+                    </div>
+
+                    <label class="field-label">Email</label>
+                    <input type="email" name="email" class="form-control mb-1" placeholder="dentist@gmail.com" required>
+                    <div class="text-muted2 mb-3" style="font-size:.78rem;">
+                        Must be a real, working address — we check the domain and email their login details here.
+                    </div>
+
+                    <label class="field-label">Specialty / Expertise</label>
+                    <input name="specialty" class="form-control mb-1" placeholder="e.g. Orthodontics, Oral Surgery" required>
+                    <div class="text-muted2 mb-3" style="font-size:.78rem;">Shown on the public landing page under "Meet Our Dentists".</div>
+
+                    <label class="field-label">Contact Number</label>
+                    <input name="contact" class="form-control mb-3" placeholder="09XX XXX XXXX" <?= phone_input_attrs() ?> required>
+
+                    <div class="alert alert-secondary py-2 mb-0" style="font-size:.83rem;">
+                        A strong temporary password is created and shown (and emailed) after saving. They can change it later.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-teal">Add Dentist</button>
+                </div>
+            </form>
+        </div></div></div>
+    <?php endif; ?>
+
+    </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<script>if (document.getElementById('clock')) startClock();</script>
+<style>
+/* Dentist cards share the full width and re-flow on their own as dentists are added:
+   2 dentists = 2 wide cards, 3 = three across, more wrap onto the next row. */
+.dentist-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.dentist-grid .dg-full { grid-column: 1 / -1; }
+.dentist-grid .dg-full .bulk-bar, .dentist-grid .dg-full > div { margin-bottom: 0; }
+@media (max-width: 400px) { .dentist-grid { grid-template-columns: 1fr; } }
+</style>
+</body>
+</html>

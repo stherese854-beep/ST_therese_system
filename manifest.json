@@ -1,0 +1,16 @@
+{
+  "name": "St. Therese Dental Clinic",
+  "short_name": "St. Therese",
+  "description": "Appointment scheduling and clinic management for St. Therese of Carmel Dental Clinic.",
+  "start_url": "/login",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#14524f",
+  "background_color": "#14524f",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

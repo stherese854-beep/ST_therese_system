@@ -1,0 +1,15 @@
+# Ignore uploaded files (patient X-rays, photos) — private, never commit them.
+# Only the folder placeholders and their protection rules are tracked.
+uploads/**
+!uploads/*/
+!uploads/.gitkeep
+!uploads/.htaccess
+!uploads/*/index.php
+!uploads/*/.htaccess
+
+# Ignore local config overrides
+config/local.php
+
+# Ignore logs and temp files
+*.log
+*.tmp

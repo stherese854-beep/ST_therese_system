@@ -1,0 +1,679 @@
+<?php
+// ============================================================
+//  WEEKLY NO-SHOW REPORT  (noshow.php)
+// ============================================================
+//  Image 8 in the design.
+//  Shows appointments that were missed (No-show), Cancelled, or
+//  Rescheduled. All data is pulled live from the `appointments`
+//  table by filtering on the status column.
+// ============================================================
+require_once 'config/auth.php';
+require_once 'includes/mailer.php';
+require_once 'includes/message_templates.php';
+require_once 'includes/assign.php';
+require_once 'includes/noshow_check.php';   // patient_noshow_count()
+require_login(['admin','dentist','staff']);
+
+// ---------- Staff decision on a flagged appointment ----------
+// The scanner only ever sets "Needs Review". Nothing is sent and nothing
+// is counted against the patient until a person confirms it here.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    $id     = (int)($_POST['id'] ?? 0);
+
+    // Frequent cancellations: staff reviewed the patient -> booking allowed again.
+    if ($id && $action === 'restore_cancel' && in_array(current_role(), ['admin','staff'], true)) {
+        reset_account_counts($pdo, $id, 'cancel', $_SESSION['name'] ?? 'staff');   // the whole account
+        $nm = $pdo->prepare("SELECT name FROM patients WHERE id = ?"); $nm->execute([$id]);
+        $rn = $nm->fetchColumn() ?: 'Patient';
+        log_activity($pdo, 'Reviewed cancellations', $rn . ' — online booking restored');
+        set_flash($rn . ' was reviewed and can book online again. Their cancellations stay on record.');
+        header("Location: noshow?tab=cancels"); exit;
+    }
+
+    if ($id && $action === 'confirm_noshow') {
+        $pdo->prepare("UPDATE appointments SET status='No-show' WHERE id=?")->execute([$id]);
+
+        // Look up the patient so we can email them.
+        $q = $pdo->prepare(
+            "SELECT a.patient_name, a.appointment_date, a.appointment_time, a.treatment,
+                    p.id AS pid, COALESCE(NULLIF(p.email,''), g.email) AS email
+               FROM appointments a
+          LEFT JOIN patients p ON a.patient_id = p.id
+          LEFT JOIN patients g ON g.id = p.guardian_patient_id
+              WHERE a.id = ?"
+        );
+        $q->execute([$id]);
+        $row = $q->fetch();
+
+        // The patient sees a pop-up warning ("missed X of 3") the next time they open
+        // the portal. Only the 3rd — when online booking is blocked — is also emailed.
+        // Counted over the whole account, the same way booking.php pauses booking.
+        $note = '';
+        if ($row && !empty($row['pid'])) {
+            require_once 'includes/patient_notices.php';
+            $holderId = account_holder_id($pdo, $row['pid']);
+            $missed   = account_noshow_total($pdo, $holderId);
+            $whenTxt  = date('F j, Y', strtotime($row['appointment_date'])) . ' at ' . $row['appointment_time'];
+            $isSelf   = ($holderId === (int)$row['pid']);
+            $n = noshow_notice($missed, $isSelf ? 'You' : $row['patient_name'], $whenTxt);
+            add_patient_notice($pdo, $holderId, 'noshow', $n['level'], $n['title'], $n['body']);
+            $note = " They will see a warning ($missed of 3) when they open their portal.";
+
+            if ($missed === 3 && !empty($row['email']) && mail_is_ready($pdo)) {
+                $cat = message_catalogue()['noshow_final'];
+                [$subject, $bodyHtml] = tpl_message($pdo, 'noshow_final', $cat['subject'], $cat['body'], [
+                    'patient'   => $row['patient_name'],
+                    'date'      => date('l, F j, Y', strtotime($row['appointment_date'])),
+                    'time'      => $row['appointment_time'],
+                    'treatment' => $row['treatment'],
+                    'missed'    => $missed,
+                    'clinic'    => clinic_name($pdo),
+                ]);
+                $err = '';
+                $note .= send_mail($pdo, $row['email'], $subject, $bodyHtml, $err, 'noshow_final')
+                       ? ' Online booking is now blocked and they were emailed.'
+                       : " Online booking is now blocked (the email could not be sent — $err).";
+            }
+        }
+        log_activity($pdo, 'Confirmed no-show', ($row['patient_name'] ?? ('Appointment #' . $id)));
+        set_flash(($row['patient_name'] ?? 'Appointment') . ' marked as a no-show.' . $note, 'danger');   // red: it counts against the patient
+        header("Location: noshow?tab=review"); exit;
+    }
+
+    if ($id && $action === 'mark_attended') {
+        // A false alarm — the visit simply was not encoded. Close it quietly.
+        $pdo->prepare("UPDATE appointments SET status='Completed' WHERE id=?")->execute([$id]);
+        $att = $pdo->prepare("SELECT patient_name FROM appointments WHERE id=?"); $att->execute([$id]);
+        log_activity($pdo, 'Marked as attended', $att->fetchColumn() ?: ('Appointment #' . $id));
+        set_flash('Marked as attended. No notice was sent and nothing was counted against the patient.', 'info');
+        header("Location: noshow?tab=review"); exit;
+    }
+}
+
+// Clinic name, used on the printed copy of this report.
+$cn = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key='clinic_name'");
+$cn->execute();
+$clinicNameForPrint = $cn->fetchColumn() ?: 'St. Therese of Carmel Dental Clinic';
+
+// Which tab is selected? (all / review / noshow / cancelled / repeat)
+$tab = $_GET['tab'] ?? 'review';
+
+// ---------- Filters from the toolbar ----------
+// A DENTIST is always locked to their own records and gets no dentist picker.
+// Admin and staff may filter by any dentist.
+$role = current_role();
+$isDentistUser = ($role === 'dentist');
+
+// ---------- Report period ----------
+// Week (?period=week&w=2026-W39), month (&m=2026-09), day (&d=2026-09-28)
+// or all time. Default: this month. Items that still NEED REVIEW are always
+// listed, whatever the period, because they are open work for staff.
+$period = in_array($_GET['period'] ?? '', ['week','month','day','all'], true) ? $_GET['period'] : 'month';
+$validDate = function ($v, $fmt) { $d = DateTimeImmutable::createFromFormat('!' . $fmt, (string)$v); return $d && $d->format($fmt) === $v ? $d : null; };
+$today = new DateTimeImmutable('today');
+$pickW = preg_match('/^(\d{4})-W(\d{2})$/', $_GET['w'] ?? '', $wm) && (int)$wm[2] >= 1 && (int)$wm[2] <= 53
+         ? $_GET['w'] : $today->format('o-\WW');
+$pickM = $validDate($_GET['m'] ?? '', 'Y-m') ? $_GET['m'] : $today->format('Y-m');
+$pickD = $validDate($_GET['d'] ?? '', 'Y-m-d') ? $_GET['d'] : $today->format('Y-m-d');
+$pStart = $pEnd = null;
+if ($period === 'week') {
+    [$wy, $wn] = array_map('intval', explode('-W', $pickW));
+    $pStart = $today->setISODate($wy, $wn);          // Monday
+    $pEnd   = $pStart->modify('+6 days');            // Sunday
+    $periodLabel = 'Week ' . $wn . ', ' . $wy . ' (' . $pStart->format('M j') . ' – ' . $pEnd->format('M j, Y') . ')';
+} elseif ($period === 'month') {
+    $pStart = new DateTimeImmutable("$pickM-01");
+    $pEnd   = $pStart->modify('last day of this month');
+    $periodLabel = $pStart->format('F Y');
+} elseif ($period === 'day') {
+    $pStart = $pEnd = new DateTimeImmutable($pickD);
+    $periodLabel = $pStart->format('l, F j, Y');
+} else {
+    $periodLabel = 'All time';
+}
+$pS = $pStart ? $pStart->format('Y-m-d') : null;
+$pE = $pEnd ? $pEnd->format('Y-m-d') : null;
+// Query-string bits that keep the chosen period when switching tabs / filters.
+$periodQS = 'period=' . $period . ($period === 'week' ? '&w=' . urlencode($pickW) : '')
+          . ($period === 'month' ? '&m=' . urlencode($pickM) : '') . ($period === 'day' ? '&d=' . urlencode($pickD) : '');
+
+$filterDentist = $isDentistUser ? ($_SESSION['name'] ?? '') : trim($_GET['dentist'] ?? '');
+$filterStatus  = trim($_GET['status'] ?? '');
+$searchName    = trim($_GET['q'] ?? '');
+
+// Dentists to offer in the picker (admin/staff only).
+$dentistOptions = $pdo->query(
+    "SELECT name FROM users WHERE role='dentist' AND status <> 'archived' ORDER BY name"
+)->fetchAll(PDO::FETCH_COLUMN);
+
+// ---------- Pull the missed appointments from the database ----------
+// These statuses count as "missed" or "needs attention".
+$conds  = ["status IN ('Needs Review','No-show','Cancelled','Rescheduled','Expired')"];
+$params = [];
+if ($pS) {                                   // the period (open reviews always stay listed)
+    $conds[] = "(status = 'Needs Review' OR appointment_date BETWEEN ? AND ?)";
+    $params[] = $pS; $params[] = $pE;
+}
+
+if ($filterDentist !== '') {
+    // Match the dentist in either shape the data uses (full or short name).
+    $dp = [];
+    $conds[] = dentist_match_sql('dentist', $filterDentist, $dp);
+    foreach ($dp as $v) $params[] = $v;
+}
+if (in_array($filterStatus, ['Needs Review','No-show','Cancelled','Rescheduled','Expired'])) {
+    $conds[] = "status = ?";
+    $params[] = $filterStatus;
+}
+if ($searchName !== '') {
+    $conds[] = "patient_name LIKE ?";
+    $params[] = '%' . $searchName . '%';
+}
+
+$sql = "SELECT * FROM appointments WHERE " . implode(' AND ', $conds)
+     . " ORDER BY appointment_date DESC";
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
+$missed = $stmt->fetchAll();
+
+// Totals for the period (same dentist scope): every appointment, and the
+// ones that were due and resolved (Completed / No-show) for the rate.
+$tw = ["1=1"]; $tp = [];
+if ($filterDentist !== '') $tw[] = dentist_match_sql('dentist', $filterDentist, $tp);
+if ($pS) { $tw[] = "appointment_date BETWEEN ? AND ?"; $tp[] = $pS; $tp[] = $pE; }
+$tot = $pdo->prepare("SELECT COUNT(*) AS total,
+                             SUM(status = 'Completed') AS completed,
+                             SUM(status = 'No-show')   AS noshows
+                        FROM appointments WHERE " . implode(' AND ', $tw));
+$tot->execute($tp);
+$tr = $tot->fetch();
+$totalAppts     = (int)$tr['total'];
+$completedDue   = (int)$tr['completed'];
+$noShowsDue     = (int)$tr['noshows'];
+
+// ---------- Count each type (for the stat cards) ----------
+$countNoshow      = 0;
+$countCancelled   = 0;
+$countRescheduled = 0;
+$countReview      = 0;
+$countLateCancel  = 0;      // cancelled less than 24 hours before the appointment
+foreach ($missed as $m) {
+    if ($m['status'] === 'No-show')      $countNoshow++;
+    if ($m['status'] === 'Cancelled')    $countCancelled++;
+    if ($m['status'] === 'Cancelled' && !empty($m['cancelled_at'])) {
+        $apptTs = strtotime($m['appointment_date'] . ' ' . $m['appointment_time']);
+        if ($apptTs && $apptTs - strtotime($m['cancelled_at']) < 86400) $countLateCancel++;
+    }
+    if ($m['status'] === 'Rescheduled')  $countRescheduled++;
+    if ($m['status'] === 'Needs Review') $countReview++;
+}
+// Of the visits that were due and resolved, how many were missed?
+// (Future, pending, cancelled and expired bookings were never "due", so
+// counting them would make the rate look smaller than it is.)
+$noShowRate = ($completedDue + $noShowsDue) > 0 ? round($noShowsDue * 100 / ($completedDue + $noShowsDue), 1) : 0;
+$countExpired = count(array_filter($missed, fn($m) => $m['status'] === 'Expired'));
+
+// ---------- Apply the tab filter to the table ----------
+$rows = $missed;
+if ($tab === 'review')    $rows = array_filter($missed, fn($m) => $m['status'] === 'Needs Review');
+if ($tab === 'noshow')    $rows = array_filter($missed, fn($m) => $m['status'] === 'No-show');
+if ($tab === 'cancelled') $rows = array_filter($missed, fn($m) => $m['status'] === 'Cancelled');
+// "repeat" = the same PATIENT (by record, not by name) missed or cancelled
+// more than once themselves. Clinic cancellations are not the patient's fault.
+$patientCaused = fn($m) => $m['status'] === 'No-show' || ($m['status'] === 'Cancelled' && ($m['cancelled_by'] ?? '') === 'patient');
+$perPatient = [];
+foreach ($missed as $m) if ($patientCaused($m) && (int)$m['patient_id'] > 0) $perPatient[(int)$m['patient_id']] = ($perPatient[(int)$m['patient_id']] ?? 0) + 1;
+$repeatIds = array_keys(array_filter($perPatient, fn($n) => $n > 1));
+if ($tab === 'repeat') {
+    $rows = array_filter($missed, fn($m) => $patientCaused($m) && in_array((int)$m['patient_id'], $repeatIds, true));
+}
+if ($tab === 'expired') $rows = array_filter($missed, fn($m) => $m['status'] === 'Expired');
+
+$page_title = "No-Show Report";
+include 'includes/head.php';
+$active = 'noshow';
+
+// helper for the status badge colour
+function statusBadge($status) {
+    $map = ['No-show'=>'b-noshow','Cancelled'=>'b-cancelled','Rescheduled'=>'b-confirmed','Needs Review'=>'b-pending','Expired'=>'b-expired'];
+    return $map[$status] ?? 'b-pending';
+}
+// ---------- Patients paused for missed visits (for the warning banner) ----------
+$pausedPatients = [];
+$pp = "SELECT id, name FROM patients WHERE status <> 'Archived'"; $ppp = [];
+if ($isDentistUser) { $pp .= " AND " . dentist_match_sql('primary_dentist', $filterDentist, $ppp); }
+$pps = $pdo->prepare($pp); $pps->execute($ppp);
+foreach ($pps->fetchAll() as $pr) if (patient_noshow_count($pdo, $pr['id']) >= 3) $pausedPatients[] = $pr['name'];
+
+// ---------- Frequent cancellations waiting for review ----------
+// Accounts that cancelled CANCEL_LIMIT+ times (same rolling window, counted
+// since their last review). Like the booking page, an account = the patient
+// who logs in + every family member they book for; one row per account.
+// Their online booking is paused until an admin or staff member reviews it here.
+$cancelReview = [];
+$cq = "SELECT p.id FROM patients p WHERE p.status <> 'Archived'";
+$cqp = [];
+if ($isDentistUser) { $cq .= " AND " . dentist_match_sql('p.primary_dentist', $filterDentist, $cqp); }
+$cqs = $pdo->prepare($cq); $cqs->execute($cqp);
+[, $accCancels, $accHolder] = account_counts_bulk($pdo, $cqs->fetchAll(PDO::FETCH_COLUMN));
+$seenAcc = [];
+foreach ($accCancels as $pid => $n) {
+    $h = $accHolder[$pid];
+    if ($n < CANCEL_LIMIT || isset($seenAcc[$h])) continue;
+    $seenAcc[$h] = true;
+    $hq = $pdo->prepare("SELECT id, name, phone, primary_dentist FROM patients WHERE id = ?");
+    $hq->execute([$h]);
+    $cp = $hq->fetch();
+    if (!$cp) continue;
+    $fam = family_patient_ids($pdo, $h);
+    $lr = $pdo->prepare("SELECT patient_name, appointment_date, cancel_reason FROM appointments
+                          WHERE patient_id IN (" . in_placeholders($fam) . ") AND status='Cancelled' AND cancelled_by='patient'
+                          ORDER BY COALESCE(cancelled_at, created_at) DESC LIMIT 3");
+    $lr->execute($fam);
+    $cp['guardian_name'] = '';
+    $cp['family'] = count($fam) - 1;
+    $cp['count'] = $n; $cp['recent'] = $lr->fetchAll();
+    $cancelReview[] = $cp;
+}
+
+// The lists, for "What do you want to print?" (the same ones as the tabs).
+$nsLists = [
+    'review'    => ['Needs Review',     $countReview],
+    'all'       => ['All Missed',       count($missed)],
+    'noshow'    => ['No-Shows',         $countNoshow],
+    'cancelled' => ['Cancelled',        $countCancelled],
+    'repeat'    => ['Repeat Offenders', count($repeatIds)],
+    'expired'   => ['Expired',          $countExpired],
+    'cancels'   => ['Frequent Cancels', count($cancelReview)],
+];
+$nsKeep = '&' . $periodQS;                       // period + filters stay the same on the printed list
+foreach (['dentist','status','q'] as $kp) if (!empty($_GET[$kp])) $nsKeep .= '&' . $kp . '=' . urlencode($_GET[$kp]);
+$nsListName  = $nsLists[$tab][0] ?? 'No-Show Report';
+$nsPrintRows = $tab === 'cancels' ? count($cancelReview) : count($rows);
+
+// helper for the filter tab links
+function tabLink($key, $label, $count, $current, $tip = '') {
+    $cls = ($current === $key) ? 'on' : '';
+    // Carry the current filters across so switching tabs does not reset them.
+    global $periodQS;
+    $keep = '&' . $periodQS;
+    foreach (['dentist','status','q'] as $p) {
+        if (!empty($_GET[$p])) $keep .= '&' . $p . '=' . urlencode($_GET[$p]);
+    }
+    $title = $tip !== '' ? " title='" . e($tip) . "'" : '';
+    echo "<a href='noshow?tab=$key$keep' class='$cls'$title data-keep-text>$label <span class='ns-count'>$count</span></a>";
+}
+?>
+<div class="app-wrap">
+    <?php include 'includes/sidebar.php'; ?>
+    <main class="main">
+        <div class="page-head">
+            <div>
+                <h1 style="color:var(--teal-light)">No-Show Report</h1>
+                <!-- Only shown on paper, so a printed copy explains itself -->
+                <div class="print-only" style="display:none;font-size:.85rem;color:#444;margin-top:4px;">
+                    <?= e($clinicNameForPrint) ?> ·
+                    <?= $filterDentist !== '' ? 'Dentist: ' . e($filterDentist) : 'All dentists' ?>
+                    <?= $filterStatus !== ''  ? ' · Status: ' . e($filterStatus) : '' ?>
+                    <?= $searchName !== ''    ? ' · Search: "' . e($searchName) . '"' : '' ?>
+                    · <?= count($rows) ?> record<?= count($rows) === 1 ? '' : 's' ?>
+                    · Printed <?= date('M j, Y g:i A') ?>
+                </div>
+                <div class="sub"><?= $role === 'dentist' ? 'Your patients who missed their scheduled appointments' : 'Patients who missed their scheduled appointments (all dentists)' ?></div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <!-- Print / PDF: first choose WHICH list — only its table goes on paper -->
+                <button type="button" class="btn btn-teal no-print" data-bs-toggle="modal" data-bs-target="#nsPrintModal" data-keep-text>🖨 Print / PDF</button>
+            </div>
+        </div>
+
+        <!-- ===== Warning banner (calculated) ===== -->
+        <?php if ($pausedPatients): ?>
+        <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;">
+            ⚠️ <strong><?= count($pausedPatients) ?> patient<?= count($pausedPatients) === 1 ? ' has' : 's have' ?></strong>
+            missed <?= 3 ?> or more visits in the last <?= NOSHOW_WINDOW_MONTHS ?> months — their online booking is paused:
+            <strong><?= e(implode(', ', $pausedPatients)) ?></strong>.
+            Consider calling them before restoring booking from the Patients page.
+        </div>
+        <?php endif; ?>
+
+        <!-- ===== Report period ===== -->
+        <div class="card-box mb-2 ns-compact ns-period" style="background:#f7f4ee;">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                <div style="font-size:.85rem;">
+                    <strong>Report period:</strong> <?= e($periodLabel) ?> ·
+                    <strong>Generated:</strong> <?= date('M j, Y g:i A') ?> ·
+                    <strong>By:</strong> <?= e($_SESSION['name'] ?? 'Admin') ?>
+                    <div class="text-muted2" style="font-size:.74rem;">Appointments that still need review are always listed, whatever the period.</div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-center no-print">
+                    <form method="GET" class="d-flex gap-1 align-items-center m-0">
+                        <input type="hidden" name="tab" value="<?= e($tab) ?>"><input type="hidden" name="period" value="week">
+                        <label class="field-label mb-0 <?= $period === 'week' ? 'text-dark' : '' ?>" for="p-w">Week</label>
+                        <input type="week" id="p-w" name="w" class="form-control form-control-sm" style="width:auto;" value="<?= e($pickW) ?>" onchange="this.form.submit()">
+                    </form>
+                    <form method="GET" class="d-flex gap-1 align-items-center m-0">
+                        <input type="hidden" name="tab" value="<?= e($tab) ?>"><input type="hidden" name="period" value="month">
+                        <label class="field-label mb-0" for="p-m">Month</label>
+                        <input type="month" id="p-m" name="m" class="form-control form-control-sm" style="width:auto;" value="<?= e($pickM) ?>" onchange="this.form.submit()">
+                    </form>
+                    <form method="GET" class="d-flex gap-1 align-items-center m-0">
+                        <input type="hidden" name="tab" value="<?= e($tab) ?>"><input type="hidden" name="period" value="day">
+                        <label class="field-label mb-0" for="p-d">Day</label>
+                        <input type="date" id="p-d" name="d" class="form-control form-control-sm" style="width:auto;" value="<?= e($pickD) ?>" onchange="this.form.submit()">
+                    </form>
+                    <a href="noshow?tab=<?= e($tab) ?>&period=all" class="btn btn-sm <?= $period === 'all' ? 'btn-dark-navy' : 'btn-light' ?>">All time</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Filters (these actually work) ===== -->
+        <div class="card-box mb-2 no-print ns-compact">
+            <form method="GET" class="row g-2 align-items-center">
+                <input type="hidden" name="tab" value="<?= e($tab) ?>">
+                <input type="hidden" name="period" value="<?= e($period) ?>">
+                <?php if ($period === 'week'): ?><input type="hidden" name="w" value="<?= e($pickW) ?>"><?php endif; ?>
+                <?php if ($period === 'month'): ?><input type="hidden" name="m" value="<?= e($pickM) ?>"><?php endif; ?>
+                <?php if ($period === 'day'): ?><input type="hidden" name="d" value="<?= e($pickD) ?>"><?php endif; ?>
+
+                <?php if (!$isDentistUser): ?>
+                    <!-- Only admin and staff choose a dentist. A dentist is always
+                         locked to their own records, so no picker is shown. -->
+                    <div class="col-md-3">
+                        <select name="dentist" class="form-select form-select-sm" aria-label="Dentist">
+                            <option value="">All dentists</option>
+                            <?php foreach ($dentistOptions as $dn): ?>
+                                <option value="<?= e($dn) ?>" <?= ($filterDentist === $dn)?'selected':'' ?>><?= e($dn) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                <?php endif; ?>
+
+                <div class="col-md-3">
+                    <select name="status" class="form-select form-select-sm" aria-label="Status">
+                        <option value="">All statuses</option>
+                        <?php foreach (['Needs Review','No-show','Cancelled','Rescheduled','Expired'] as $st): ?>
+                            <option value="<?= $st ?>" <?= ($filterStatus === $st)?'selected':'' ?>><?= $st ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="col-md-<?= $isDentistUser ? '6' : '4' ?>">
+                    <input name="q" class="form-control form-control-sm" aria-label="Search patient"
+                           placeholder="Search patient name..." value="<?= e($searchName) ?>">
+                </div>
+
+                <div class="col-md-2 d-flex gap-1">
+                    <button class="btn btn-teal btn-sm w-100">Apply</button>
+                    <?php if ($filterDentist !== '' && !$isDentistUser || $filterStatus !== '' || $searchName !== ''): ?>
+                        <a href="noshow?tab=<?= e($tab) ?>&<?= e($periodQS) ?>" class="btn btn-light btn-sm">Clear</a>
+                    <?php endif; ?>
+                </div>
+            </form>
+        </div>
+
+        <!-- ===== Summary cards — one container, Bootstrap grid:
+             2 per row on phones (the rate gets a full row), 3 on tablets, all 5 on wide screens ===== -->
+        <div class="card-box ns-summary ns-compact mb-3">
+            <div class="row g-2">
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value">📅 <?= $totalAppts ?></div><div class="label">Total Appts</div></div></div>
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value" style="color:#c0392b;">🚫 <?= $countNoshow ?></div><div class="label">No-Shows</div></div></div>
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value">❌ <?= $countCancelled ?></div><div class="label">Cancelled</div></div></div>
+                <div class="col-6 col-md-4 col-xl"><div class="ns-stat">
+                    <div class="value">🔁 <?= $countRescheduled ?></div><div class="label">Rescheduled</div></div></div>
+                <div class="col-12 col-md-4 col-xl"><div class="ns-stat" title="No-shows ÷ (completed + no-shows) in this period">
+                    <div class="value" style="color:#c0392b;"><?= $noShowRate ?>%</div><div class="label">No-Show Rate</div>
+                    <div class="change"><?= $noShowsDue ?> of <?= $completedDue + $noShowsDue ?> due visits</div></div></div>
+            </div>
+        </div>
+        <style>
+        .ns-compact { padding: 10px 14px !important; }
+        .ns-stat { height: 100%; padding: 8px 12px; border: 1px solid #e3e9ee; border-radius: 10px; background: #fbfdfd; }
+        .ns-stat .value { font-size: 1.2rem; font-weight: 700; line-height: 1.2; }
+        .ns-stat .label { font-size: .62rem; letter-spacing: .8px; color: var(--muted, #6b7a86); text-transform: uppercase; margin-top: 2px; }
+        .ns-stat .change { font-size: .72rem; color: var(--muted, #6b7a86); }
+        @media (max-width: 575.98px) { .ns-stat { padding: 8px 10px; } .ns-stat .value { font-size: 1.1rem; } }
+        /* On paper: all five side by side, compact */
+        @media print {
+            .ns-summary { padding: 0 !important; border: none !important; }
+            .ns-summary .row > [class*="col"] { flex: 0 0 20% !important; max-width: 20% !important; }
+            .ns-stat { padding: 8px 10px !important; }
+            .ns-stat .value { font-size: 1.15rem !important; }
+            .ns-stat .label { font-size: .58rem !important; letter-spacing: .4px !important; }
+        }
+        </style>
+
+        <!-- One row of tabs (scrolls sideways on a narrow screen instead of wrapping) -->
+        <nav class="ns-tabs mb-2 no-print" aria-label="No-show lists">
+            <?php
+                tabLink('review',    'Needs Review',     $countReview,           $tab, 'Missed appointments staff still have to check');
+                tabLink('all',       'All Missed',       count($missed),         $tab);
+                tabLink('noshow',    'No-Shows',         $countNoshow,           $tab);
+                tabLink('cancelled', 'Cancelled',        $countCancelled,        $tab);
+                tabLink('repeat',    'Repeat Offenders', count($repeatIds),      $tab, 'Patients who missed more than once');
+                tabLink('expired',   'Expired',          $countExpired,          $tab, 'Booked but never confirmed before the date passed');
+                tabLink('cancels',   'Frequent Cancels', count($cancelReview),   $tab, 'Patients who cancel often');
+            ?>
+        </nav>
+        <style>
+        .ns-tabs { display: flex; gap: 2px; overflow-x: auto; background: var(--card, #fff); border-radius: 12px; padding: 4px;
+                   box-shadow: 0 1px 3px rgba(0,0,0,.06); scrollbar-width: thin; }
+        .ns-tabs a { flex: 0 0 auto; white-space: nowrap; padding: 6px 12px; border-radius: 9px; font-size: .86rem; font-weight: 600;
+                     color: #52606b; text-decoration: none; }
+        .ns-tabs a:hover { background: #eef7f6; color: var(--teal-mid); }
+        .ns-tabs a.on { background: #143a4a; color: #fff; }
+        .ns-count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px; font-size: .72rem;
+                    line-height: 18px; text-align: center; background: #eef2f4; color: #3f5350; }
+        .ns-tabs a.on .ns-count { background: rgba(255,255,255,.22); color: #fff; }
+        </style>
+        <div class="row g-3">
+            <!-- ===== Table + tabs ===== -->
+            <div class="col-lg-9" id="ns-left">
+                <!-- Only on paper / PDF: which list, which period, which filters -->
+                <div class="print-only ns-print-head">
+                    <div style="font-size:16px;font-weight:700;color:#0d3b3b;"><?= e($clinicNameForPrint) ?> — No-Show Report: <?= e($nsListName) ?></div>
+                    <div style="font-size:11px;color:#444;margin:2px 0 10px;">
+                        Period: <?= e($periodLabel) ?>
+                        · <?= $filterDentist !== '' ? 'Dentist: ' . e($filterDentist) : 'All dentists' ?>
+                        <?= $filterStatus !== '' ? ' · Status: ' . e($filterStatus) : '' ?>
+                        <?= $searchName !== '' ? ' · Search: "' . e($searchName) . '"' : '' ?>
+                        · <?= $nsPrintRows ?> record<?= $nsPrintRows === 1 ? '' : 's' ?>
+                        · Printed <?= date('M j, Y g:i A') ?> by <?= e($_SESSION['name'] ?? '') ?>
+                    </div>
+                </div>
+                <?php if ($tab === 'cancels'): ?>
+                <!-- ===== Frequent cancellations: one row per patient ===== -->
+                <div class="card-box">
+                    <div class="text-muted2 mb-2" style="font-size:.85rem;">
+                        Patients who cancelled <?= CANCEL_LIMIT ?> or more appointments themselves in the last
+                        <?= NOSHOW_WINDOW_MONTHS ?> months. Their online booking is <b>paused</b> until you review them.
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data">
+                            <thead><tr><th>Patient</th><th>Cancellations</th><th>Recent cancellations (reason)</th><th>Dentist</th><th class="no-print">Actions</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($cancelReview as $cp): ?>
+                                <tr>
+                                    <td><strong><?= e($cp['name']) ?></strong>
+                                        <?php if ($cp['family']): ?><br><small class="text-muted2">account · also books for <?= (int)$cp['family'] ?> family member<?= $cp['family'] > 1 ? 's' : '' ?></small><?php endif; ?>
+                                        <?php if ($cp['phone']): ?><br><small class="text-muted2">📞 <?= e($cp['phone']) ?></small><?php endif; ?></td>
+                                    <td><span class="badge-pill b-cancelled"><?= (int)$cp['count'] ?> cancelled</span></td>
+                                    <td style="font-size:.82rem;">
+                                        <?php foreach ($cp['recent'] as $rc): ?>
+                                            <div><?= date('M j, Y', strtotime($rc['appointment_date'])) ?><?= $cp['family'] ? ' · ' . e($rc['patient_name']) : '' ?>
+                                                <span class="text-muted2">— <?= e($rc['cancel_reason'] ?: 'no reason given') ?></span></div>
+                                        <?php endforeach; ?>
+                                    </td>
+                                    <td><?= e($cp['primary_dentist'] ?: '–') ?></td>
+                                    <td class="no-print">
+                                        <?php if (in_array(current_role(), ['admin','staff'], true)): ?>
+                                            <form method="POST" class="m-0" onsubmit="return confirm('Mark <?= e(addslashes($cp['name'])) ?> as reviewed and let them book online again?')">
+                                                <input type="hidden" name="action" value="restore_cancel">
+                                                <input type="hidden" name="id" value="<?= (int)$cp['id'] ?>">
+                                                <button class="btn btn-sm btn-teal">✓ Reviewed — restore booking</button>
+                                            </form>
+                                        <?php else: ?>
+                                            <small class="text-muted2">Admin/staff review</small>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (!$cancelReview): ?>
+                                <tr><td colspan="5" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
+                                    <div style="font-size:2rem;margin-bottom:6px;">✅</div>
+                                    No patient needs a cancellation review right now.
+                                </td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php else: ?>
+                <div class="card-box">
+                    <div class="table-responsive">
+                        <table class="data">
+                            <thead><tr><th>Patient</th><th>Date</th><th>Time</th><th>Dentist</th><th>Procedure</th><th>Status</th><th class="no-print">Actions</th></tr></thead>
+                            <tbody>
+                            <?php foreach ($rows as $r):
+                                $initials = strtoupper(substr($r['patient_name'],0,1) . (strpos($r['patient_name'],' ') ? substr(strstr($r['patient_name'],' '),1,1) : ''));
+                            ?>
+                                <tr>
+                                    <td><div class="d-flex align-items-center gap-2">
+                                        <span class="avatar" style="background:#c98b8b;"><?= e($initials) ?></span>
+                                        <strong><?= e($r['patient_name']) ?></strong>
+                                    </div></td>
+                                    <td><?= date('M j', strtotime($r['appointment_date'])) ?></td>
+                                    <td><?= e($r['appointment_time']) ?></td>
+                                    <td><?= e($r['dentist']) ?></td>
+                                    <td><?= e($r['treatment']) ?></td>
+                                    <td><span class="badge-pill <?= statusBadge(status_label($r['status'])) ?>"><?= e(status_label($r['status'])) ?></span></td>
+                                    <td class="no-print">
+                                        <?php if ($r['status'] === 'Needs Review'): ?>
+                                            <div class="d-flex gap-1 flex-wrap">
+                                                <form method="POST" class="m-0"
+                                                      onsubmit="return confirm('Confirm that <?= e($r['patient_name']) ?> did NOT attend? They will see a warning in their portal (on the 3rd miss, online booking is blocked and they are emailed).')">
+                                                    <input type="hidden" name="action" value="confirm_noshow">
+                                                    <input type="hidden" name="id" value="<?= $r['id'] ?>">
+                                                    <button class="btn btn-sm btn-light" style="color:#c0392b;white-space:nowrap;">Confirm no-show</button>
+                                                </form>
+                                                <form method="POST" class="m-0">
+                                                    <input type="hidden" name="action" value="mark_attended">
+                                                    <input type="hidden" name="id" value="<?= $r['id'] ?>">
+                                                    <button class="btn btn-sm btn-light" style="color:#1f8a54;white-space:nowrap;">Did attend</button>
+                                                </form>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="text-muted2" style="font-size:.8rem;">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($rows)): ?>
+                                <tr><td colspan="7" style="text-align:center;padding:34px 12px;color:#8aa0a0;">
+                                    <div style="font-size:2rem;margin-bottom:6px;">📋</div>
+                                    <?php if ($filterStatus !== '' || $searchName !== '' || (!$isDentistUser && $filterDentist !== '')): ?>
+                                        Nothing matches your filters.
+                                        <a href="noshow?tab=<?= e($tab) ?>" style="color:var(--teal);">Clear filters</a>
+                                    <?php elseif ($tab === 'review'): ?>
+                                        Nothing needs reviewing — every past appointment is accounted for.
+                                    <?php else: ?>
+                                        No records in this category.
+                                    <?php endif; ?>
+                                </td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- ===== Status breakdown ===== -->
+            <div class="col-lg-3" id="ns-breakdown-col">
+                <div class="card-box" id="ns-breakdown" style="overflow:auto;">
+                    <h6 class="mb-3">Status Breakdown</h6>
+                    <div class="flex-between py-2 border-bottom"><span>🔴 No-show</span><strong><?= $countNoshow ?></strong></div>
+                    <div class="flex-between py-2 border-bottom"><span>🟠 Cancelled</span><strong><?= $countCancelled ?></strong></div>
+                    <div class="flex-between py-2 border-bottom"><span title="Cancelled less than 24 hours before the appointment">🔵 Late Cancel</span><strong><?= $countLateCancel ?></strong></div>
+                    <div class="flex-between py-2"><span>🟢 Rescheduled</span><strong><?= $countRescheduled ?></strong></div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ===== Print / PDF: which list? ===== -->
+<div class="modal fade" id="nsPrintModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">What do you want to print?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <div class="text-muted2 mb-2" style="font-size:.85rem;">Only the table is printed, with the period (<?= e($periodLabel) ?>) and filters above it.</div>
+        <?php foreach ($nsLists as $lk => [$ll, $lc]): ?>
+            <label class="ns-pick">
+                <input type="radio" name="ns-print-list" value="<?= e($lk) ?>" <?= $lk === $tab ? 'checked' : '' ?>>
+                <span><?= e($ll) ?></span><span class="ns-count"><?= (int)$lc ?></span>
+            </label>
+        <?php endforeach; ?>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-light" onclick="nsPrint('pdf')" data-keep-text>📄 Download PDF</button>
+        <button type="button" class="btn btn-teal" onclick="nsPrint('print')" data-keep-text>🖨 Print</button>
+    </div>
+</div></div></div>
+<style>
+.ns-pick { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid #e3e9ee; border-radius: 10px; margin-bottom: 6px; cursor: pointer; font-weight: 600; }
+.ns-pick:has(input:checked) { border-color: var(--teal-mid); background: #eef7f6; }
+.ns-pick .ns-count { margin-left: auto; }
+/* On paper: only the chosen list's table (with its heading) */
+@media print {
+    .page-head, .ns-period, .ns-summary, .ns-tabs, #ns-breakdown-col, main > .alert, .modal, .modal-backdrop { display: none !important; }
+    #ns-left { flex: 0 0 100% !important; max-width: 100% !important; width: 100% !important; }
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="js/app.js?v=<?= @filemtime(__DIR__ . '/js/app.js') ?: time() ?>"></script>
+<script>
+// ---- Print / PDF: the chosen list only ----
+var NS_TAB = <?= json_encode($tab) ?>, NS_KEEP = <?= json_encode($nsKeep) ?>;
+var NS_FILE = <?= json_encode(pdf_name('No-Show-Report', $nsListName, date('Y-m-d'))) ?>;
+function nsDo(kind) {
+    // Printing / saving a PDF goes into the Activity Log, like the other Print / PDF menus.
+    var fd = new FormData(), t = document.querySelector('meta[name="csrf-token"]');
+    fd.append('kind', kind); fd.append('page', 'No-Show Report'); fd.append('file', NS_FILE);
+    try { fetch('log_event', { method: 'POST', body: fd, credentials: 'same-origin', keepalive: true, headers: t ? { 'X-CSRF-Token': t.content } : {} }); } catch (e) {}
+    if (kind === 'pdf') downloadPdf('#ns-left', NS_FILE); else window.print();
+}
+function nsPrint(kind) {
+    var pick = document.querySelector('input[name="ns-print-list"]:checked'), key = pick ? pick.value : NS_TAB;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('nsPrintModal')).hide();
+    if (key === NS_TAB) { setTimeout(function () { nsDo(kind); }, 350); return; }     // once the pop-up has closed
+    location.href = 'noshow?tab=' + encodeURIComponent(key) + NS_KEEP + '&doprint=' + kind;   // open that list, then print it
+}
+// Opened with ?doprint=print|pdf: print straight away (and take it out of the address).
+(function () {
+    var m = location.search.match(/[?&]doprint=(print|pdf)/);
+    if (!m) return;
+    var q = location.search.replace(/([?&])doprint=(print|pdf)&?/, '$1').replace(/[?&]$/, '');
+    history.replaceState(null, '', location.pathname + q + location.hash);
+    window.addEventListener('load', function () { setTimeout(function () { nsDo(m[1]); }, 400); });
+})();
+
+// Status Breakdown lines up with the table card beside it: same top, same height.
+(function () {
+    function align() {
+        var left = document.getElementById('ns-left'), bd = document.getElementById('ns-breakdown');
+        if (!left || !bd) return;
+        var card = left.querySelector(':scope > .card-box');
+        if (!card || window.innerWidth < 992) { bd.style.marginTop = ''; bd.style.height = ''; return; }
+        bd.style.marginTop = (card.getBoundingClientRect().top - left.getBoundingClientRect().top) + 'px';
+        bd.style.height = card.offsetHeight + 'px';
+    }
+    window.addEventListener('load', function () { align(); setTimeout(align, 500); });
+    window.addEventListener('resize', function () { setTimeout(align, 200); });
+})();
+</script>
+</body></html>

@@ -1,0 +1,762 @@
+<?php
+// ============================================================
+//  LOGIN + REGISTER  (login.php)  -- this is the FIRST page
+// ============================================================
+require_once 'config/auth.php';
+require_once 'includes/mailer.php';   // to email the verification code
+
+// If already logged in, skip the login page.
+require_guest();   // already signed in -> straight to your own home page
+
+$error = '';
+$emailTaken = false;    // true clears just the email field on re-render (see register handler)
+$deletionNotice = '';   // '' | 'archived' | 'permadeleted' -- which popup to show, if any
+$mode  = $_GET['mode'] ?? 'signin';   // 'signin', 'register' or 'verify'
+
+// Is Google Sign-In set up? (admin adds the keys in Settings)
+$googleReady = false;
+try {
+    $g = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='google_client_id'")->fetchColumn();
+    $googleReady = !empty($g);
+} catch (Throwable $e) {}
+
+// Left-panel branding text — editable by the admin in "Edit Landing Page"
+// (falls back to the default wording if never changed).
+$authIcon     = '🦷';
+$authTitle1   = 'Your Smile,';
+$authTitle2   = 'Remembered.';
+$authSubtitle = 'Sign in to access your records, appointments, and dental chart.';
+try {
+    $rows = $pdo->query("SELECT setting_key, setting_value FROM settings
+                          WHERE setting_key IN ('land_auth_icon','land_auth_title1','land_auth_title2','land_auth_subtitle')")->fetchAll();
+    foreach ($rows as $r) {
+        if ($r['setting_value'] === '' || $r['setting_value'] === null) continue;
+        if ($r['setting_key'] === 'land_auth_icon')     $authIcon     = $r['setting_value'];
+        if ($r['setting_key'] === 'land_auth_title1')   $authTitle1   = $r['setting_value'];
+        if ($r['setting_key'] === 'land_auth_title2')   $authTitle2   = $r['setting_value'];
+        if ($r['setting_key'] === 'land_auth_subtitle') $authSubtitle = $r['setting_value'];
+    }
+} catch (Throwable $e) {}
+
+// ---------- Google sign-up: finish the account (phone + date of birth) ----------
+$gp = $_SESSION['google_pending'] ?? null;
+if ($gp && time() > ($gp['expires'] ?? 0)) { unset($_SESSION['google_pending']); $gp = null; }
+if ($mode === 'google' && !$gp) $mode = 'register';   // nothing waiting — show the normal form
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'google_finish') {
+    $mode = 'google';
+    if (!$gp) {
+        $error = 'Your Google sign-up expired. Please click “Continue with Google” again.';
+        $mode  = 'register';
+    } else {
+        $first = trim($_POST['first_name'] ?? '');
+        $last  = trim($_POST['last_name'] ?? '');
+        $name  = trim(preg_replace('/\s+/', ' ', "$first $last"));
+        [$phone, $phoneError] = validate_phone($_POST['contact'] ?? '');
+        $dob   = trim($_POST['dob'] ?? '');
+        $birth = DateTimeImmutable::createFromFormat('!Y-m-d', $dob);
+        $age   = ($birth && $birth->format('Y-m-d') === $dob) ? (int)$birth->diff(new DateTimeImmutable('today'))->y : null;
+
+        if ($first === '' || $last === '')               $error = 'Please enter your first and last name.';
+        elseif ($phoneError !== '')                      $error = $phoneError;
+        elseif ($dob === '')                             $error = 'Please enter your date of birth.';
+        elseif ($age === null || $dob > date('Y-m-d'))   $error = 'Please enter a valid date of birth.';
+        elseif ($age < 18)                               $error = 'You must be at least 18 years old to create an account. '
+                                                                 . 'If you are under 18, please ask a parent or guardian to make the account and book for you.';
+        else {
+            $taken = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+            $taken->execute([$gp['email']]);
+            if ($taken->fetch()) {
+                unset($_SESSION['google_pending']);
+                $error = 'An account with this email already exists. Please sign in.';
+                $mode  = 'signin';
+            } else {
+                // No password (they sign in with Google) — a random one they never need.
+                $randomPass = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+                $pdo->prepare("INSERT INTO users (name,email,password,role,status,email_verified,google_id,contact)
+                               VALUES (?,?,?,'patient','active',1,?,?)")
+                    ->execute([$name, $gp['email'], $randomPass, $gp['gid'], $phone]);
+                $newId = $pdo->lastInsertId();
+                save_name_parts($pdo, 'users', $newId, $first, $last);
+                $assignedDentist = pick_dentist_for_new_patient($pdo);
+                $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,patient_type,status,primary_dentist,date_of_birth,age)
+                               VALUES (?,?,?,?,'New','Active',?,?,?)")
+                    ->execute([$newId, $name, $gp['email'], $phone, $assignedDentist, $dob, $age]);
+                save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $first, $last);
+
+                unset($_SESSION['google_pending']);
+                session_regenerate_id(true);   // fresh session ID on sign-in
+                $_SESSION['user_id'] = $newId;
+                $_SESSION['name']    = $name;
+                $_SESSION['role']    = 'patient';
+                $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
+                $_SESSION['just_registered']    = true;
+                $_SESSION['show_welcome_popup'] = true;
+                log_activity($pdo, 'Created account', $name . ' (patient, Google sign-up)');
+                set_flash('Account created with Google — welcome, ' . $name . '!');
+                header("Location: portal");
+                exit;
+            }
+        }
+    }
+}
+if (($_GET['mode'] ?? '') === 'cancel_google') { unset($_SESSION['google_pending']); header("Location: login?mode=register"); exit; }
+if (($_GET['mode'] ?? '') === 'cancel_code')   { unset($_SESSION['two_step']); header("Location: login"); exit; }
+if ($mode === 'code' && empty($_SESSION['two_step'])) $mode = 'signin';   // nothing waiting for a code
+
+// ---------- Handle the form when it is submitted ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'google_finish') {
+
+    // ===== SIGN IN =====
+    if (($_POST['action'] ?? '') === 'signin' && rate_limited($pdo, 'login_fail', 10, 900)) {
+        $error = "Too many failed sign-in attempts. Please wait 15 minutes and try again.";
+        $_POST['action'] = 'signin_blocked';
+        log_activity_as($pdo, null, trim($_POST['email'] ?? '') ?: 'Unknown', null, 'Sign-in blocked', 'Too many failed attempts from one connection (' . 'IP ' . client_ip() . ')');
+    }
+    if (($_POST['action'] ?? '') === 'signin') {
+        $email = trim($_POST['email'] ?? '');
+        $pass  = $_POST['password'] ?? '';
+
+        // Find the user by email (a prepared statement: what was typed is never part of the SQL).
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+        $who  = $user ? $user['name'] . ' (' . $email . ')' : '';
+
+        if ($user && account_locked($user)) {
+            // 5 wrong passwords in a row: no sign-in for 15 minutes, not even with the right one
+            // (includes/security.php). The admin can unlock it early in Users.
+            $error = LOGIN_LOCKED_MESSAGE;
+            rate_hit($pdo, 'login_fail');
+            log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Sign-in blocked',
+                            'Account locked until ' . date('g:i A', strtotime($user['locked_until'])) . ' (IP ' . client_ip() . ')');
+        } elseif ($user && password_verify($pass, $user['password'])) {   // the typed password against the stored hash
+            if ($user['status'] === 'archived') {
+                // The account still exists (nothing was deleted yet) but an
+                // admin moved it to the Archive — let them know plainly.
+                $deletionNotice = 'archived';
+            } elseif ($user['status'] !== 'active') {
+                $error = "This account is inactive. Please contact the clinic.";
+            } else {
+                login_succeeded($pdo, $user['id']);                  // wrong-password count back to 0
+                if (two_step_needed($pdo, $user)) {
+                    // Admin / dentist with two-step sign-in on: a 6-digit code is emailed,
+                    // and they are signed in only after typing it (action two_step_verify).
+                    $error = two_step_send($pdo, $user);
+                    if ($error === '') {
+                        log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Sent sign-in code', 'Two-step sign-in: code emailed to ' . mask_email($email));
+                        header("Location: login?mode=code"); exit;
+                    }
+                } else {
+                    complete_sign_in($pdo, $user);                   // new session ID, then their home page
+                }
+            }
+        } elseif (!$user && $email !== '') {
+            // No live account under that email — but it may have been
+            // permanently deleted from the Archive. Check the log so we can
+            // tell the person what actually happened instead of a generic
+            // error.
+            $log = $pdo->prepare("SELECT id FROM deleted_accounts_log WHERE email = ? ORDER BY deleted_at DESC LIMIT 1");
+            $log->execute([$email]);
+            if ($log->fetch()) {
+                $deletionNotice = 'permadeleted';
+            } else {
+                // Nobody has ever registered with this email — say so plainly
+                // instead of "wrong password", which would wrongly suggest an
+                // account exists.
+                $error = "No account found with that email. Please check the email or register.";
+            }
+            rate_hit($pdo, 'login_fail');
+            log_activity_as($pdo, null, $email, null, 'Failed sign-in', 'No account with this email (' . 'IP ' . client_ip() . ')');
+        } elseif ($user) {
+            // The email IS registered, so the only thing left to be wrong is the password.
+            // Each one counts; the 5th in a row locks the account for 15 minutes.
+            [$locked, $left] = login_failed($pdo, $user);
+            rate_hit($pdo, 'login_fail');
+            log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Failed sign-in', 'Wrong password (' . 'IP ' . client_ip() . ')');
+            if ($locked) {
+                $error = LOGIN_LOCKED_MESSAGE;
+                log_activity_as($pdo, (int)$user['id'], $who, $user['role'], 'Account locked',
+                                LOGIN_MAX_TRIES . ' wrong passwords in a row — locked for ' . LOGIN_LOCK_MINUTES . ' minutes');
+            } else {
+                $error = "Wrong password. Please try again. ($left " . ($left === 1 ? 'try' : 'tries') . ' left before the account is locked for ' . LOGIN_LOCK_MINUTES . ' minutes.)';
+            }
+        } else {
+            $error = 'Please enter your email and password.';
+        }
+    }
+
+    // ===== TWO-STEP SIGN-IN (admin / dentist): the emailed 6-digit code =====
+    if (($_POST['action'] ?? '') === 'two_step_verify') {
+        $mode = 'code';
+        [$tsUser, $error] = two_step_verify($pdo, $_POST['code'] ?? '');
+        if ($tsUser) complete_sign_in($pdo, $tsUser, 'two-step code');
+        if (empty($_SESSION['two_step'])) $mode = 'signin';         // expired, locked or too many tries: sign in again
+    }
+    if (($_POST['action'] ?? '') === 'two_step_resend') {
+        $mode = 'code';
+        $error = two_step_resend($pdo);
+        if ($error === '') { set_flash('A new code was emailed.', 'info'); header("Location: login?mode=code"); exit; }
+        if (empty($_SESSION['two_step'])) $mode = 'signin';
+    }
+
+    // ===== REGISTER (step 1): validate, then send a verification code =====
+    if (($_POST['action'] ?? '') === 'register') {
+        // Build the full name from separate First + Last name fields.
+        $first = trim($_POST['first_name'] ?? '');
+        $last  = trim($_POST['last_name'] ?? '');
+        $name  = trim($first . ' ' . $last);
+        $email = trim($_POST['email'] ?? '');
+        [$phone, $phoneError] = validate_phone($_POST['contact'] ?? '');   // real PH mobile, stored as 09XXXXXXXXX
+        $pass  = $_POST['password'] ?? '';
+        $pass2 = $_POST['confirm_password'] ?? '';
+        $dob   = trim($_POST['dob'] ?? '');
+        $mode  = 'register';
+
+        // ---- Anti-spam: a hidden "website" field only bots fill in, and at most
+        //      5 sign-ups per connection per day. ----
+        $botTrap  = trim($_POST['website'] ?? '') !== '';
+        $tooMany  = rate_limited($pdo, 'register', 5, 86400);
+        rate_hit($pdo, 'register');
+
+        // ---- Password checks (server-side, so they cannot be bypassed) ----
+        // Only Strong passwords are accepted.
+        if ($botTrap) {
+            $error = "Sorry, we could not create your account. Please try again.";
+        } elseif ($tooMany) {
+            $error = "Too many sign-ups from this connection today. Please try again tomorrow or contact the clinic.";
+        } elseif ($pass !== $pass2) {
+            $error = "The passwords do not match. Please re-type them.";
+        } elseif (($pwp = password_problem($pass)) !== '') {
+            $error = $pwp;
+        } elseif ($phoneError !== '') {
+            $error = $phoneError;
+        }
+
+        // ---- AGE CHECK: account holders must be 18 or older ----
+        // (A child can still be a patient — a parent/guardian makes the account
+        //  and books for them using "booking for someone else".)
+        $age = null;
+        if (!$error) {
+        if ($dob === '') {
+            $error = "Please enter your date of birth.";
+        } else {
+            $birth = date_create($dob);
+            $today = date_create('today');
+            if (!$birth || $birth > $today) {
+                $error = "Please enter a valid date of birth.";
+            } else {
+                $age = (int) date_diff($birth, $today)->y;
+                if ($age < 18) {
+                    $error = "You must be at least 18 years old to create an account. "
+                           . "If you are under 18, please ask a parent or guardian to make the account "
+                           . "and book the appointment for you.";
+                }
+            }
+        }
+        }
+
+        // Check the email is not already used.
+        if (!$error) {
+        $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        if ($name === '') {
+            $error = "Please enter your first and last name.";
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $error = "Please enter a valid email address.";
+        } elseif ($stmt->fetch()) {
+            // Only the email (and the password, which is never re-filled) is
+            // cleared — the rest of what they typed is kept so they don't
+            // have to retype it, they just need a different email address.
+            $error = "That email is already registered.";
+            $emailTaken = true;
+        } elseif (($pwp = password_problem($pass)) !== '') {
+            $error = $pwp;
+        } else {
+            // Make a 6-digit verification code and remember the pending sign-up.
+            $code = (string) random_int(100000, 999999);
+            $_SESSION['pending'] = [
+                'name'  => $name,
+                'first' => $first,
+                'last'  => $last,
+                'email' => $email,
+                'phone' => $phone,
+                'hash'  => password_hash($pass, PASSWORD_DEFAULT),
+                'code'  => $code,
+                'sent'  => false,
+                'dob'   => $dob,
+                'age'   => $age,
+            ];
+
+            // Try to EMAIL the code for real. If the admin has set up SMTP in
+            // Messaging Config, the patient receives it in their inbox and the
+            // code is never shown on screen. If not, we fall back to demo mode.
+            $body = mail_template(
+                'Verify your email',
+                'Hi ' . e($first) . ', thanks for registering with St. Therese Dental Clinic.<br><br>
+                 Your verification code is:
+                 <div style="font-size:30px;font-weight:700;letter-spacing:8px;color:#0f766e;
+                             background:#eef7f6;border-radius:10px;padding:14px;text-align:center;margin:14px 0;">'
+                 . $code . '</div>
+                 Enter this code on the verification page to activate your account.
+                 If you did not request this, you can ignore this email.'
+            );
+            $mailErr = '';
+            if (send_mail($pdo, $email, 'Your verification code: ' . $code, $body, $mailErr)) {
+                $_SESSION['pending']['sent'] = true;
+                set_flash("We've emailed a 6-digit verification code to $email.", 'info');
+            } else {
+                set_flash("Enter the verification code to continue.", 'info');
+            }
+            header("Location: login?mode=verify");
+            exit;
+        }
+        }   // end of the age-check guard
+    }
+
+    // ===== VERIFY (step 2): check the code, then create the account =====
+    if (($_POST['action'] ?? '') === 'verify') {
+        $mode    = 'verify';
+        $entered = trim($_POST['code'] ?? '');
+
+        if (empty($_SESSION['pending'])) {
+            $error = "Your sign-up session expired. Please register again.";
+            $mode  = 'register';
+        } elseif ($entered !== $_SESSION['pending']['code']) {
+            $error = "Incorrect verification code. Please try again.";
+        } else {
+            $p = $_SESSION['pending'];
+            $pdo->prepare("INSERT INTO users (name,email,password,role,status,email_verified,contact) VALUES (?,?,?,'patient','active',1,?)")
+                ->execute([$p['name'], $p['email'], $p['hash'], $p['phone'] ?? null]);
+            $newId = $pdo->lastInsertId();
+            save_name_parts($pdo, 'users', $newId, $p['first'] ?? null, $p['last'] ?? null);
+
+            // Also create a matching patient record + auto-assign a dentist.
+            $assignedDentist = pick_dentist_for_new_patient($pdo);
+            $pdo->prepare("INSERT INTO patients (user_id,name,email,phone,patient_type,status,primary_dentist,date_of_birth,age) VALUES (?,?,?,?,'New','Active',?,?,?)")
+                ->execute([$newId, $p['name'], $p['email'], $p['phone'] ?? null, $assignedDentist,
+                           $p['dob'] ?: null, $p['age'] ?? null]);
+            save_name_parts($pdo, 'patients', $pdo->lastInsertId(), $p['first'] ?? null, $p['last'] ?? null);
+
+            unset($_SESSION['pending']);
+            session_regenerate_id(true);   // fresh session ID on sign-in
+            $_SESSION['user_id'] = $newId;
+            $_SESSION['name']    = $p['name'];
+            $_SESSION['role']    = 'patient';
+            $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
+            $_SESSION['just_registered']    = true;   // portal greets them differently, once
+            $_SESSION['show_welcome_popup'] = true;   // portal shows a one-time pop-up greeting
+            log_activity($pdo, 'Created account', $p['name'] . ' (patient, self-registered)');
+            set_flash('Email verified — welcome, ' . $p['name'] . '!');
+            header("Location: portal");
+            exit;
+        }
+    }
+}
+
+$page_title = "Login";
+include 'includes/head.php';
+?>
+<style>
+/* ── Compact auth card so it fits without feeling oversized ── */
+.auth-card              { padding: 20px 24px !important; max-width: 400px !important; }
+.auth-card h2           { font-size: 1.3rem !important; margin-bottom: 2px !important; }
+.auth-card .muted       { font-size: .82rem !important; margin-bottom: 12px !important; }
+.auth-card .field-label { margin-bottom: 2px !important; }
+.auth-card .form-control,
+.auth-card .form-select { padding: .4rem .7rem !important; font-size: .88rem !important; }
+.auth-card .mb-3        { margin-bottom: .65rem !important; }
+.auth-card .mb-1        { margin-bottom: .3rem !important; }
+.auth-tabs              { margin-bottom: 12px !important; padding: 4px !important; }
+.auth-tabs button       { padding: 6px !important; font-size: .86rem !important; }
+.auth-card .pw-strength,
+#pw-strength            { margin: -4px 0 10px !important; }
+</style>
+
+<div class="auth-page">
+    <!-- Close (X) button: goes back to the landing page -->
+    <a href="./" class="auth-close" aria-label="Back to homepage" title="Back to homepage">&times;</a>
+
+    <!-- LEFT: brand panel -->
+    <div class="auth-left">
+      <div class="auth-brand">
+        <div class="tooth"><?= e($authIcon) ?></div>
+        <h1><?= e($authTitle1) ?><br><span class="gold"><?= e($authTitle2) ?></span></h1>
+        <p><?= e($authSubtitle) ?></p>
+      </div>
+    </div>
+
+    <!-- RIGHT: the form card -->
+    <div class="auth-right">
+        <div class="auth-card">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <div class="logo" style="width:34px;height:34px;border-radius:8px;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;">🦷</div>
+                <strong style="color:var(--teal)">St. Therese Dental Clinic</strong>
+            </div>
+
+            <!-- Tabs to switch between Login and Create Account — on the same page, no reload
+                 (the dark pill slides across; see authSwitch() below) -->
+            <div class="auth-tabs"<?= in_array($mode, ['signin', 'register'], true) ? ' data-active="' . $mode . '"' : '' ?>>
+                <button type="button" data-mode="signin" class="<?= $mode==='signin'?'active':'' ?>" onclick="authSwitch('signin')">Login</button>
+                <button type="button" data-mode="register" class="<?= $mode==='register'?'active':'' ?>" onclick="authSwitch('register')">Create Account</button>
+            </div>
+
+            <?php if ($error): ?>
+                <div class="alert alert-danger py-2" id="auth-error"><?= e($error) ?></div>
+            <?php endif; ?>
+
+            <?php if ($mode === 'google' && $gp): ?>
+                <!-- ============ FINISH A GOOGLE SIGN-UP ============ -->
+                <h2>Finish creating your account</h2>
+                <p class="muted">Signed in with Google as <strong><?= e($gp['email']) ?></strong>. Just a few more details.</p>
+                <form method="POST" action="login?mode=google">
+                    <input type="hidden" name="action" value="google_finish">
+                    <div class="row">
+                        <div class="col"><label class="field-label">First name</label>
+                            <input name="first_name" class="form-control mb-3" required maxlength="60"
+                                   value="<?= e($_POST['first_name'] ?? ($gp['first'] ?: explode(' ', $gp['name'])[0])) ?>"></div>
+                        <div class="col"><label class="field-label">Last name</label>
+                            <input name="last_name" class="form-control mb-3" required maxlength="60"
+                                   value="<?= e($_POST['last_name'] ?? $gp['last']) ?>"></div>
+                    </div>
+                    <label class="field-label">Email address</label>
+                    <input class="form-control mb-3" value="<?= e($gp['email']) ?>" readonly disabled style="background:#eef3f3;">
+                    <label class="field-label">Phone number</label>
+                    <input name="contact" class="form-control mb-3" placeholder="09XX XXX XXXX" required
+                           value="<?= e($_POST['contact'] ?? '') ?>" <?= phone_input_attrs() ?>>
+                    <label class="field-label">Date of birth</label>
+                    <input type="date" name="dob" class="form-control mb-1" required value="<?= e($_POST['dob'] ?? '') ?>"
+                           min="1900-01-01" max="<?= date('Y-m-d', strtotime('-18 years')) ?>">
+                    <div class="text-muted2 mb-3" style="font-size:.8rem;">You must be <strong>18 or older</strong> to create an account.
+                        Under 18? A parent or guardian can make the account and book for you.</div>
+                    <button type="submit" class="btn btn-teal w-100 py-2">Create My Account →</button>
+                </form>
+                <p class="text-center mt-3 muted"><a href="login?mode=cancel_google" style="color:var(--teal);">← Cancel</a></p>
+
+            <?php elseif ($mode === 'code'): $ts = $_SESSION['two_step'] ?? []; ?>
+                <!-- ============ TWO-STEP SIGN-IN: the code emailed to an admin / dentist ============ -->
+                <h2>Check your email</h2>
+                <p class="muted">For your security, enter the 6-digit sign-in code we emailed to
+                    <strong><?= e(mask_email($ts['email'] ?? '')) ?></strong>. It works for <?= TWO_STEP_MINUTES ?> minutes.</p>
+                <form method="POST" action="login?mode=code">
+                    <input type="hidden" name="action" value="two_step_verify">
+                    <label class="field-label">Sign-in code</label>
+                    <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+                           data-digits autofocus required style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
+                    <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Sign In →</button>
+                </form>
+                <form method="POST" action="login?mode=code" class="text-center mt-2">
+                    <input type="hidden" name="action" value="two_step_resend">
+                    <button type="submit" class="btn btn-link p-0" style="color:var(--teal);font-size:.85rem;text-decoration:none;" data-keep-text>Didn't get it? Send a new code</button>
+                </form>
+                <p class="text-center mt-2 muted"><a href="login?mode=cancel_code" style="color:var(--teal);">← Back to sign in</a></p>
+
+            <?php elseif ($mode === 'verify'): ?>
+                <!-- ============ VERIFY EMAIL ============ -->
+                <h2>Verify your email</h2>
+                <p class="muted">Enter the 6-digit code we sent to <strong><?= e($_SESSION['pending']['email'] ?? 'your email') ?></strong>.</p>
+                <?php if (!empty($_SESSION['pending']['sent'])): ?>
+                    <div class="alert alert-success py-2" style="font-size:.85rem;">
+                        📧 Code emailed. Check your inbox (and the spam folder).
+                    </div>
+                <?php else: ?>
+                    <div class="alert" style="background:#fff6e0;border:1px solid var(--gold);color:#8a6d2f;font-size:.83rem;">
+                        🧪 <strong>Demo mode:</strong> your code is <strong style="font-size:1.1rem;letter-spacing:2px;"><?= e($_SESSION['pending']['code'] ?? '------') ?></strong>.
+                        Email is not set up yet, so it is shown here. An admin can turn on real email in
+                        <em>Messaging Config</em>.
+                    </div>
+                <?php endif; ?>
+                <form method="POST">
+                    <input type="hidden" name="action" value="verify">
+                    <label class="field-label">Verification Code</label>
+                    <input name="code" class="form-control mb-3" placeholder="123456" maxlength="6" inputmode="numeric" data-digits autofocus required
+                           style="letter-spacing:6px;font-size:1.3rem;text-align:center;">
+                    <button type="submit" class="btn btn-teal w-100 py-2">Verify &amp; Create Account →</button>
+                </form>
+                <p class="text-center mt-3 muted"><a href="login?mode=register" style="color:var(--teal);">← Back to register</a></p>
+
+            <?php else: /* LOGIN and CREATE ACCOUNT are both here: the tabs switch between them without leaving the page */ ?>
+              <div class="auth-pane" id="pane-signin"<?= $mode === 'signin' ? '' : ' hidden' ?>>
+                <!-- ============ LOGIN FORM ============ -->
+                <h2>Welcome back</h2>
+                <p class="muted">Enter your credentials to continue.</p>
+                <form method="POST" action="login">
+                    <input type="hidden" name="action" value="signin">
+                    <label class="field-label">Email Address</label>
+                    <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com"
+                           value="<?= (($_POST['action'] ?? '') === 'signin') ? e($_POST['email'] ?? '') : '' ?>" required>
+
+                    <label class="field-label">Password</label>
+<div class="pw-wrap mb-3">
+                    <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+                    <button type="button" class="pw-eye" aria-label="Show password">
+                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
+
+                    <div class="text-end" style="margin-top:-8px;margin-bottom:12px;">
+                        <a href="forgot_password" style="color:var(--teal);font-size:.85rem;text-decoration:none;">Forgot password?</a>
+                    </div>
+
+                    <button type="submit" class="btn btn-teal w-100 py-2">Login →</button>
+                </form>
+
+                <?php if ($googleReady): ?>
+                    <div class="d-flex align-items-center gap-2 my-3">
+                        <div style="flex:1;height:1px;background:#e3e9ee;"></div>
+                        <span class="muted" style="font-size:.8rem;">or</span>
+                        <div style="flex:1;height:1px;background:#e3e9ee;"></div>
+                    </div>
+                    <a href="google_auth" class="btn w-100 py-2 d-flex align-items-center justify-content-center gap-2"
+                       style="border:1px solid #dadce0;background:#fff;color:#3c4043;font-weight:600;">
+                        <svg width="18" height="18" viewBox="0 0 48 48">
+                            <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
+                            <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.2-.4-4.7H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4 6.9-10 6.9-17.3z"/>
+                            <path fill="#FBBC05" d="M10.4 28.7c-.5-1.5-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6.1C1 16.4 0 20.1 0 24s1 7.6 2.6 10.8l7.8-6.1z"/>
+                            <path fill="#34A853" d="M24 48c6.5 0 12-2.1 16-5.8l-7.5-5.8c-2.1 1.4-4.8 2.2-8.5 2.2-6.3 0-11.7-3.7-13.6-9.9l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/>
+                        </svg>
+                        Continue with Google
+                    </a>
+                <?php endif; ?>
+                <p class="text-center mt-3 muted">Don't have an account?
+                    <a href="login?mode=register" data-auth="register" style="color:var(--teal);font-weight:600;">Create one now →</a>
+                </p>
+                <div class="alert alert-light border mt-2 py-2 text-center" style="font-size:.85rem;">
+                    🔒 An account is required to book an appointment.
+                </div>
+              </div><!-- /pane-signin -->
+              <div class="auth-pane" id="pane-register"<?= $mode === 'signin' ? ' hidden' : '' ?>>
+                <!-- ============ REGISTER FORM ============ -->
+                <h2>Create account</h2>
+                <p class="muted">Register as a patient to book appointments.</p>
+                <form method="POST">
+                    <input type="hidden" name="action" value="register">
+                    <!-- Bot trap: hidden from people, bots fill it in -->
+                    <div style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+                        <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+                    </div>
+                    <div class="row">
+                        <div class="col"><label class="field-label">First Name</label>
+                            <input type="text" name="first_name" class="form-control mb-3" placeholder="Juan" value="<?= e($_POST['first_name'] ?? '') ?>" required></div>
+                        <div class="col"><label class="field-label">Last Name</label>
+                            <input type="text" name="last_name" class="form-control mb-3" placeholder="dela Cruz" value="<?= e($_POST['last_name'] ?? '') ?>" required></div>
+                    </div>
+
+                    <label class="field-label">Email Address</label>
+                    <input type="email" name="email" class="form-control mb-3" placeholder="your@email.com" value="<?= ($emailTaken || ($_POST['action'] ?? '') !== 'register') ? '' : e($_POST['email'] ?? '') ?>" <?= $emailTaken ? 'autofocus' : '' ?> required>
+
+                    <label class="field-label">Phone Number</label>
+                    <input name="contact" id="reg-phone" class="form-control mb-1" placeholder="09XX XXX XXXX" value="<?= e($_POST['contact'] ?? '') ?>"
+                           <?= phone_input_attrs() ?> oninput="document.getElementById('reg-phone-warn').style.display='none';" required>
+                    <div id="reg-phone-warn" class="text-danger mb-2" style="display:none;font-size:.82rem;"></div>
+                    <div class="mb-2"></div>
+
+                    <label class="field-label">Date of Birth</label>
+                    <input type="date" name="dob" class="form-control mb-1" required
+                           max="<?= date('Y-m-d', strtotime('-18 years')) ?>"
+                           value="<?= e($_POST['dob'] ?? '') ?>">
+                    <div class="muted mb-3" style="font-size:.78rem;">
+                        You must be <strong>18 or older</strong> to create an account.
+                        Under 18? A parent or guardian can make the account and book for you.
+                    </div>
+
+                    <label class="field-label">Password</label>
+                    <div class="muted mb-1" style="font-size:.74rem;">💡 8+ characters · upper &amp; lower case · a number · a symbol</div>
+<div class="pw-wrap mb-3">
+                    <input type="password" name="password" id="reg-pass" class="form-control" placeholder="Strong: 8+ characters, Aa, 1, #" required onkeyup="checkStrength()">
+                    <button type="button" class="pw-eye" aria-label="Show password">
+                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
+
+                    <!-- Password strength meter -->
+                    <div id="pw-strength" style="display:none;margin:-8px 0 14px;">
+                        <div style="height:6px;border-radius:4px;background:#e9eef0;overflow:hidden;">
+                            <div id="pw-strength-bar" style="height:100%;width:0;transition:width .2s,background .2s;"></div>
+                        </div>
+                        <div id="pw-strength-text" style="font-size:.76rem;margin-top:4px;color:#8aa0a0;"></div>
+                    </div>
+
+                    <label class="field-label">Confirm Password</label>
+<div class="pw-wrap mb-1">
+                    <input type="password" name="confirm_password" id="reg-pass2" class="form-control" placeholder="Re-type your password" required>
+                    <button type="button" class="pw-eye" aria-label="Show password">
+                        <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
+                    <div id="reg-pass-warn" class="text-danger mb-3" style="display:none;font-size:.82rem;">The passwords do not match.</div>
+
+                    <button type="submit" class="btn btn-teal w-100 py-2" onclick="return checkRegPass()">Create Account →</button>
+                </form>
+
+                <?php if ($googleReady): ?>
+                    <div class="d-flex align-items-center gap-2 my-3">
+                        <div style="flex:1;height:1px;background:#e3e9ee;"></div>
+                        <span class="muted" style="font-size:.8rem;">or</span>
+                        <div style="flex:1;height:1px;background:#e3e9ee;"></div>
+                    </div>
+                    <a href="google_auth" class="btn w-100 py-2 d-flex align-items-center justify-content-center gap-2"
+                       style="border:1px solid #dadce0;background:#fff;color:#3c4043;font-weight:600;">
+                        <svg width="18" height="18" viewBox="0 0 48 48">
+                            <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.7 9.5 24 9.5z"/>
+                            <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.2-.4-4.7H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4 6.9-10 6.9-17.3z"/>
+                            <path fill="#FBBC05" d="M10.4 28.7c-.5-1.5-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6.1C1 16.4 0 20.1 0 24s1 7.6 2.6 10.8l7.8-6.1z"/>
+                            <path fill="#34A853" d="M24 48c6.5 0 12-2.1 16-5.8l-7.5-5.8c-2.1 1.4-4.8 2.2-8.5 2.2-6.3 0-11.7-3.7-13.6-9.9l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/>
+                        </svg>
+                        Continue with Google
+                    </a>
+                <?php endif; ?>
+                <p class="text-center mt-3 muted">Already have an account?
+                    <a href="login?mode=signin" data-auth="signin" style="color:var(--teal);font-weight:600;">Log in →</a>
+                </p>
+              </div><!-- /pane-register -->
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<?php if ($deletionNotice): ?>
+<!-- Account-deleted pop-up: shown when the email/password entered belongs
+     to an account that was archived (temporary) or permanently deleted. -->
+<div class="modal fade" id="deletionModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border-radius:16px;overflow:hidden;">
+      <div class="modal-body text-center py-4 px-4" style="position:relative;">
+        <button type="button" class="btn-close position-absolute" style="top:16px;right:16px;" data-bs-dismiss="modal" aria-label="Close"></button>
+
+        <?php if ($deletionNotice === 'archived'): ?>
+          <div style="width:64px;height:64px;background:#fff6e0;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:1.8rem;">⏳</div>
+          <h4 style="color:#8a6d2f;">Account Temporarily Deleted</h4>
+          <p class="muted mb-0">Your account has been moved to the Archive by an administrator and can no longer sign in. This is usually temporary — please contact the clinic if you believe this was a mistake.</p>
+        <?php else: ?>
+          <div style="width:64px;height:64px;background:#fbdcdc;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:1.8rem;">🗑️</div>
+          <h4 style="color:#c0392b;">Account Permanently Deleted</h4>
+          <p class="muted mb-0">This account has been permanently deleted and no longer exists. If you believe this was a mistake, please contact the clinic directly.</p>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    new bootstrap.Modal(document.getElementById('deletionModal')).show();
+});
+</script>
+<?php endif; ?>
+
+<script>
+// ---- Login <-> Create Account on the same page ----
+// The card keeps its place: the dark pill slides to the other tab, the form
+// slides out and the other one slides in while the card grows / shrinks to fit.
+var authBusy = false;
+function authSwitch(to) {
+    var next = document.getElementById('pane-' + to), cur = document.querySelector('.auth-pane:not([hidden])');
+    if (!next) { location.href = 'login?mode=' + to; return; }      // verify / Google steps: a normal page
+    if (next === cur || authBusy) return;
+    authBusy = true;
+    var card = document.querySelector('.auth-card'), tabs = document.querySelector('.auth-tabs');
+    var dir = to === 'register' ? 1 : -1;
+    tabs.dataset.active = to;
+    [].forEach.call(tabs.querySelectorAll('button'), function (b) { b.classList.toggle('active', b.dataset.mode === to); });
+    var err = document.getElementById('auth-error'); if (err) err.hidden = true;   // that message was for the other form
+    try { history.replaceState(null, '', 'login?mode=' + to); } catch (e) {}
+    var h0 = card.offsetHeight;
+    card.style.height = h0 + 'px'; card.style.overflow = 'hidden';
+    cur.style.setProperty('--dir', dir); cur.classList.add('auth-out');
+    setTimeout(function () {
+        cur.hidden = true; cur.classList.remove('auth-out');
+        next.hidden = false; next.style.setProperty('--dir', dir); next.classList.add('auth-in');
+        card.style.height = 'auto'; var h1 = card.offsetHeight;
+        card.style.height = h0 + 'px'; void card.offsetHeight;      // start from the old height ...
+        card.style.transition = 'height .38s cubic-bezier(.2, .7, .3, 1)';
+        card.style.height = h1 + 'px';                             // ... and grow / shrink to the new one
+        setTimeout(function () {
+            card.style.height = ''; card.style.overflow = ''; card.style.transition = '';
+            next.classList.remove('auth-in'); authBusy = false;
+        }, 400);
+    }, 150);
+}
+document.addEventListener('click', function (e) {                   // "Create one now →" / "Log in →"
+    var a = e.target.closest && e.target.closest('a[data-auth]');
+    if (!a || !document.getElementById('pane-' + a.dataset.auth)) return;
+    e.preventDefault(); authSwitch(a.dataset.auth);
+});
+
+// Check the two password boxes match before the register form submits.
+// Live password strength meter on the register form. This mirrors
+// password_strength() in config/auth.php exactly — only Strong
+// Strong are allowed through; Weak blocks the form.
+function passwordStrength(pass){
+    var len = pass.length;
+    var score = 0;
+    if (len >= 8)  score++;
+    if (len >= 12) score++;
+    if (/[a-z]/.test(pass) && /[A-Z]/.test(pass)) score++;
+    if (/\d/.test(pass)) score++;
+    if (/[^A-Za-z0-9]/.test(pass)) score++;
+
+    if (len < 8 || score <= 2) return 'weak';
+    if (score === 3 || !/\d/.test(pass)) return 'medium';   // Strong always has a number
+    return 'strong';
+}
+
+function checkStrength(){
+    var pass = document.getElementById('reg-pass').value;
+    var box  = document.getElementById('pw-strength');
+    var bar  = document.getElementById('pw-strength-bar');
+    var txt  = document.getElementById('pw-strength-text');
+    if (!pass) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+
+    var level = passwordStrength(pass);
+    var levels = {
+        weak:   {w:'33%',  c:'#e05b5b', t:'Weak — not allowed, please make it stronger'},
+        medium: {w:'66%',  c:'#e0a92e', t:'Medium — not strong enough yet, add a symbol, number or capital letter'},
+        strong: {w:'100%', c:'#34d399', t:'Strong — good to go'}
+    };
+    var lvl = levels[level];
+    bar.style.width = lvl.w;
+    bar.style.background = lvl.c;
+    txt.textContent = 'Password strength: ' + lvl.t;
+    txt.style.color = lvl.c;
+}
+
+function checkRegPass(){
+  var p1 = document.getElementById('reg-pass').value;
+  var p2 = document.getElementById('reg-pass2').value;
+  var warn = document.getElementById('reg-pass-warn');
+
+  // A real phone number, not just one or two stray digits.
+  var phone = document.getElementById('reg-phone').value;
+  var phoneWarn = document.getElementById('reg-phone-warn');
+  var phoneMsg = phoneProblem(phone, true);
+  if (phoneMsg) {
+    phoneWarn.textContent = phoneMsg;
+    phoneWarn.style.display = 'block';
+    document.getElementById('reg-phone').focus();
+    return false;   // stop the form
+  }
+  phoneWarn.style.display = 'none';
+
+  if (passwordStrength(p1) !== 'strong') {
+    warn.textContent = 'Please choose a Strong password: at least 8 characters with upper- and lower-case letters, a number and a symbol.';
+    warn.style.display = 'block';
+    document.getElementById('reg-pass').focus();
+    return false;   // stop the form
+  }
+  if (p1 !== p2) {
+    warn.textContent = 'The passwords do not match.';
+    warn.style.display = 'block';
+    document.getElementById('reg-pass2').focus();
+    return false;   // stop the form
+  }
+  warn.style.display = 'none';
+  return true;
+}
+</script>
+</body>
+</html>

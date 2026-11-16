@@ -1,0 +1,176 @@
+<?php
+// ============================================================
+//  GOOGLE SIGN-IN  (google_auth.php)
+// ============================================================
+//  Lets a patient log in / register with their Gmail account.
+//
+//  HOW IT WORKS (OAuth 2.0, no library needed)
+//  -------------------------------------------
+//   1. We send the user to Google's sign-in page.
+//   2. Google sends them back here with a one-time ?code=...
+//   3. We swap that code for an access token (a POST to Google).
+//   4. We use the token to read their name + email.
+//   5. If that email already has an account we log them in;
+//      if not, we create a patient account for them.
+//
+//  HOW TO TURN IT ON (one time)
+//  ----------------------------
+//   1. Go to https://console.cloud.google.com/  and create a project.
+//   2. APIs & Services > OAuth consent screen > External > fill the basics.
+//   3. APIs & Services > Credentials > Create Credentials > OAuth client ID
+//      - Application type: Web application
+//      - Authorised redirect URI:
+//            http://localhost/dental-clinic/google_auth.php
+//   4. Copy the Client ID and Client Secret.
+//   5. In the app: Admin > Settings > Google Sign-In > paste them > Save.
+// ============================================================
+require_once 'config/auth.php';
+require_once 'includes/assign.php';
+require_guest();   // already signed in -> straight to your own home page
+
+// ---- Read the Google settings the admin saved ----
+$cfg = [];
+foreach ($pdo->query("SELECT setting_key, setting_value FROM settings") as $r) {
+    $cfg[$r['setting_key']] = $r['setting_value'];
+}
+$clientId     = $cfg['google_client_id']     ?? '';
+$clientSecret = $cfg['google_client_secret'] ?? '';
+
+// The address Google sends the user back to. It must EXACTLY match the one
+// you typed in the Google Console.
+// Behind Railway's proxy the site IS https, but PHP only sees http — the proxy
+// says so in X-Forwarded-Proto. Use the same rule as the Settings page, or the
+// address sent to Google won't match the one registered there
+// (Error 400: redirect_uri_mismatch).
+$scheme      = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+                || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')) ? 'https' : 'http';
+$redirectUri = $scheme . '://' . $_SERVER['HTTP_HOST']
+             . rtrim(dirname($_SERVER['PHP_SELF']), '/\\') . '/google_auth.php';
+
+if ($clientId === '' || $clientSecret === '') {
+    set_flash('Google Sign-In is not set up yet. An admin can add the Client ID and Secret in Settings.', 'error');
+    header("Location: login"); exit;
+}
+
+// ============================================================
+//  STEP 1 - no ?code yet, so send the user to Google
+// ============================================================
+if (!isset($_GET['code'])) {
+    $_SESSION['g_state'] = bin2hex(random_bytes(8));   // guards against fake callbacks
+
+    $url = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
+        'client_id'     => $clientId,
+        'redirect_uri'  => $redirectUri,
+        'response_type' => 'code',
+        'scope'         => 'openid email profile',
+        'state'         => $_SESSION['g_state'],
+        'prompt'        => 'select_account',
+    ]);
+    header("Location: $url");
+    exit;
+}
+
+// ============================================================
+//  STEP 2 - Google sent us back with a code
+// ============================================================
+if (($_GET['state'] ?? '') !== ($_SESSION['g_state'] ?? 'x')) {
+    set_flash('Google sign-in failed (bad state). Please try again.', 'error');
+    header("Location: login"); exit;
+}
+unset($_SESSION['g_state']);
+
+// --- Swap the code for an access token ---
+$post = http_build_query([
+    'code'          => $_GET['code'],
+    'client_id'     => $clientId,
+    'client_secret' => $clientSecret,
+    'redirect_uri'  => $redirectUri,
+    'grant_type'    => 'authorization_code',
+]);
+
+$ch = curl_init('https://oauth2.googleapis.com/token');
+curl_setopt_array($ch, [
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => $post,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT        => 15,
+    CURLOPT_SSL_VERIFYPEER => false,   // XAMPP often has no CA bundle configured
+]);
+$tokenJson = curl_exec($ch);
+$curlErr   = curl_error($ch);
+curl_close($ch);
+
+$token = json_decode($tokenJson, true);
+if (empty($token['access_token'])) {
+    set_flash('Google sign-in failed: ' . ($token['error_description'] ?? $curlErr ?: 'no token returned'), 'error');
+    header("Location: login"); exit;
+}
+
+// --- Use the token to read the user's profile ---
+$ch = curl_init('https://www.googleapis.com/oauth2/v2/userinfo');
+curl_setopt_array($ch, [
+    CURLOPT_HTTPHEADER     => ['Authorization: Bearer ' . $token['access_token']],
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT        => 15,
+    CURLOPT_SSL_VERIFYPEER => false,
+]);
+$profile = json_decode(curl_exec($ch), true);
+curl_close($ch);
+
+$gEmail = $profile['email'] ?? '';
+$gName  = $profile['name']  ?? '';
+$gId    = $profile['id']    ?? '';
+
+if ($gEmail === '') {
+    set_flash('Google did not return an email address.', 'error');
+    header("Location: login"); exit;
+}
+
+// ============================================================
+//  STEP 3 - log them in, or create their account
+// ============================================================
+$stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
+$stmt->execute([$gEmail]);
+$user = $stmt->fetch();
+
+if ($user && $user['status'] !== 'active') {
+    // Archived or inactive accounts cannot sign in with Google either.
+    set_flash($user['status'] === 'archived'
+        ? 'This account has been archived. Please contact the clinic to restore it.'
+        : 'This account is inactive. Please contact the clinic.', 'error');
+    header("Location: login"); exit;
+}
+
+if ($user) {
+    // Existing account -> just log in. Google has already verified the email.
+    if ($user['role'] === 'patient') {                   // someone tried their password since last time?
+        require_once 'includes/account_history.php';
+        warn_failed_signins($pdo, $user);
+    }
+    $pdo->prepare("UPDATE users SET google_id=?, email_verified=1, last_login=NOW() WHERE id=?")
+        ->execute([$gId, $user['id']]);
+    session_regenerate_id(true);   // fresh session ID on sign-in
+    $_SESSION['user_id'] = $user['id'];
+    $_SESSION['name']    = $user['name'];
+    $_SESSION['role']    = $user['role'];
+    $_SESSION['login_at'] = time();   // when they signed in (see "sign everyone out" in config/auth.php)
+    log_activity($pdo, 'Logged in', ucfirst($user['role']) . ' (Google)');
+    set_flash('Welcome back, ' . $user['name'] . '!');
+    redirect_after_login();
+    exit;
+}
+
+// New user -> the account is NOT created yet. Google gave us their name and a
+// verified email; they still need to add a phone number and date of birth
+// (18+) like everyone else. login.php?mode=google shows that short form and
+// creates the account (see the 'google_finish' action there).
+$_SESSION['google_pending'] = [
+    'email'   => $gEmail,
+    'name'    => $gName,
+    'first'   => $profile['given_name']  ?? '',
+    'last'    => $profile['family_name'] ?? '',
+    'gid'     => $gId,
+    'expires' => time() + 1800,
+];
+header("Location: login?mode=google");
+exit;
